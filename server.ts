@@ -3134,10 +3134,10 @@ app.get("/api/analytics/risk-score", requireAdminAuth, (req, res) => {
     },
     {
       name: 'Compliance',
-      score: Math.min(100, Math.max(20, 45 + (stats.verifiedRoleChannelAuditStatus.includes('Audited') ? 20 : 0) + (stats.ownerWhitelist.length > 0 ? 15 : 0) + (cppMetrics.status === 'ACTIVE_MICROSECOND' ? 10 : 0))),
+      score: Math.min(100, Math.max(20, 45 + (stats.ownerWhitelist.length > 0 ? 15 : 0) + (stats.ownerWhitelist.length > 0 ? 15 : 0) + (cppMetrics.status === 'ACTIVE_MICROSECOND' ? 10 : 0))),
       weight: 0.15,
       trend: 'stable',
-      details: `Role audit: ${stats.verifiedRoleChannelAuditStatus}. Whitelist active: ${stats.ownerWhitelist.length > 0}. Engine: ${cppMetrics.status}`
+      details: `Whitelist active: ${stats.ownerWhitelist.length > 0}. Engine: ${cppMetrics.status}`
     },
     {
       name: 'Authorization',

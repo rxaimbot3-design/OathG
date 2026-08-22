@@ -1886,19 +1886,6 @@ client.on("clientReady", async () => {
             default_member_permissions: "8"
           },
           {
-            name: "verify-audit",
-            description: "📋 Audit channel permissions for Verified Role",
-            default_member_permissions: "8",
-            options: [
-              {
-                name: "rolename",
-                type: 3,
-                description: "Optional role name (defaults to 'Verified')",
-                required: false
-              }
-            ]
-          },
-          {
             name: "test-nuke-defense",
             description: "🧪 Run a live 100-Nuker attack stress simulation",
             default_member_permissions: "8"
@@ -1993,10 +1980,6 @@ client.on("clientReady", async () => {
                 max_value: 100
               }
             ]
-          },
-          {
-            name: "queue",
-            description: "📋 View current music queue"
           },
           {
             name: "invites",
@@ -3226,28 +3209,6 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         });
         return;
       }
-
-      if (commandName === "verify-audit") {
-        if (interaction.user.id !== guild.ownerId && !isOwnerOrWhitelisted(interaction.user.id, guild)) {
-          await interaction.reply({ embeds: [{ title: "🛡️ ZERO TRUST ENGINE", description: "❌ **Access Denied!**\nThis action requires **E++** (Extreme) clearance.\nOnly the Server Owner or explicitly Whitelisted Admins can execute this action.\n*Your attempt has been logged.*", color: 0xDC2626 }], ephemeral: true });
-          return;
-        }
-        await interaction.deferReply();
-        const roleName = interaction.options.getString("rolename") || "";
-        try {
-          const res = await auditAndApplyVerifiedRolePermissions(guild, roleName);
-          await interaction.editReply(
-            `✅ **Verified Role Security Audit Completed for '@${roleName}'!**\n\n` +
-            `🔒 **Locked VCs Preserved:** ${res.lockedVCs} voice channels\n` +
-            `🔓 **Unlocked Public Channels:** ${res.unlockedChannels} channels\n` +
-            `🙈 **Hidden Staff Channels Preserved:** ${res.hiddenChannels} channels`
-          );
-        } catch (err: any) {
-          await interaction.editReply(`❌ Audit failed: ${err.message}`);
-        }
-        return;
-      }
-
       if (commandName === "panic-lockdown") {
         if (interaction.user.id !== guild.ownerId && !isOwnerOrWhitelisted(interaction.user.id, guild)) {
           await interaction.reply({ embeds: [{ title: "🛡️ ZERO TRUST ENGINE", description: "❌ **Access Denied!**\nThis action requires **E++** (Extreme) clearance.\nOnly the Server Owner or explicitly Whitelisted Admins can execute this action.\n*Your attempt has been logged.*", color: 0xDC2626 }], ephemeral: true });

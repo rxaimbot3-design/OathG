@@ -16,8 +16,6 @@ import {
   Bot, Lock,
   Zap,
   Activity,
-  UserCheck,
-  Music,
   AlertTriangle,
   ShieldAlert,
   Gauge,
@@ -40,8 +38,6 @@ import SettingsTab from './components/SettingsTab';
 import EconomyTab from './components/EconomyTab';
 import DiscordConnectTab from './components/DiscordConnectTab';
 import GitHubTab from './components/GitHubTab';
-import VerificationTab from './components/VerificationTab';
-import MusicPlayerTab from './components/MusicPlayerTab';
 import TopFiveFeaturesBar from './components/TopFiveFeaturesBar';
 import LiveSecurityEventsTab from './components/LiveSecurityEventsTab';
 import AttackTimelineTab from './components/AttackTimelineTab';
@@ -55,7 +51,6 @@ import BackupStatusTab from './components/BackupStatusTab';
 import TrustSystemTab from './components/TrustSystemTab';
 import HealthCheck from './components/HealthCheck';
 import SecurityAlertsPanel from './components/SecurityAlertsPanel';
-import { parseMusicIntent } from './services/musicIntentService';
 import { apiFetch, checkSession, loginWithAdminKey, logoutAdmin, getAdminToken, loginWithDiscordToken } from './services/apiClient';
 
 import { AuditLog, SecuritySetting, LeaderboardUser } from './types';
@@ -63,10 +58,8 @@ import { AuditLog, SecuritySetting, LeaderboardUser } from './types';
 type DashboardTab = 
   | 'overview' 
   | 'aisystem' 
-  | 'music'
   | 'embeds' 
   | 'security' 
-  | 'verification'
   | 'tickets' 
   | 'billing' 
   | 'settings' 
@@ -332,13 +325,7 @@ export default function App() {
     setAiMessages(prev => [...prev, userMsg]);
     setIsGeneratingAi(true);
 
-    // Parse music intent service layer
-    const musicIntent = parseMusicIntent(text);
-    if (musicIntent.matched) {
-      handleAddLog(musicIntent.message, 'low');
-    }
-
-    try {
+try {
       const response = await apiFetch('/api/gemini/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -347,9 +334,6 @@ export default function App() {
       const data = await response.json();
       if (response.ok) {
         let replyText = data.reply;
-        if (musicIntent.matched) {
-          replyText += `\n\n🎵 **AI Voice DJ Integration:** \`${musicIntent.message}\``;
-        }
         setAiMessages(prev => [...prev, { sender: 'assistant', text: replyText, sources: data.sources }]);
       } else {
         setAiMessages(prev => [...prev, { sender: 'assistant', text: data.error || 'Failed to generate AI response.', isError: true }]);
@@ -392,9 +376,7 @@ export default function App() {
   const navigationItems = [
     { id: 'overview', icon: Compass, label: 'Overview & Cluster Health', category: 'CORE ENGINE' },
     { id: 'aisystem', icon: Sparkles, label: 'AI System & Insights', category: 'INTELLIGENCE' },
-    { id: 'music', icon: Music, label: 'AI Voice DJ & Music', category: 'ENTERTAINMENT' },
-    { id: 'verification', icon: UserCheck, label: 'Verification System & CAPTCHA', category: 'SECURITY' },
-    { id: 'security', icon: ShieldCheck, label: 'Security & Database Backup', category: 'PROTECTION' },
+            { id: 'security', icon: ShieldCheck, label: 'Security & Database Backup', category: 'PROTECTION' },
     { id: 'live-security', icon: AlertTriangle, label: 'Live Security Events', category: 'MONITORING' },
     { id: 'attack-timeline', icon: Activity, label: 'Attack Timeline', category: 'MONITORING' },
     { id: 'risk-score', icon: Gauge, label: 'Risk Score', category: 'ANALYTICS' },
@@ -668,10 +650,6 @@ export default function App() {
                 />
               )}
 
-              {activeTab === 'music' && (
-                <MusicPlayerTab onAddLog={handleAddLog} />
-              )}
-
               {activeTab === 'embeds' && (
                 <EmbedBuilderTab onAddLog={handleAddLog} />
               )}
@@ -685,10 +663,6 @@ export default function App() {
                   onToggleLockdown={handleToggleLockdown}
                   isOwner={isAuthenticated}
                 />
-              )}
-
-              {activeTab === 'verification' && (
-                <VerificationTab onAddLog={handleAddLog} />
               )}
 
               {activeTab === 'tickets' && (

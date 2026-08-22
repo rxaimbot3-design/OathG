@@ -2099,5 +2099,1151 @@
     "actorIp": "::ffff:127.0.0.1",
     "details": {},
     "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:19.106Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:19.686Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:20.376Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:20.430Z",
+    "action": "ADMIN_LOGOUT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:21.004Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:21.010Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:21.018Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:21.030Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:21.085Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:21.092Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:21.102Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:21.114Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:21.119Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:21.123Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:28.543Z",
+    "action": "DISCORD_CONNECT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:28.684Z",
+    "action": "DISCORD_CONNECT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:28.813Z",
+    "action": "SIMULATE_100_NUKERS_DRILL",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:28.976Z",
+    "action": "SIMULATE_100_NUKERS_DRILL",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:29.088Z",
+    "action": "BACKUP_INTEGRITY_TEST",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "passed": true
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:29.264Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:30:29.305Z",
+    "action": "ADMIN_LOGOUT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:11.015Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:12.206Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:12.573Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:12.583Z",
+    "action": "ADMIN_LOGOUT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:12.852Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:12.856Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:12.861Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:12.864Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:12.868Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:12.872Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:12.877Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:12.881Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:12.886Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:12.890Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:15.823Z",
+    "action": "DISCORD_CONNECT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:15.932Z",
+    "action": "DISCORD_CONNECT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:15.997Z",
+    "action": "SIMULATE_100_NUKERS_DRILL",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:16.120Z",
+    "action": "SIMULATE_100_NUKERS_DRILL",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:16.224Z",
+    "action": "BACKUP_INTEGRITY_TEST",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "passed": true
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:16.381Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:40:16.429Z",
+    "action": "ADMIN_LOGOUT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:16.228Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:16.836Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:17.287Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:17.297Z",
+    "action": "ADMIN_LOGOUT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:17.638Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:17.641Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:17.647Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:17.650Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:17.655Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:17.661Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:17.664Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:17.667Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:17.673Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:17.681Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:20.441Z",
+    "action": "DISCORD_CONNECT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:20.508Z",
+    "action": "DISCORD_CONNECT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:20.568Z",
+    "action": "SIMULATE_100_NUKERS_DRILL",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:20.674Z",
+    "action": "SIMULATE_100_NUKERS_DRILL",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:20.778Z",
+    "action": "BACKUP_INTEGRITY_TEST",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "passed": true
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:20.885Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:46:20.928Z",
+    "action": "ADMIN_LOGOUT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:04.333Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:05.458Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:05.727Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:05.737Z",
+    "action": "ADMIN_LOGOUT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:05.959Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:05.966Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:05.975Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:05.978Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:05.982Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:05.985Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:05.988Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:05.990Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:05.993Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:05.997Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:07.461Z",
+    "action": "DISCORD_CONNECT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:07.576Z",
+    "action": "DISCORD_CONNECT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:07.644Z",
+    "action": "SIMULATE_100_NUKERS_DRILL",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:07.749Z",
+    "action": "SIMULATE_100_NUKERS_DRILL",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:07.846Z",
+    "action": "BACKUP_INTEGRITY_TEST",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "passed": true
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:07.964Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:47:08.029Z",
+    "action": "ADMIN_LOGOUT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:05.830Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:07.579Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:07.976Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:07.984Z",
+    "action": "ADMIN_LOGOUT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:08.328Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:08.333Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:08.336Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:08.340Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:08.344Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:08.349Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:08.356Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:08.360Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:08.371Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:08.382Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:09.309Z",
+    "action": "DISCORD_CONNECT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:09.440Z",
+    "action": "DISCORD_CONNECT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:09.540Z",
+    "action": "SIMULATE_100_NUKERS_DRILL",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:09.663Z",
+    "action": "SIMULATE_100_NUKERS_DRILL",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:09.730Z",
+    "action": "BACKUP_INTEGRITY_TEST",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "passed": true
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:09.840Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:50:09.881Z",
+    "action": "ADMIN_LOGOUT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:42.291Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:45.077Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:45.531Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:45.555Z",
+    "action": "ADMIN_LOGOUT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:46.018Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:46.027Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:46.036Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:46.051Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:46.060Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:46.068Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:46.076Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:46.086Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:46.100Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:46.119Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:46.551Z",
+    "action": "DISCORD_CONNECT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:46.707Z",
+    "action": "DISCORD_CONNECT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:46.803Z",
+    "action": "SIMULATE_100_NUKERS_DRILL",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:46.900Z",
+    "action": "SIMULATE_100_NUKERS_DRILL",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:47.054Z",
+    "action": "BACKUP_INTEGRITY_TEST",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "passed": true
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:47.239Z",
+    "action": "ADMIN_LOGIN",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {
+      "username": "Admin",
+      "authMode": "admin-secret"
+    },
+    "source": "admin_api"
+  },
+  {
+    "timestamp": "2026-08-22T19:51:47.292Z",
+    "action": "ADMIN_LOGOUT",
+    "actorIp": "::ffff:127.0.0.1",
+    "details": {},
+    "source": "admin_api"
   }
 ]
