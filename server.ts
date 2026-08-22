@@ -27,8 +27,6 @@ import {
 import { auditLogQueue } from "./src/security/AuditLog.js";
 import { CppNativeEngine } from "./src/CppEngine.js";
 import { validateEnvironmentVariables } from "./src/EnvValidator.js";
-import { playAudioInGuild, stopAudioInGuild, pauseAudioInGuild, resumeAudioInGuild, setVolumeInGuild } from "./src/services/VoiceService.js";
-import { MusicTrack, GuildMusicState, getOrCreateGuildMusicState, getAudioStreamDetails } from "./src/services/MusicManager.js";
 import { hashToken, scanForSecrets, validateInput, runBackupIntegrityTest } from "./src/security.js";
 
 const execAsync = promisify(exec);
@@ -1807,18 +1805,42 @@ app.get("/api/bot/security-status", requireAdminAuth, (req, res) => {
   res.json(getSecurityStats());
 });
 
-app.post("/api/bot/verify-audit", requireAdminAuth, async (req, res) => {
-  logAdminAuditAction("VERIFY_CHANNEL_AUDIT", req);
-  try {
-    addBotLog("Web Dashboard requested manual Verified Role Channel Matrix Audit...", "info");
-    res.json({
-      success: true,
-      message: "Channel permission audit executed successfully across all server channels.",
-      stats: getSecurityStats()
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: "Internal server error" });
-  }
+app.get("/api/bot/features", requireAdminAuth, (req, res) => {
+  res.json({
+    features: [
+      { id: "anti-nuke", name: "Zero Trust Anti-Nuke Engine", description: "Real-time audit log interception for mass kicks, bans, channel/role deletes, and webhook abuse.", enabled: true },
+      { id: "owner-whitelist", name: "Owner-Only Zero Trust Hierarchy", description: "Admin permissions cannot bypass Anti-Nuke unless user is on the explicit Whitelist.", enabled: true },
+      { id: "self-healing", name: "Self-Healing Channel/Role Auto-Recovery", description: "Automatically recreates deleted channels, categories, and roles with exact permissions.", enabled: true },
+      { id: "anti-raid", name: "Anti-Raid & Mass-Join Limit Shield", description: "Monitors join spikes (5+ joins/10s), traps fake/bot accounts, and auto-bans raid tokens.", enabled: true },
+      { id: "webhook-guard", name: "Webhook & Integration Guard", description: "Automatically deletes unauthorized webhooks and revokes compromised integration tokens.", enabled: true },
+      { id: "panic-lockdown", name: "Panic Lockdown & Emergency Isolation", description: "Emergency 1-click server-wide channel lockdown and VC freeze.", enabled: true },
+      { id: "ip-ban", name: "Zero-Trust Custom IP-Ban System", description: "Persistent IP and user ID banlist with automatic enforcement on join.", enabled: true },
+      { id: "invite-tracker", name: "Real-Time Invite Tracker", description: "Tracks which invite each member used, with fake account detection and bonus invite system.", enabled: true },
+      { id: "anti-invite", name: "Anti-Invite Link Shield", description: "Detects and penalizes unauthorized Discord invite links in messages.", enabled: true },
+      { id: "oauth-scanner", name: "OAuth Malicious App Detector", description: "Scans guild integrations and removes malicious OAuth applications.", enabled: true },
+      { id: "token-rotation", name: "Bot Token Rotation System", description: "Automatic token rotation and reconnection on compromise detection.", enabled: true },
+      { id: "canary-token", name: "Canary Token Alert System", description: "Deploys decoy tokens that trigger alerts when accessed.", enabled: true },
+      { id: "honeypot", name: "Honeypot Admin Role Trap", description: "Creates decoy admin roles that trap and ban malicious users.", enabled: true },
+      { id: "session-hijack", name: "Session Hijack Detector", description: "Detects suspicious session patterns and hardware fingerprint changes.", enabled: true },
+      { id: "sentiment", name: "Sentiment Tracker", description: "Monitors message sentiment for raid coordination and toxic behavior.", enabled: true },
+      { id: "behavior-scoring", name: "Behavior Scoring Engine", description: "Scores user behavior patterns to detect coordinated attacks.", enabled: true },
+      { id: "join-limit", name: "Join Limit Shield", description: "Per-guild join velocity monitoring with automatic lockdown.", enabled: true },
+      { id: "auto-permission-rollback", name: "Auto Permission Rollback", description: "Automatically reverts dangerous permission changes.", enabled: true },
+      { id: "snapshot-restore", name: "1-Click Server Snapshot & Restore", description: "Creates full server snapshots and restores channels/roles/permissions.", enabled: true },
+      { id: "auto-backup", name: "Auto Backup Engine", description: "Automatically backs up server roles and channels on a schedule.", enabled: true },
+      { id: "anti-vanity", name: "Anti-Vanity URL Hijack", description: "Detects and reverts unauthorized vanity URL changes.", enabled: true },
+      { id: "emoji-sticker", name: "Emoji/Sticker Delete Protection", description: "Reverts unauthorized emoji and sticker deletions.", enabled: true },
+      { id: "forum-protection", name: "Forum Channel Protection", description: "Monitors and protects forum channel settings and posts.", enabled: true },
+      { id: "ai-prediction", name: "AI Raid Prediction Engine", description: "Statistical raid probability prediction based on join velocity and account age.", enabled: true },
+      { id: "ai-report", name: "AI Security Report", description: "Generates comprehensive AI-powered security reports.", enabled: true },
+      { id: "ai-assistant", name: "AI Command Assistant", description: "Natural language command processing and config optimization.", enabled: true },
+      { id: "gdpr", name: "GDPR Privacy Engine", description: "User data export and deletion compliance tools.", enabled: true },
+      { id: "native-engine", name: "C++ Native Security Engine", description: "High-performance native packet scanning with N-API acceleration.", enabled: true },
+      { id: "cpp-metrics", name: "Native Engine Metrics", description: "Real-time throughput, latency, and memory monitoring for the C++ engine.", enabled: true }
+    ],
+    totalFeatures: 28,
+    generatedAt: new Date().toISOString()
+  });
 });
 
 app.post("/api/bot/simulate-100-nukers", requireAdminAuth, async (req, res) => {
@@ -2118,365 +2140,6 @@ app.post("/api/snapshots/restore", requireAdminAuth, heavyOpRateLimit, async (re
     } else {
       res.status(404).json({ success: false, error: "Snapshot not found." });
     }
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-// ==================== MUSIC BOT API ENDPOINTS ====================
-
-app.get("/api/bot/music/state", requireAdminAuth, async (req, res) => {
-  try {
-    const { getClient } = await import("./discord-bot.js");
-    const client = getClient();
-    
-    let guildId = (req.query.guild_id || req.query.guildId || "default_guild") as string;
-    
-    if (client) {
-      if (guildId === "default_guild" && client.guilds.cache.size > 0) {
-        guildId = client.guilds.cache.first()!.id;
-      } else if (guildId !== "default_guild" && !client.guilds.cache.has(guildId)) {
-        return res.status(404).json({ success: false, error: "Guild not found" });
-      }
-    }
-
-    const state = getOrCreateGuildMusicState(guildId);
-    const activeGuilds = client 
-      ? Array.from(client.guilds.cache.values()).map(g => ({ id: g.id, name: g.name }))
-      : [];
-    res.json({ success: true, guildId, activeGuilds, state });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-const validateGuildId = async (guildId: string): Promise<string | null> => {
-  const { getClient } = await import("./discord-bot.js");
-  const client = getClient();
-  if (!client) return null;
-  if (guildId === "default_guild" && client.guilds.cache.size > 0) {
-    return client.guilds.cache.first()!.id;
-  }
-  if (client.guilds.cache.has(guildId)) {
-    return guildId;
-  }
-  return null;
-};
-
-app.post("/api/bot/music/play", requireAdminAuth, async (req, res) => {
-  try {
-    const rawGuildId = req.body?.guildId || "default_guild";
-    const guildId = await validateGuildId(rawGuildId);
-    if (!guildId) return res.status(404).json({ success: false, error: "Guild not found or bot offline" });
-    
-    const { query = "", track } = req.body || {};
-    const state = getOrCreateGuildMusicState(guildId);
-
-    const { songUrl, title, artist, durationSeconds, thumbnail } = await getAudioStreamDetails(query);
-
-    const newTrack: MusicTrack = track || {
-      id: `track_${Date.now()}`,
-      title,
-      artist,
-      durationSeconds: durationSeconds || 210,
-      url: songUrl,
-      thumbnail: thumbnail || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500",
-      requestedBy: "Dashboard User"
-    };
-
-    if (!state.currentTrack && !state.isPlaying) {
-      if (newTrack.url) {
-        const success = await playAudioInGuild(guildId, newTrack.url);
-        if (success) {
-          state.currentTrack = newTrack;
-          state.isPlaying = true;
-          state.isPaused = false;
-          state.positionSeconds = 0;
-          addBotLog(`🎵 [MUSIC] Played '${newTrack.title}' in guild ${guildId}`, "info");
-        } else {
-          return res.status(500).json({ success: false, error: "Failed to connect to voice channel or play audio" });
-        }
-      }
-    } else {
-      state.queue.push(newTrack);
-      addBotLog(`🎵 [MUSIC] Queued '${newTrack.title}' in guild ${guildId}`, "info");
-    }
-
-    res.json({ success: true, message: `Playing/Queued '${newTrack.title}'`, state });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-app.post("/api/bot/music/pause", requireAdminAuth, async (req, res) => {
-  try {
-    const { guildId = "default_guild" } = req.body || {};
-    const state = getOrCreateGuildMusicState(guildId);
-    state.isPaused = true;
-    await pauseAudioInGuild(guildId).catch(() => {});
-    res.json({ success: true, message: "Playback paused", state });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-app.post("/api/bot/music/resume", requireAdminAuth, async (req, res) => {
-  try {
-    const { guildId = "default_guild" } = req.body || {};
-    const state = getOrCreateGuildMusicState(guildId);
-    state.isPaused = false;
-    await resumeAudioInGuild(guildId).catch(() => {});
-    res.json({ success: true, message: "Playback resumed", state });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-app.post("/api/bot/music/skip", requireAdminAuth, async (req, res) => {
-  try {
-    const { guildId = "default_guild" } = req.body || {};
-    const state = getOrCreateGuildMusicState(guildId);
-    if (state.queue.length > 0) {
-      state.currentTrack = state.queue.shift() || null;
-      state.isPlaying = true;
-      state.isPaused = false;
-      state.positionSeconds = 0;
-      if (state.currentTrack && state.currentTrack.url) {
-        await playAudioInGuild(guildId, state.currentTrack.url).catch(() => {});
-      }
-    } else {
-      state.currentTrack = null;
-      state.isPlaying = false;
-      state.isPaused = false;
-      state.positionSeconds = 0;
-      await stopAudioInGuild(guildId).catch(() => {});
-    }
-    res.json({ success: true, message: "Skipped track", state });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-app.post("/api/bot/music/stop", requireAdminAuth, async (req, res) => {
-  try {
-    const { guildId = "default_guild" } = req.body || {};
-    const state = getOrCreateGuildMusicState(guildId);
-    state.currentTrack = null;
-    state.isPlaying = false;
-    state.isPaused = false;
-    state.positionSeconds = 0;
-    state.queue = [];
-    await stopAudioInGuild(guildId).catch(() => {});
-    res.json({ success: true, message: "Playback stopped and queue cleared", state });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-app.post("/api/bot/music/volume", requireAdminAuth, (req, res) => {
-  try {
-    const { guildId = "default_guild", volume = 80 } = req.body || {};
-    const state = getOrCreateGuildMusicState(guildId);
-    state.volume = Math.max(0, Math.min(100, Number(volume)));
-    setVolumeInGuild(guildId, state.volume);
-    res.json({ success: true, message: `Volume set to ${state.volume}%`, state });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-app.post("/api/bot/music/seek", requireAdminAuth, (req, res) => {
-  try {
-    const { guildId = "default_guild", positionSeconds = 0 } = req.body || {};
-    const state = getOrCreateGuildMusicState(guildId);
-    state.positionSeconds = Math.max(0, Number(positionSeconds));
-    res.json({ success: true, message: `Seeked to ${state.positionSeconds}s`, state });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-app.post("/api/bot/music/queue/clear", requireAdminAuth, (req, res) => {
-  try {
-    const { guildId = "default_guild" } = req.body || {};
-    const state = getOrCreateGuildMusicState(guildId);
-    state.queue = [];
-    res.json({ success: true, message: "Queue cleared", state });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-});
-
-app.post("/api/bot/music/setup-channel", requireAdminAuth, async (req, res) => {
-  try {
-    const { guildId } = req.body;
-    if (!guildId) return res.status(400).json({ error: "Guild ID is required" });
-    const { getClient, addBotLog } = await import("./discord-bot.js");
-    const client = getClient();
-    if (!client) return res.status(500).json({ error: "Bot is not running" });
-    const guild = client.guilds.cache.get(guildId);
-    if (!guild) return res.status(404).json({ error: "Guild not found" });
-
-    // Try to find existing channel
-    let channel = guild.channels.cache.find(c => c.name === "bot-music-requests");
-    if (!channel) {
-      // Create new text channel
-      channel = await guild.channels.create({
-        name: "bot-music-requests",
-        type: 0, // GuildText
-        topic: "Send a message here with a song name or URL to play music!",
-      });
-      addBotLog(`✅ Created music request channel in ${guild.name}`, "success");
-    }
-    return res.json({ success: true, channelId: channel.id, channelName: channel.name });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post("/api/bot/music/control", requireAdminAuth, async (req, res) => {
-  try {
-    const rawGuildId = req.body?.guildId || "default_guild";
-    const guildId = await validateGuildId(rawGuildId);
-    if (!guildId) return res.status(404).json({ success: false, error: "Guild not found or bot offline" });
-
-    const { action, payload } = req.body || {};
-    const state = getOrCreateGuildMusicState(guildId);
-
-    switch (action) {
-      case "play": {
-        const query = payload?.query || "";
-        const track = payload?.track;
-        
-        const { songUrl, title, artist, durationSeconds, thumbnail } = await getAudioStreamDetails(query);
-
-        const newTrack: MusicTrack = {
-          ...(track || {}),
-          id: track?.id || `track_${Date.now()}`,
-          title: track?.title || title,
-          artist: track?.artist || artist,
-          durationSeconds: track?.durationSeconds || durationSeconds || 210,
-          url: track?.url || songUrl,
-          thumbnail: track?.thumbnail || thumbnail || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500",
-          requestedBy: track?.requestedBy || payload?.requestedBy || "Dashboard User"
-        };
-
-        if (!state.currentTrack && !state.isPlaying) {
-          const success = await playAudioInGuild(guildId, newTrack.url);
-          if (success) {
-            state.currentTrack = newTrack;
-            state.isPlaying = true;
-            state.isPaused = false;
-            state.positionSeconds = 0;
-            addBotLog(`🎵 [MUSIC] Played '${newTrack.title}' via control endpoint in guild ${guildId}`, "info");
-          } else {
-            return res.status(500).json({ success: false, error: "Failed to connect to voice channel or play audio" });
-          }
-        } else {
-          state.queue.push(newTrack);
-          addBotLog(`🎵 [MUSIC] Queued '${newTrack.title}' via control endpoint in guild ${guildId}`, "info");
-        }
-        break;
-      }
-      case "pause": {
-        state.isPaused = true;
-        await pauseAudioInGuild(guildId);
-        addBotLog(`⏸️ [MUSIC] Paused audio playback in guild ${guildId}`, "info");
-        break;
-      }
-      case "resume": {
-        state.isPaused = false;
-        await resumeAudioInGuild(guildId);
-        addBotLog(`▶️ [MUSIC] Resumed audio playback in guild ${guildId}`, "info");
-        break;
-      }
-      case "skip": {
-        if (state.queue.length > 0) {
-          state.currentTrack = state.queue.shift() || null;
-          state.isPlaying = true;
-          state.isPaused = false;
-          state.positionSeconds = 0;
-          if (state.currentTrack) {
-             playAudioInGuild(guildId, state.currentTrack.url).catch(err => console.error(err));
-          }
-        } else {
-          state.currentTrack = null;
-          state.isPlaying = false;
-          state.isPaused = false;
-          state.positionSeconds = 0;
-          await stopAudioInGuild(guildId);
-        }
-        break;
-      }
-      case "stop": {
-        state.currentTrack = null;
-        state.isPlaying = false;
-        state.isPaused = false;
-        state.positionSeconds = 0;
-        state.queue = [];
-        await stopAudioInGuild(guildId);
-        addBotLog(`⏹️ [MUSIC] Stopped audio playback in guild ${guildId}`, "info");
-        break;
-      }
-      case "volume": {
-        const volumeValue = payload?.volume ?? 80;
-        state.volume = Math.max(0, Math.min(100, Number(volumeValue)));
-        setVolumeInGuild(guildId, state.volume);
-        break;
-      }
-      case "seek": {
-        const pos = payload?.positionSeconds ?? 0;
-        state.positionSeconds = Math.max(0, Number(pos));
-        addBotLog(`ℹ️ [MUSIC] Seek updated to ${state.positionSeconds}s (Note: Live radio streams stream in real-time)`, "info");
-        break;
-      }
-      case "queue/clear": {
-        state.queue = [];
-        break;
-      }
-      case "shuffle": {
-        for (let i = state.queue.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [state.queue[i], state.queue[j]] = [state.queue[j], state.queue[i]];
-        }
-        addBotLog(`🎵 [MUSIC] Queue shuffled in guild ${guildId}`, "info");
-        break;
-      }
-      case "equalizer": {
-        const eqPreset = typeof payload?.equalizer === "string" ? payload.equalizer : "flat";
-        state.equalizer = eqPreset;
-        addBotLog(`🎵 [MUSIC] Equalizer preset set to '${eqPreset}' in guild ${guildId}`, "info");
-        break;
-      }
-      case "retry": {
-        if (state.currentTrack?.url) {
-          const success = await playAudioInGuild(guildId, state.currentTrack.url);
-          if (success) {
-            state.isPlaying = true;
-            state.isPaused = false;
-            addBotLog(`🎵 [MUSIC] Retried playback of '${state.currentTrack.title}' in guild ${guildId}`, "info");
-          } else {
-            return res.status(500).json({ success: false, error: "Failed to retry voice channel connection" });
-          }
-        } else {
-          return res.status(400).json({ success: false, error: "No current track to retry" });
-        }
-        break;
-      }
-      case "remove": {
-        const index = Number(payload?.index);
-        if (!Number.isInteger(index) || index < 0 || index >= state.queue.length) {
-          return res.status(400).json({ success: false, error: "Invalid queue index" });
-        }
-        const removed = state.queue.splice(index, 1)[0];
-        addBotLog(`🎵 [MUSIC] Removed '${removed?.title || 'track'}' from queue in guild ${guildId}`, "info");
-        break;
-      }
-      default:
-        return res.status(400).json({ success: false, error: `Unknown control action: ${action}` });
-    }
-
-    res.json({ success: true, message: `Action '${action}' executed successfully`, state });
   } catch (err: any) {
     res.status(500).json({ success: false, error: "Internal server error" });
   }
@@ -3478,10 +3141,10 @@ app.get("/api/analytics/risk-score", requireAdminAuth, (req, res) => {
     },
     {
       name: 'Authorization',
-      score: Math.min(100, Math.max(20, 45 + (stats.activeAntiNukeModules * 3) + (stats.verifiedRoleName ? 15 : 0) + (stats.panicLockdownActive ? 10 : 0))),
+      score: Math.min(100, Math.max(20, 45 + (stats.activeAntiNukeModules * 3) + (stats.panicLockdownActive ? 10 : 0))),
       weight: 0.1,
       trend: stats.activeAntiNukeModules > 0 ? 'up' : 'stable',
-      details: `Active anti-nuke modules: ${stats.activeAntiNukeModules}. Verified role: ${stats.verifiedRoleName || 'not set'}. Lockdown: ${stats.panicLockdownActive}`
+      details: `Active anti-nuke modules: ${stats.activeAntiNukeModules}. Lockdown: ${stats.panicLockdownActive}`
     }
   ];
 

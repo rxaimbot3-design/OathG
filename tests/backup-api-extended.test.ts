@@ -174,11 +174,6 @@ describe("Backup API: Extended Coverage", () => {
     expect(res.status).toBe(401);
   });
 
-  it("requires auth for bot verify audit", async () => {
-    const res = await request(app).post("/api/bot/verify-audit").send({});
-    expect(res.status).toBe(401);
-  });
-
   it("requires auth for simulate nukers", async () => {
     const res = await request(app).post("/api/bot/simulate-100-nukers").send({});
     expect(res.status).toBe(401);

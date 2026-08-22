@@ -131,3 +131,23 @@ describe("Dashboard API: Rate Limiting", () => {
     expect(rateLimited.length).toBeGreaterThan(0);
   });
 });
+
+describe("Dashboard API: Bot Features", () => {
+  it("returns full feature list", async () => {
+    const adminSecret = process.env.ADMIN_SECRET!;
+    const res = await request(app)
+      .get("/api/bot/features")
+      .set("Authorization", `Bearer ${adminSecret}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("features");
+    expect(Array.isArray(res.body.features)).toBe(true);
+    expect(res.body.features.length).toBeGreaterThan(0);
+    expect(res.body).toHaveProperty("totalFeatures");
+    expect(res.body).toHaveProperty("generatedAt");
+    // Verify no music or verify features in the list
+    const featureIds = res.body.features.map((f: any) => f.id);
+    expect(featureIds).not.toContain("music");
+    expect(featureIds).not.toContain("verify");
+    expect(featureIds).not.toContain("verification");
+  });
+});

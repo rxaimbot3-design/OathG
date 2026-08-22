@@ -55,8 +55,6 @@ import {
 } from "./src/SecurityFeatures.js";
 import { validateEnvironmentVariables } from "./src/EnvValidator.js";
 import { CppNativeEngine } from "./src/CppEngine.js";
-import { getOrCreateGuildMusicState, getAudioStreamDetails } from "./src/services/MusicManager.js";
-import { playAudioInGuild, stopAudioInGuild, pauseAudioInGuild, resumeAudioInGuild } from "./src/services/VoiceService.js";
 
 // ==================== STABILITY & SAFETY HELPERS ====================
 
@@ -251,8 +249,6 @@ export interface SecurityStats {
   blockedAttacksCount: number;
   real100NukerDefenseActive: boolean;
   panicLockdownActive: boolean;
-  verifiedRoleChannelAuditStatus: string;
-  verifiedRoleName: string;
   lockedVCsCount: number;
   unlockedVCsCount: number;
   hiddenChannelsCount: number;
@@ -299,7 +295,6 @@ export function setPanicLockdown(active: boolean, autoResetMs = 15 * 60 * 1000) 
     }, autoResetMs);
   }
 }
-let verifiedRoleName = "Verified";
 let ownerWhitelist: string[] = []; // Array of user IDs explicitly whitelisted by owner
 let approvedBots: string[] = []; // Array of bot user IDs explicitly approved by the owner
 let strictAdminFreeze = false; // If true, non-whitelisted administrators are frozen. Server Owner and Whitelisted members maintain full access.
@@ -485,8 +480,6 @@ export function getSecurityStats(): SecurityStats {
     blockedAttacksCount,
     real100NukerDefenseActive: true,
     panicLockdownActive,
-    verifiedRoleChannelAuditStatus: "All Channel Overwrites Enforced & Audited",
-    verifiedRoleName,
     lockedVCsCount,
     unlockedVCsCount,
     hiddenChannelsCount,
@@ -1183,244 +1176,9 @@ async function fetchAuditLogWithRetry(guild: Guild, type: AuditLogEvent, targetI
 
 export const activeGuildAudits = new Set<string>();
 
-// Audit and Enforce Channel Permissions Matrix for Verification System & Verified Role
-export async function auditAndApplyVerifiedRolePermissions(guild: Guild, customRoleName?: string) {
-  const targetRoleName = customRoleName || verifiedRoleName;
-  addBotLog(`Starting Zero Trust Verification & Channel Audit for server '${guild.name}' (Verified Role: '@${targetRoleName}')...`, "info");
-
-  activeGuildAudits.add(guild.id);
-  try {
-    let verifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === targetRoleName.toLowerCase());
-    if (!verifiedRole) {
-      verifiedRole = await guild.roles.create({
-        name: targetRoleName,
-        color: 0x34D399,
-        reason: "Zero Trust Verified Role Setup"
-      });
-      if (verifiedRole) markBotCreatedRole(verifiedRole.id);
-    }
-    
-    let unverifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === "unverified");
-    if (!unverifiedRole) {
-      unverifiedRole = await guild.roles.create({
-        name: "Unverified",
-        color: 0x9CA3AF,
-        reason: "Zero Trust Unverified Role Setup"
-      });
-      if (unverifiedRole) markBotCreatedRole(unverifiedRole.id);
-    }
-
-    let verifyChannel = guild.channels.cache.find(c => c.name.toLowerCase() === "verify" || c.name.toLowerCase() === "verification") as TextChannel | undefined;
-    if (!verifyChannel) {
-      try {
-        verifyChannel = await withRetry(() => guild.channels.create({
-          name: "verify",
-          type: ChannelType.GuildText,
-          reason: "Zero Trust Verification Channel"
-        }), "create verify channel") as TextChannel | undefined;
-        if (verifyChannel) markBotCreatedChannel(verifyChannel.id);
-      } catch (cErr: any) {
-        addBotLog(`🚨 CRITICAL: Failed to create verify channel: ${cErr.message}`, "error");
-      }
-    }
-
-    if (verifyChannel) {
-      await withRetry(() => verifyChannel.permissionOverwrites.edit(guild.roles.everyone, {
-        ViewChannel: true,
-        ReadMessageHistory: true,
-        SendMessages: false,
-        AddReactions: false
-      }), "verify channel @everyone permissions");
-
-      await withRetry(() => verifyChannel.permissionOverwrites.edit(unverifiedRole, {
-        ViewChannel: true,
-        ReadMessageHistory: true,
-        SendMessages: false,
-        AddReactions: false
-      }), "verify channel unverified permissions");
-
-      await withRetry(() => verifyChannel.permissionOverwrites.edit(verifiedRole, {
-        ViewChannel: false
-      }), "verify channel verified permissions");
-
-      try {
-        const existingMsgs = await withRetry(() => verifyChannel.messages.fetch({ limit: 10 }), "fetch verify channel messages") ?? null;
-        const hasPanel = existingMsgs?.some(m => m.author.id === guild.members.me?.id && m.components.length > 0);
-        if (!hasPanel) {
-          const embed = new EmbedBuilder()
-            .setTitle("🛡️ SECURITY BOT | SERVER VERIFICATION")
-            .setDescription(
-              `### Welcome to **${guild.name}**!\n\n` +
-              `This server is protected by **Zero Trust Security Bot**.\n` +
-              `Please click the button below to verify your account.\n`
-            )
-            .setColor(0x3B82F6)
-            .setThumbnail(guild.iconURL({ forceStatic: false }) || null)
-            .setFooter({ text: "SecurityBot.gg • Zero Trust Protection Engine", iconURL: guild.client.user?.displayAvatarURL() });
-
-          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-              .setCustomId("verify_btn")
-              .setLabel("🛡️ Click To Verify")
-              .setStyle(ButtonStyle.Success)
-          );
-
-          await withRetry(() => verifyChannel.send({ embeds: [embed], components: [row] }), "send verification panel");
-        }
-      } catch (msgErr: any) {
-        addBotLog(`🚨 CRITICAL: Failed to send verification panel: ${msgErr.message}`, "error");
-      }
-    }
-
-    const channels = await guild.channels.fetch();
-    let lockedVCs = 0;
-    let unlockedChannels = 0;
-    let hiddenChannels = 0;
-
-    for (const [id, channel] of channels) {
-      if (!channel || channel.isThread() || !('permissionOverwrites' in channel)) continue;
-      
-      const cName = channel.name.toLowerCase();
-      const parentName = channel.parent?.name.toLowerCase() || "";
-
-      if (channel.id === verifyChannel?.id) continue;
-
-      const isHidden = 
-        cName.includes("underground") || cName.includes("staff") || cName.includes("admin") || 
-        cName.includes("logs") || cName.includes("log") || cName.includes("secret") || 
-        cName.includes("mod") || cName.includes("owner") || cName.includes("private") || 
-        cName.includes("hideout") || cName.includes("hide out") || cName.includes("khopche") ||
-        cName.includes("management") || cName.includes("executive") || cName.includes("ticket") || cName.includes("audit") ||
-        parentName.includes("staff") || parentName.includes("admin") || parentName.includes("secret") || 
-        parentName.includes("owner") || parentName.includes("mod") || parentName.includes("private") || 
-        parentName.includes("underground") || parentName.includes("hideout") || parentName.includes("hide out") || parentName.includes("khopche");
-
-      if (channel.type === ChannelType.GuildCategory) {
-        if (isHidden) {
-          await withRetry(() => channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }), `category ${channel.name} @everyone`);
-          await withRetry(() => channel.permissionOverwrites.edit(unverifiedRole, { ViewChannel: false }), `category ${channel.name} unverified`);
-          await withRetry(() => channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: false }), `category ${channel.name} verified`);
-        } else {
-          await withRetry(() => channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: true, Connect: true }), `category ${channel.name} @everyone`);
-          await withRetry(() => channel.permissionOverwrites.edit(unverifiedRole, { ViewChannel: true, Connect: true }), `category ${channel.name} unverified`);
-          await withRetry(() => channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: true, Connect: true }), `category ${channel.name} verified`);
-        }
-        continue;
-      }
-
-      if (isHidden) {
-        hiddenChannels++;
-        await withRetry(() => channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false, SendMessages: false, Connect: false }), `channel ${channel.name} @everyone`);
-        await withRetry(() => channel.permissionOverwrites.edit(unverifiedRole, { ViewChannel: false, SendMessages: false, Connect: false }), `channel ${channel.name} unverified`);
-        await withRetry(() => channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: false, SendMessages: false, Connect: false }), `channel ${channel.name} verified`);
-      } else if (channel.type === ChannelType.GuildVoice) {
-        const isLockedVC = 
-          cName.includes("lock") || cName.includes("private") || cName.includes("vip") || 
-          cName.includes("titans") || cName.includes("authority") || cName.includes("no entry") || 
-          cName.includes("jail") || cName.includes("sensi") || cName.includes("khopche") || 
-          cName.includes("🔒") || cName.includes("🔐") || cName.includes("⛔") || cName.includes("🚫");
-
-        // Detect manual/admin locks from existing @everyone permission overwrites
-        const everyoneOverwrite = channel.permissionOverwrites.cache.get(guild.roles.everyone.id);
-        const everyoneConnectDenied = everyoneOverwrite?.deny.has(PermissionFlagsBits.Connect) || everyoneOverwrite?.deny.has(PermissionFlagsBits.ViewChannel);
-        const isManuallyLocked = isLockedVC || everyoneConnectDenied;
-
-        if (isManuallyLocked) {
-          lockedVCs++;
-          // DO NOT touch @everyone permissions - preserve admin locks
-          await withRetry(() => channel.permissionOverwrites.edit(unverifiedRole, {
-            ViewChannel: true,
-            Connect: false,
-            Speak: false
-          }), `vc ${channel.name} unverified`);
-
-          await withRetry(() => channel.permissionOverwrites.edit(verifiedRole, {
-            ViewChannel: true,
-            Connect: false,
-            Speak: false
-          }), `vc ${channel.name} verified`);
-        } else {
-          unlockedChannels++;
-          // DO NOT touch @everyone permissions - respect admin settings
-          await withRetry(() => channel.permissionOverwrites.edit(unverifiedRole, {
-            ViewChannel: true,
-            Connect: true,
-            Speak: false
-          }), `vc ${channel.name} unverified`);
-
-          await withRetry(() => channel.permissionOverwrites.edit(verifiedRole, {
-            ViewChannel: true,
-            Connect: true,
-            Speak: true,
-            UseVAD: true,
-            Stream: true
-          }), `vc ${channel.name} verified`);
-        }
-      } else {
-        unlockedChannels++;
-        const isReadOnlyText = 
-          cName.includes("rule") || cName.includes("info") || cName.includes("announc") || 
-          cName.includes("welcome") || cName.includes("notif") || cName.includes("banned") || 
-          cName.includes("wall") || cName.includes("4v4") || cName.includes("victory") || 
-          cName.includes("star") || cName.includes("achievement") || cName.includes("emulator") || 
-          cName.includes("regedit") || cName.includes("wallpaper") ||
-          parentName.includes("wall of fame") || parentName.includes("settings") || parentName.includes("rules") || parentName.includes("info");
-
-        if (isReadOnlyText) {
-          await withRetry(() => channel.permissionOverwrites.edit(guild.roles.everyone, {
-            ViewChannel: true,
-            ReadMessageHistory: true,
-            SendMessages: false,
-            AddReactions: true
-          }), `channel ${channel.name} @everyone`);
-
-          await withRetry(() => channel.permissionOverwrites.edit(unverifiedRole, {
-            ViewChannel: true,
-            ReadMessageHistory: true,
-            SendMessages: false,
-            AddReactions: true
-          }), `channel ${channel.name} unverified`);
-
-          await withRetry(() => channel.permissionOverwrites.edit(verifiedRole, {
-            ViewChannel: true,
-            ReadMessageHistory: true,
-            SendMessages: false,
-            AddReactions: true
-          }), `channel ${channel.name} verified`);
-        } else {
-          await withRetry(() => channel.permissionOverwrites.edit(guild.roles.everyone, {
-            ViewChannel: true,
-            ReadMessageHistory: true,
-            SendMessages: false
-          }), `channel ${channel.name} @everyone`);
-
-          await withRetry(() => channel.permissionOverwrites.edit(unverifiedRole, {
-            ViewChannel: true,
-            ReadMessageHistory: true,
-            SendMessages: false
-          }), `channel ${channel.name} unverified`);
-
-          await withRetry(() => channel.permissionOverwrites.edit(verifiedRole, {
-            ViewChannel: true,
-            ReadMessageHistory: true,
-            SendMessages: true,
-            EmbedLinks: true,
-            AttachFiles: true,
-            AddReactions: true,
-            UseExternalEmojis: true
-          }), `channel ${channel.name} verified`);
-        }
-      }
-    }
-
-    addBotLog(`✅ Verification System Audit Complete for '${guild.name}': Public/Unlocked: ${unlockedChannels} | Locked VCs: ${lockedVCs} | Hidden Channels: ${hiddenChannels}`, "success");
-    activeGuildAudits.delete(guild.id);
-    return { lockedVCs, unlockedChannels, hiddenChannels };
-  } catch (err: any) {
-    activeGuildAudits.delete(guild.id);
-    addBotLog(`Error auditing verification channel permissions: ${err.message}`, "error");
-    throw err;
-  }
+// Verification system removed
+export async function auditAndApplyVerifiedRolePermissions(_guild: Guild, _customRoleName?: string) {
+  return { lockedVCs: 0, unlockedChannels: 0, hiddenChannels: 0 };
 }
 
 export async function stopDiscordBot() {
@@ -1714,7 +1472,7 @@ client.on("clientReady", async () => {
         try {
             const hasVerifyChannel = guild.channels.cache.some(c => c.name.toLowerCase() === "verify" || c.name.toLowerCase() === "verification");
             if (hasVerifyChannel) {
-                await auditAndApplyVerifiedRolePermissions(guild, verifiedRoleName);
+                await auditAndApplyVerifiedRolePermissions(guild, "");
             }
         } catch (err: any) {
             addBotLog(`🚨 CRITICAL: Failed to enforce verification matrix in '${guild.name}': ${err.message}`, "error");
@@ -1949,12 +1707,7 @@ client.on("clientReady", async () => {
              default_member_permissions: "8"
            },
            {
-             name: "setup-verify",
-             description: "✅ Deploy #verify channel with interactive button",
-             default_member_permissions: "8"
-           },
-          {
-            name: "setup-honeypot",
+             name: "setup-honeypot",
             description: "🍯 Deploy decoy Honeypot Trap link (Auto-bans IP & Discord if clicked)",
             default_member_permissions: "8"
           },
@@ -2445,7 +2198,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           }
 
           addBotLog(`🚀 [!${pCmd}] Triggered by ${message.author.tag} in '${message.guild.name}'! Enforcing all 6 Zero Trust Defense Layers...`, "info");
-          const auditRes = await auditAndApplyVerifiedRolePermissions(message.guild, verifiedRoleName);
+          const auditRes = await auditAndApplyVerifiedRolePermissions(message.guild, "");
           const stats = getSecurityStats();
 
           await sendLiveAuditAlert(message.guild, {
@@ -2497,7 +2250,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           const stats = getSecurityStats();
           const botRole = message.guild.members.me?.roles.highest;
           const ping = client.ws.ping;
-          const auditRes = await auditAndApplyVerifiedRolePermissions(message.guild, verifiedRoleName);
+          const auditRes = await auditAndApplyVerifiedRolePermissions(message.guild, "");
 
           await message.reply(
             `🔍 **FULL SERVER & SECURITY AI ANALYSIS REPORT**\n\n` +
@@ -2550,12 +2303,11 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
             `🤖 **ASHTRON ZERO TRUST BOT COMMANDS** (Works with both \`!\` and \`/\`)\n\n` +
             `• \`!deploy-defense\` / \`/deploy-defense\` - Deploy all 6 Zero Trust Anti-Nuke Layers\n` +
             `• \`!recover\` / \`/recover\` - 1-Click Server Restoration from backup\n` +
-            `• \`!panic-lockdown\` / \`/panic-lockdown\` - Server-wide channel lockdown\n` +
-            `• \`!analyze\` / \`/analyze\` - AI Security & Server Health Report\n` +
-            `• \`!dashboard\` / \`/dashboard\` - Web Control Panel link\n` +
-             `• \`!setup-verify\` / \`/setup-verify\` - Create #verify channel & verification button\n` +
+             `• \`!panic-lockdown\` / \`/panic-lockdown\` - Server-wide channel lockdown\n` +
+             `• \`!analyze\` / \`/analyze\` - AI Security & Server Health Report\n` +
+             `• \`!dashboard\` / \`/dashboard\` - Web Control Panel link\n` +
              `• \`!setup-honeypot\` / \`/setup-honeypot\` - Generate decoy Honeypot Trap link (Auto-bans IP & Discord)\n` +
-              `• \`!setup-invite-tracker\` - Deploy real-time invite tracker\n` +
+             `• \`!setup-invite-tracker\` - Deploy real-time invite tracker\n` +
              `• \`!invites\` / \`/invites\` - Check invite statistics\n` +
              `• \`!sync\` - Force re-sync Slash Commands (\`/\`) directly to this server`
           ).catch(() => {});
@@ -3015,45 +2767,6 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           return;
         }
 
-        if (customId === "verify_btn") {
-          const guild = interaction.guild;
-          if (!guild) return;
-          await safeDeferReply(interaction, true);
-
-          try {
-            let verifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === verifiedRoleName.toLowerCase());
-            if (!verifiedRole) {
-              verifiedRole = await guild.roles.create({
-                name: verifiedRoleName,
-                color: 0x34D399,
-                reason: "Zero Trust Verification System Setup"
-              });
-            }
-
-            const member = interaction.member as GuildMember;
-            if (member.roles.cache.has(verifiedRole.id)) {
-              await safeReply(interaction, { content: "ℹ️ **Already Verified!** You already have access to public text and voice channels." });
-              return;
-            }
-
-            await withRetry(() => member.roles.add(verifiedRole, "Verification System: User clicked Verify button"), "add verified role");
-            const unverifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === "unverified");
-            if (unverifiedRole && member.roles.cache.has(unverifiedRole.id)) {
-              await withRetry(() => member.roles.remove(unverifiedRole, "Verification System: User is now verified"), "remove unverified role");
-            }
-            addBotLog(`✅ User ${member.user.tag} completed verification in '${guild.name}'`, "success");
-
-            await safeReply(interaction, { 
-              content: `🎉 **Verification Complete!**\n\nWelcome to **${guild.name}**! You now have full access to public text and voice channels.\n*(Note: Private staff channels remain hidden, and locked VCs remain locked).*` 
-            });
-
-          } catch (err: any) {
-            addBotLog(`Error verifying member ${interaction.user.tag}: ${err.message}`, "error");
-            await safeReply(interaction, { content: `❌ Verification failed: ${err.message}` });
-          }
-          return;
-        }
-
         await safeReply(interaction, { content: `✅ Interaction acknowledged (\`${customId}\`).`, ephemeral: true });
         return;
       }
@@ -3166,176 +2879,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       }
 
       try {
-         if (commandName === "nowplaying") {
-           const musicState = getOrCreateGuildMusicState(guild.id);
-
-           if (musicState && musicState.currentTrack) {
-             const track = musicState.currentTrack;
-             const isPlayingStr = musicState.isPaused ? "Paused ⏸️" : "Playing 🎵";
-             const duration = track.durationSeconds || 210;
-             const position = Math.min(musicState.positionSeconds || 0, duration);
-             const progressBar = "█".repeat(Math.floor((position / duration) * 20)) + "░".repeat(20 - Math.floor((position / duration) * 20));
-             const progressText = `${Math.floor(position / 60)}:${String(position % 60).padStart(2, '0')} / ${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`;
-             
-             await interaction.reply({
-               embeds: [createSafeEmbed({
-                 title: `🎵 Currently Playing: ${track.title}`,
-                 description: `• **Artist:** ${track.artist || "AI Music Engine"}\n` +
-                              `• **Status:** ${isPlayingStr}\n` +
-                              `• **Volume:** ${musicState.volume}%\n` +
-                              `• **Queue Length:** ${musicState.queue.length} upcoming tracks\n` +
-                              `• **Requested By:** ${track.requestedBy || "User"}\n` +
-                              `• **Duration:** ${progressText}\n` +
-                              `\`${progressBar}\``,
-                 color: 0x3B82F6,
-                 thumbnail: track.thumbnail || null
-               })],
-               ephemeral: false
-             }).catch(() => {});
-          } else {
-            await interaction.reply({
-              embeds: [createSafeEmbed({
-                title: "🎵 Currently Playing Track",
-                description: "No active voice connection or active track playing at the moment.\nUse the **Web Dashboard** or `/play` to stream high-fidelity audio!",
-                color: 0x3B82F6,
-                fields: [
-                  { name: "Voice Status", value: "Idle", inline: true },
-                  { name: "Audio Engine", value: "ASHTRON High-Fidelity Synthesizer", inline: true },
-                  { name: "Queue Size", value: `${musicState?.queue?.length || 0} tracks`, inline: true }
-                ]
-              })],
-              ephemeral: true
-            }).catch(() => {});
-          }
-          return;
-        }
-
-        if (commandName === "play" || commandName === "stop" || commandName === "skip" || commandName === "pause" || commandName === "resume") {
-          const guildMember = interaction.member as GuildMember;
-          const userVoiceChannel = guildMember?.voice?.channel;
-          if (!userVoiceChannel) {
-            await interaction.reply({ content: "❌ **Voice Error:** You must be connected to a Voice Channel to use music commands.", ephemeral: true });
-            return;
-          }
-
-          const botVoiceChannel = guild.members.me?.voice?.channel;
-          if (botVoiceChannel && botVoiceChannel.id !== userVoiceChannel.id) {
-            await interaction.reply({ content: "❌ **Voice Error:** You must be in the same voice channel as the bot to use music controls.", ephemeral: true });
-            return;
-          }
-
-          // DJ Role / Admin permission check for disruptive actions (stop, skip, pause)
-          if (commandName === "stop" || commandName === "skip" || commandName === "pause") {
-            const hasDjRole = guildMember.roles?.cache?.some(r => r.name.toLowerCase().includes("dj")) || false;
-            const isAdminOrOwner = isOwnerOrWhitelisted(interaction.user.id, guild, false) || (guildMember.permissions && guildMember.permissions.has(PermissionFlagsBits.ManageGuild));
-            const isAloneWithBot = userVoiceChannel.members.filter(m => !m.user.bot).size <= 1;
-
-            if (!hasDjRole && !isAdminOrOwner && !isAloneWithBot) {
-              await interaction.reply({ content: "⛔ **DJ Permission Required:** You need the 'DJ' role or Manage Guild permission to control playback when others are listening.", ephemeral: true });
-              return;
-            }
-          }
-
-          const musicState = getOrCreateGuildMusicState(guild.id);
-          const VoiceService = { playAudioInGuild, stopAudioInGuild, pauseAudioInGuild, resumeAudioInGuild };
-
-           if (commandName === "play") {
-               let query = interaction.options.getString("query") || "phonk";
-               if (query.length > 250) query = query.slice(0, 250);
-               if (musicState.queue.length >= 100) {
-                 await interaction.reply({ content: "❌ **Queue Full:** Maximum queue limit of 100 tracks reached.", ephemeral: true });
-                 return;
-               }
-               const isYouTube = /youtube\.com|youtu\.be/.test(query.toLowerCase());
-               const { songUrl, title, artist, durationSeconds, thumbnail } = await getAudioStreamDetails(query);
-              const track = {
-                 id: `track_${Date.now()}`,
-                 title, artist, durationSeconds: durationSeconds || 210, url: songUrl, requestedBy: interaction.user.username,
-                 thumbnail: thumbnail || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500'
-              };
-              
-              if (!musicState.currentTrack) {
-                 musicState.currentTrack = track;
-                 musicState.isPlaying = true;
-                 musicState.isPaused = false;
-                 musicState.positionSeconds = 0;
-                 const played = await playAudioInGuild(guild.id, track.url, userVoiceChannel.id);
-                 if (played) {
-                   await interaction.reply(`▶️ **Started Playing:** ${title} by ${artist}`);
-                 } else {
-                   await interaction.reply("❌ **Failed to play audio:** Could not connect to voice channel or start playback. Make sure I have permission to join and speak in your voice channel.");
-                   musicState.currentTrack = null;
-                   musicState.isPlaying = false;
-                 }
-              } else {
-                 musicState.queue.push(track);
-                 await interaction.reply(`📝 **Queued:** ${title} by ${artist}`);
-              }
-           } else if (commandName === "stop") {
-              musicState.currentTrack = null;
-              musicState.isPlaying = false;
-              musicState.isPaused = false;
-              musicState.queue = [];
-              await stopAudioInGuild(guild.id);
-              await interaction.reply(`⏹️ **Playback Stopped & Queue Cleared!**`);
-            } else if (commandName === "skip") {
-               if (musicState.queue.length > 0) {
-                 const nextTrack = musicState.queue.shift() || null;
-                 musicState.currentTrack = nextTrack;
-                 musicState.isPlaying = true;
-                 musicState.isPaused = false;
-                 musicState.positionSeconds = 0;
-                 if (nextTrack) {
-                   const played = await playAudioInGuild(guild.id, nextTrack.url, userVoiceChannel.id);
-                   if (played) {
-                     await interaction.reply(`⏭️ **Skipped! Now Playing:** ${nextTrack.title}`);
-                   } else {
-                     await interaction.reply("❌ **Failed to skip:** Could not connect to voice channel or start playback.");
-                     musicState.currentTrack = null;
-                     musicState.isPlaying = false;
-                   }
-                 }
-              } else {
-                musicState.currentTrack = null;
-                musicState.isPlaying = false;
-                await stopAudioInGuild(guild.id);
-                await interaction.reply(`⏭️ **Skipped!** Queue is now empty.`);
-              }
-          } else if (commandName === "pause") {
-             musicState.isPaused = true;
-              await interaction.reply(`⏸️ **Paused!**`);
-           } else if (commandName === "resume") {
-              musicState.isPaused = false;
-              await interaction.reply(`▶️ **Resumed!**`);
-           } else if (commandName === "volume") {
-              const level = interaction.options.getInteger("level");
-              if (level === null || level < 0 || level > 100) {
-                await interaction.reply({ content: "❌ Please provide a valid volume level (0-100).", ephemeral: true });
-                return;
-              }
-              musicState.volume = level;
-              await interaction.reply(`🔊 **Volume set to:** \`${level}%\``);
-           } else if (commandName === "queue") {
-              if (musicState.queue.length === 0) {
-                await interaction.reply({ content: "📭 **Queue is empty.**", ephemeral: true });
-                return;
-              }
-              const queueList = musicState.queue.slice(0, 10).map((track, i) => 
-                `\`${i + 1}.\` **${track.title}** by ${track.artist} (${Math.floor(track.durationSeconds / 60)}:${String(track.durationSeconds % 60).padStart(2, '0')})`
-              ).join("\n");
-              await interaction.reply({
-                embeds: [{
-                  title: "📋 Music Queue",
-                  description: queueList + (musicState.queue.length > 10 ? `\n...and ${musicState.queue.length - 10} more` : ""),
-                  color: 0x3B82F6,
-                  footer: { text: `Total: ${musicState.queue.length} tracks | Volume: ${musicState.volume}%` }
-                }]
-              });
-           }
-           return;
-         }
-
-        if (commandName === "help") {
+         if (commandName === "help") {
           await interaction.reply({
             embeds: [{
               title: "🤖 ASHTRON BOT COMMANDS & FEATURES",
@@ -3344,7 +2888,6 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
                 "• `/analyze` — Full AI security scan\n" +
                 "• `/dashboard` — Web control panel link\n" +
                 "• `/deploy-defense` — Activate Zero Trust Anti-Nuke\n" +
-                "• `/setup-verify` — Deploy verification system\n" +
                 "• `/setup-invite-tracker` — Deploy invite logger\n" +
                 "• `/invites` / `/invite-leaderboard` — Invite statistics",
               color: 0x3B82F6
@@ -3474,37 +3017,6 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         return;
       }
 
-      if (commandName === "setup-verify") {
-        if (interaction.user.id !== guild.ownerId && !isOwnerOrWhitelisted(interaction.user.id, guild)) {
-          await interaction.reply({ embeds: [{ title: "🛡️ ZERO TRUST ENGINE", description: "❌ **Access Denied!**\nThis action requires **E++** (Extreme) clearance.\nOnly the Server Owner or explicitly Whitelisted Admins can execute this action.\n*Your attempt has been logged.*", color: 0xDC2626 }], ephemeral: true });
-          return;
-        }
-        await interaction.deferReply();
-        try {
-          const res = await auditAndApplyVerifiedRolePermissions(guild, verifiedRoleName);
-          await sendLiveAuditAlert(guild, {
-            title: "✅ VERIFICATION SYSTEM DEPLOYED",
-            description: `**Configured By:** <@${interaction.user.id}>\n` +
-                         `**Verify Channel:** \`#verify\` configured with interactive Verify button.\n` +
-                         `**Role Permissions Enforced:** Unverified members restricted to \`#verify\` only.`,
-            color: 0x34D399
-          });
-          await interaction.editReply(
-            `✅ **VERIFICATION SYSTEM DEPLOYED!**\n\n` +
-            `• **Verification Channel:** \`#verify\` created/configured with interactive **✅ Verify Here** button.\n` +
-            `• **Unverified Permissions:** \`@everyone\` restricted to \`#verify\` channel only.\n` +
-            `• **Live Audit Channel:** \`#security-logs\` created & notified.\n` +
-            `• **Verified Channel Matrix:**\n` +
-            `  - 🔓 Unlocked Channels for Verified: \`${res.unlockedChannels}\` Channels\n` +
-            `  - 🔒 Locked VCs Preserved: \`${res.lockedVCs}\` Voice Channels\n` +
-            `  - 🙈 Hidden Staff Channels Preserved: \`${res.hiddenChannels}\` Channels`
-          );
-        } catch (err: any) {
-          await interaction.editReply(`❌ Setup failed: ${err.message}`);
-        }
-        return;
-      }
-
       if (commandName === "setup-honeypot" || commandName === "honeypot-link") {
         if (interaction.user.id !== guild.ownerId && !isOwnerOrWhitelisted(interaction.user.id, guild)) {
           await interaction.reply({ embeds: [{ title: "🛡️ ZERO TRUST ENGINE", description: "❌ **Access Denied!**\nRequires Server Owner or Whitelisted Admin clearance.", color: 0xDC2626 }], ephemeral: true });
@@ -3616,33 +3128,6 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         return;
       }
 
-      if (commandName === "verify") {
-        await safeDeferReply(interaction, true);
-        try {
-          let verifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === verifiedRoleName.toLowerCase());
-          if (!verifiedRole) {
-            verifiedRole = await guild.roles.create({
-              name: verifiedRoleName,
-              color: 0x34D399,
-              reason: "Zero Trust Verification System Setup"
-            });
-          }
-
-          const mem = interaction.member as GuildMember;
-          if (mem.roles.cache.has(verifiedRole.id)) {
-            await safeReply(interaction, { content: "ℹ️ **Already Verified!** You already have access to server channels." });
-            return;
-          }
-
-          await mem.roles.add(verifiedRole, "Verified via /verify command");
-          await safeReply(interaction, { content: `🎉 **Verification Complete!** Full public channels unlocked for you in **${guild.name}**!` });
-        } catch (err: any) {
-          await safeReply(interaction, { content: `❌ Verification failed: ${err.message}` });
-        }
-        return;
-      }
-
-      
       if (commandName === "deploy-defense") {
         if (interaction.user.id !== guild.ownerId && !isOwnerOrWhitelisted(interaction.user.id, guild)) {
           await interaction.reply({ embeds: [{ title: "🛡️ ZERO TRUST ENGINE", description: "❌ **Access Denied!**\nThis action requires **E++** (Extreme) clearance.\nOnly the Server Owner or explicitly Whitelisted Admins can execute this action.\n*Your attempt has been logged.*", color: 0xDC2626 }], ephemeral: true });
@@ -3653,7 +3138,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           addBotLog(`🚀 [/${commandName}] Triggered by ${interaction.user.tag} in '${guild.name}'! Deploying all 6 Zero Trust Anti-Nuke Shield Layers...`, "info");
           
           // 1. Audit and Enforce Verified Role Matrix
-          const auditRes = await auditAndApplyVerifiedRolePermissions(guild, verifiedRoleName);
+          const auditRes = await auditAndApplyVerifiedRolePermissions(guild, "");
           
           // 2. Refresh Security State
           const stats = getSecurityStats();
@@ -3748,7 +3233,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           return;
         }
         await interaction.deferReply();
-        const roleName = interaction.options.getString("rolename") || verifiedRoleName;
+        const roleName = interaction.options.getString("rolename") || "";
         try {
           const res = await auditAndApplyVerifiedRolePermissions(guild, roleName);
           await interaction.editReply(
@@ -4227,7 +3712,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         }
 
         await interaction.deferReply();
-        const vRole = guild.roles.cache.find(r => r.name.toLowerCase() === verifiedRoleName.toLowerCase()) || guild.roles.everyone;
+        const vRole = guild.roles.cache.find(r => r.name.toLowerCase() === "verified".toLowerCase()) || guild.roles.everyone;
         await (targetChannel as VoiceChannel).permissionOverwrites.edit(vRole, { Connect: false, Speak: false }).catch(() => {});
         await interaction.editReply(`🔒 Voice channel **${targetChannel.name}** is now strictly **LOCKED** for verified members!`);
         return;
@@ -4245,7 +3730,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         }
 
         await interaction.deferReply();
-        const vRole = guild.roles.cache.find(r => r.name.toLowerCase() === verifiedRoleName.toLowerCase()) || guild.roles.everyone;
+        const vRole = guild.roles.cache.find(r => r.name.toLowerCase() === "verified".toLowerCase()) || guild.roles.everyone;
         await (targetChannel as VoiceChannel).permissionOverwrites.edit(vRole, { Connect: true, Speak: true }).catch(() => {});
         await interaction.editReply(`🔓 Voice channel **${targetChannel.name}** is now **UNLOCKED** for verified members!`);
         return;
@@ -4263,7 +3748,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         }
 
         await interaction.deferReply();
-        const vRole = guild.roles.cache.find(r => r.name.toLowerCase() === verifiedRoleName.toLowerCase()) || guild.roles.everyone;
+        const vRole = guild.roles.cache.find(r => r.name.toLowerCase() === "verified".toLowerCase()) || guild.roles.everyone;
         await (targetChannel as GuildChannel).permissionOverwrites.edit(vRole, { ViewChannel: false }).catch(() => {});
         await (targetChannel as GuildChannel).permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }).catch(() => {});
         await interaction.editReply(`🙈 Channel **${targetChannel.name}** is now strictly **HIDDEN** from regular members!`);
@@ -4285,7 +3770,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           const channelCount = guild.channels.cache.size;
           const roleCount = guild.roles.cache.size;
 
-          const auditRes = await auditAndApplyVerifiedRolePermissions(guild, verifiedRoleName);
+          const auditRes = await auditAndApplyVerifiedRolePermissions(guild, "");
 
           await interaction.editReply(
             `🔍 **FULL SERVER & SECURITY AI ANALYSIS REPORT**\n\n` +
@@ -4350,30 +3835,6 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     client.on("channelCreate", async (channel) => {
       addBotLog(`[E++] RAW EVENT: channelCreate for ${channel.id}`, "info");
       if (!("guild" in channel) || !channel.guild) return;
-
-      // Auto-Enforce Verification Permissions on newly created channels/categories
-      if ('permissionOverwrites' in channel) {
-        try {
-          const guild = channel.guild;
-          const verifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === verifiedRoleName.toLowerCase());
-          if (verifiedRole) {
-            const chName = channel.name.toLowerCase();
-            const parentName = channel.parent?.name.toLowerCase() || "";
-            const isHidden = chName.includes("staff") || chName.includes("admin") || chName.includes("logs") || chName.includes("log") || chName.includes("secret") || chName.includes("mod") || chName.includes("owner") || chName.includes("private") || chName.includes("vip") || chName.includes("ticket") || chName.includes("audit") || chName.includes("management") || chName.includes("executive") || chName.includes("dev") || parentName.includes("staff") || parentName.includes("admin") || parentName.includes("secret") || parentName.includes("owner") || parentName.includes("mod") || parentName.includes("private") || parentName.includes("vip");
-            
-            if (chName === "verify" || chName === "verification") {
-              await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: true, SendMessages: false, ReadMessageHistory: true }).catch(() => {});
-              await channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: false }).catch(() => {});
-            } else if (isHidden) {
-              await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }).catch(() => {});
-              await channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: false }).catch(() => {});
-            } else {
-              await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }).catch(() => {});
-              await channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: true, ReadMessageHistory: true }).catch(() => {});
-            }
-          }
-        } catch (err: any) {}
-      }
 
       await EnhancedEventEngine.intercept(
         "Channel Creation",
@@ -5390,12 +4851,6 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     // 17. Final Verification
     client.on("guildMemberAdd", async (member) => {
       const guild = member.guild;
-      try {
-        const unverifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === "unverified");
-        if (unverifiedRole) {
-          await member.roles.add(unverifiedRole, "Auto-assign Unverified role on join").catch(() => {});
-        }
-      } catch (e) {}
       
       // 🛡️ ANTI-RAID JOIN-LIMIT SHIELD
       const isRaid = JoinLimitShield.recordJoin(guild.id);
