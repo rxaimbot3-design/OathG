@@ -1937,52 +1937,6 @@ client.on("clientReady", async () => {
             description: "🤖 View list of all ASHTRON Bot commands & features"
           },
           {
-            name: "nowplaying",
-            description: "🎵 View details of currently playing track"
-          },
-          {
-            name: "play",
-            description: "🎵 Play a song in voice channel",
-            options: [
-              {
-                name: "query",
-                type: 3, // STRING
-                description: "Song name or URL to play",
-                required: true
-              }
-            ]
-          },
-          {
-            name: "stop",
-            description: "⏹️ Stop playback and clear queue"
-          },
-          {
-            name: "skip",
-            description: "⏭️ Skip current track"
-          },
-          {
-            name: "pause",
-            description: "⏸️ Pause playback"
-          },
-          {
-            name: "resume",
-            description: "▶️ Resume playback"
-          },
-          {
-            name: "volume",
-            description: "🔊 Set playback volume (0-100)",
-            options: [
-              {
-                name: "level",
-                type: 4, // INTEGER
-                description: "Volume level (0-100)",
-                required: true,
-                min_value: 0,
-                max_value: 100
-              }
-            ]
-          },
-          {
             name: "invites",
             description: "✉️ Check member total invites & tracker stats",
             options: [
