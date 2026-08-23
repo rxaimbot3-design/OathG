@@ -30,7 +30,9 @@ export function atomicWriteJsonSync(filePath: string, data: any) {
         console.warn(AI_QUOTA_WARNING);
       }
     if (fs.existsSync(tmpPath)) {
-      try { fs.unlinkSync(tmpPath); } catch {}
+      try { fs.unlinkSync(tmpPath); } catch (err) {
+        console.error(`[ATOMIC_WRITE] Failed to cleanup temp file ${tmpPath}:`, err);
+      }
     }
     console.error(`Error atomically writing to ${filePath}:`, err);
   }
@@ -208,7 +210,9 @@ export class TokenVault {
     this.isCompromised = true;
     try {
       if (fs.existsSync(this.vaultFile)) fs.unlinkSync(this.vaultFile);
-    } catch {}
+    } catch (err) {
+      console.error("[TOKEN VAULT] Failed to delete vault file during self-destruct:", err);
+    }
     throw new Error(`[TOKEN VAULT DENIED] Access denied: ${reason}`);
   }
 }
@@ -1499,6 +1503,23 @@ export class IPBanSystem {
   private static cachedBans: IPBanRecord[] | null = null;
   private static cachedVerified: VerifiedIPRecord[] | null = null;
 
+  // Rate limiting for ban operations to prevent abuse
+  private static banRateLimit = new Map<string, number[]>();
+  private static readonly BAN_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+  private static readonly BAN_RATE_LIMIT_MAX = 20; // max 20 ban operations per minute per executor
+
+  private static checkBanRateLimit(executorId: string): boolean {
+    const now = Date.now();
+    const timestamps = this.banRateLimit.get(executorId) || [];
+    const recent = timestamps.filter(t => now - t < this.BAN_RATE_LIMIT_WINDOW_MS);
+    if (recent.length >= this.BAN_RATE_LIMIT_MAX) {
+      return false;
+    }
+    recent.push(now);
+    this.banRateLimit.set(executorId, recent);
+    return true;
+  }
+
   static loadIPBans(): IPBanRecord[] {
     if (this.cachedBans) return this.cachedBans;
     try {
@@ -1590,6 +1611,12 @@ export class IPBanSystem {
   }
 
   static banUser(userId: string, reason: string): { ipAddressesBanned: string[] } {
+    const rateLimitKey = `user:${userId}`;
+    if (!this.checkBanRateLimit(rateLimitKey)) {
+      console.warn(`[IP_BAN] Rate limit exceeded for user ban operations on ${userId}`);
+      return { ipAddressesBanned: [] };
+    }
+
     const bans = this.loadIPBans();
     const ips = this.getIPsForUser(userId);
 
@@ -1621,6 +1648,12 @@ export class IPBanSystem {
   }
 
   static banIP(ipAddress: string, reason: string): { userIdsAssociated: string[] } {
+    const rateLimitKey = `ip:${ipAddress}`;
+    if (!this.checkBanRateLimit(rateLimitKey)) {
+      console.warn(`[IP_BAN] Rate limit exceeded for IP ban operations on ${ipAddress}`);
+      return { userIdsAssociated: [] };
+    }
+
     const bans = this.loadIPBans();
 
     if (!bans.some(b => b.ipAddress === ipAddress)) {

@@ -91,7 +91,7 @@ function encryptConfig(data: string): string {
   return JSON.stringify({ iv: iv.toString("base64"), data: encrypted.toString("base64"), tag: tag.toString("base64") });
 }
 
-function decryptConfig(encoded: string): string {
+function decryptConfig(encoded: string): string | null {
   try {
     const parsed = JSON.parse(encoded);
     const key = getConfigKey();
@@ -102,7 +102,7 @@ function decryptConfig(encoded: string): string {
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
   } catch {
-    return encoded;
+    return null;
   }
 }
 
@@ -111,6 +111,10 @@ function readEncryptedConfig(filePath: string): any {
     if (fs.existsSync(filePath)) {
       const raw = fs.readFileSync(filePath, "utf8");
       const decrypted = decryptConfig(raw);
+      if (!decrypted) {
+        console.error(`Failed to decrypt ${filePath}: invalid key or corrupted data`);
+        return null;
+      }
       return JSON.parse(decrypted);
     }
   } catch (e) {
@@ -258,8 +262,8 @@ async function redisSetSession(tokenHash: string, session: AdminSession, ttlSec:
     const client = MongoRedisEngine['redisClient'];
     if (!client || !MongoRedisEngine.isRedisConnected) return;
     await client.setEx(getRedisSessionKey(tokenHash), ttlSec, JSON.stringify(session));
-  } catch {
-    // silently fallback to in-memory cache
+  } catch (err) {
+    console.warn("[SESSION] Failed to persist session to Redis, falling back to in-memory cache:", err);
   }
 }
 
@@ -268,8 +272,8 @@ async function redisDelSession(tokenHash: string): Promise<void> {
     const client = MongoRedisEngine['redisClient'];
     if (!client || !MongoRedisEngine.isRedisConnected) return;
     await client.del(getRedisSessionKey(tokenHash));
-  } catch {
-    // silently fallback to in-memory cache
+  } catch (err) {
+    console.warn("[SESSION] Failed to delete session from Redis:", err);
   }
 }
 
@@ -392,8 +396,8 @@ async function revokeAllAdminSessions() {
       if (client) {
         await client.del(keysToDelete);
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error("[SESSION] Failed to bulk-delete revoked sessions from Redis:", err);
     }
   }
   saveAdminSessions();
@@ -405,7 +409,8 @@ async function getGitHubToken(): Promise<string> {
   }
   try {
     return TokenVault.retrieve("GITHUB_TOKEN") || "";
-  } catch {
+  } catch (err) {
+    console.error("[GITHUB] Failed to retrieve token from vault:", err);
     return "";
   }
 }
@@ -431,6 +436,16 @@ setInterval(async () => {
   }
   if (changed) saveAdminSessions();
 }, 10 * 60 * 1000);
+
+// Periodic cleanup of recentlyUsedTokens to prevent unbounded memory growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [hash, ts] of recentlyUsedTokens.entries()) {
+    if (now - ts > 300000) {
+      recentlyUsedTokens.delete(hash);
+    }
+  }
+}, 5 * 60 * 1000);
 
 async function requireAdminAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
@@ -2153,36 +2168,30 @@ app.get("/api/analytics/overview", requireAdminAuth, (req, res) => {
   const cppMetrics = CppNativeEngine.getMetrics();
   const guild = client?.guilds.cache.first();
   const memberCount = guild ? guild.memberCount : 0;
-  
-  const now = Date.now();
-  const hours = ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"];
-  // Historical graphs require persistent time-series storage.
-  // Return current snapshot values with a note instead of fabricated history.
-  const securityGraph = hours.map(h => ({
-    time: h,
-    attacksBlocked: stats.blockedAttacksCount || 0,
-    riskScore: stats.securityScore || 0,
-    note: 'Real historical data requires persistent time-series storage'
-  }));
 
   const bannedIps = IPBanSystem.loadIPBans();
+
+  // Return only real current snapshot values.
+  // Historical time-series data requires persistent event storage (e.g., Redis Streams, InfluxDB).
+  const securityGraph = stats.blockedAttacksCount > 0 ? [
+    {
+      time: "current",
+      attacksBlocked: stats.blockedAttacksCount,
+      riskScore: stats.securityScore,
+      note: "Current snapshot only. Historical trends require persistent time-series storage."
+    }
+  ] : [];
 
   res.json({
     securityGraph,
     modPerformance: [
-      { name: client?.user?.tag || "ASHTRON-AI (Bot)", actionsCount: stats.blockedAttacksCount || 0, avgResponseMs: client?.ws?.ping || 12, rating: "Operational" },
-      { name: "System Zero-Trust Guardian", actionsCount: bannedIps.length, avgResponseMs: Math.round(cppMetrics.averageLatencyMicroseconds / 1000) || 1, rating: "Operational" }
+      { name: client?.user?.tag || "ASHTRON-AI (Bot)", actionsCount: stats.blockedAttacksCount || 0, avgResponseMs: client?.ws?.ping || 0, rating: "Operational" },
+      { name: "System Zero-Trust Guardian", actionsCount: bannedIps.length, avgResponseMs: Math.round(cppMetrics.averageLatencyMicroseconds / 1000) || 0, rating: "Operational" }
     ],
     raidHistory: stats.blockedAttacksCount > 0 ? [
-      { id: "raid_live", timestamp: new Date().toLocaleString(), type: "Mass Velocity Protection", attackerCount: stats.blockedAttacksCount, status: "Intercepted & Banned" }
+      { id: "raid_live", timestamp: new Date().toISOString(), type: "Mass Velocity Protection", attackerCount: stats.blockedAttacksCount, status: "Intercepted & Banned" }
     ] : [],
-    memberHeatmap: hours.map(h => ({
-      hour: h,
-      joins: 0,
-      leaves: 0,
-      riskSpike: 0,
-      note: 'Real hourly member activity tracking requires persistent event storage'
-    })),
+    memberHeatmap: [], // Real hourly member activity tracking requires persistent event storage
     threatIntelFeed: bannedIps.slice(0, 10).map((b, idx) => ({
       id: `intel_${idx + 1}`,
       domainOrUser: `IP/User ${b.ipAddress}`,
@@ -2193,32 +2202,16 @@ app.get("/api/analytics/overview", requireAdminAuth, (req, res) => {
 });
 
 // ==================== ECONOMY & LEADERBOARD ====================
+// NOTE: Economy system is not implemented. This endpoint returns empty data
+// with an explanation rather than fabricated demo data.
 
 app.get("/api/economy/leaderboard", requireAdminAuth, (req, res) => {
-  const client = getClient();
-  const guild = client?.guilds.cache.first();
-  const memberCount = guild ? guild.memberCount : 0;
-
-  const demoUsers = [
-    { username: "rxaimbot3", level: 99, xp: 142500, coins: 45000 },
-    { username: "cyber_ninja", level: 87, xp: 98700, coins: 32100 },
-    { username: "dev_alex", level: 76, xp: 65400, coins: 21800 },
-    { username: "gamer_pro", level: 65, xp: 43200, coins: 15600 },
-    { username: "mod_queen", level: 58, xp: 38900, coins: 12400 },
-    { username: "night_hawk", level: 52, xp: 29800, coins: 9800 },
-    { username: "pixel_master", level: 45, xp: 21500, coins: 7200 },
-    { username: "shadow_clan", level: 38, xp: 16400, coins: 5400 },
-    { username: "nova_star", level: 31, xp: 11200, coins: 3800 },
-    { username: "zen_coder", level: 24, xp: 7800, coins: 2100 }
-  ].map((u, idx) => ({
-    rank: idx + 1,
-    username: u.username,
-    level: u.level,
-    xp: u.xp + Math.floor(Math.random() * 500),
-    coins: u.coins + Math.floor(Math.random() * 200)
-  }));
-
-  res.json({ success: true, leaderboard: demoUsers, isDemo: true });
+  res.json({
+    success: true,
+    leaderboard: [],
+    isDemo: false,
+    note: "Economy system is not yet implemented. No persistent economy database is configured."
+  });
 });
 
 // ==================== CACHE & REDIS STATUS ====================
@@ -2651,7 +2644,9 @@ app.post("/api/github/push", requireAdminAuth, async (req, res) => {
         isDemo: false
       });
     } finally {
-      try { fs.unlinkSync(netrcPath); } catch {}
+      try { fs.unlinkSync(netrcPath); } catch (err) {
+        console.error("[GITHUB] Failed to cleanup temporary .netrc file:", err);
+      }
     }
   } catch (err: any) {
     const sanitizedError = sanitizeGitError(err.message || String(err));
@@ -3181,21 +3176,15 @@ app.get("/api/analytics/risk-score", requireAdminAuth, (req, res) => {
   });
 });
 
-// Trust System Demo Data Endpoint
+// Trust System Data Endpoint
+// NOTE: Trust system requires persistent guild member activity tracking.
+// This endpoint returns empty data with an explanation rather than fabricated demo data.
 app.get("/api/analytics/trust-system", requireAdminAuth, (req, res) => {
-  const demoUsers = [
-    { username: 'admin_user', userId: 'user_10001', trustScore: 92, role: 'Admin', joinedAt: '2024-01-15T00:00:00Z', lastActive: new Date().toISOString() },
-    { username: 'moderator_1', userId: 'user_10002', trustScore: 87, role: 'Moderator', joinedAt: '2024-02-20T00:00:00Z', lastActive: new Date(Date.now() - 3600000).toISOString() },
-    { username: 'trusted_member', userId: 'user_10003', trustScore: 78, role: 'VIP', joinedAt: '2024-03-10T00:00:00Z', lastActive: new Date(Date.now() - 7200000).toISOString() },
-    { username: 'vip_user', userId: 'user_10004', trustScore: 71, role: 'VIP', joinedAt: '2024-04-05T00:00:00Z', lastActive: new Date(Date.now() - 86400000).toISOString() },
-    { username: 'helper_bot', userId: 'user_10005', trustScore: 65, role: 'Helper', joinedAt: '2024-05-12T00:00:00Z', lastActive: new Date(Date.now() - 172800000).toISOString() }
-  ];
-
   res.json({
     success: true,
-    users: demoUsers,
-    demo: true,
-    note: 'Trust system data is demonstration data. Real implementation requires Discord guild member activity integration.'
+    users: [],
+    demo: false,
+    note: "Trust system is not yet implemented. Real implementation requires persistent guild member activity integration."
   });
 });
 
