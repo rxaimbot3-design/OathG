@@ -1734,6 +1734,11 @@ client.on("clientReady", async () => {
             ]
           },
           {
+            name: "all",
+            description: "📋 View all active bot features and capabilities",
+            default_member_permissions: "8"
+          },
+          {
             name: "whitelist-admin",
             description: "🛡️ Whitelist an administrator for Zero Trust bypass",
             default_member_permissions: "8",
@@ -2288,7 +2293,52 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
              `• \`!setup-honeypot\` / \`/setup-honeypot\` - Generate decoy Honeypot Trap link (Auto-bans IP & Discord)\n` +
              `• \`!setup-invite-tracker\` - Deploy real-time invite tracker\n` +
              `• \`!invites\` / \`/invites\` - Check invite statistics\n` +
+             `• \`!all\` / \`/all\` - View all bot features and capabilities\n` +
              `• \`!sync\` - Force re-sync Slash Commands (\`/\`) directly to this server`
+          ).catch(() => {});
+          return;
+        }
+
+        if (pCmd === "all" || pCmd === "features" || pCmd === "all-features") {
+          const features = [
+            "🛡️ **Zero Trust Anti-Nuke Engine** - Real-time audit log interception",
+            "🔒 **Owner-Only Zero Trust Hierarchy** - Admin bypass protection",
+            "💊 **Self-Healing Auto-Recovery** - Auto-recreate deleted channels/roles",
+            "🚨 **Anti-Raid & Mass-Join Shield** - Join spike detection & lockdown",
+            "🎣 **Webhook & Integration Guard** - Unauthorized webhook deletion",
+            "🔴 **Panic Lockdown** - Emergency server-wide lockdown",
+            "🚫 **Zero-Trust IP-Ban System** - Persistent IP/user banlist",
+            "📩 **Real-Time Invite Tracker** - Track invite usage & fake accounts",
+            "🔗 **Anti-Invite Link Shield** - Block unauthorized Discord invites",
+            "🔍 **OAuth Malicious App Detector** - Remove malicious integrations",
+            "🔄 **Bot Token Rotation** - Auto-rotate on compromise",
+            "🎯 **Canary Token Alerts** - Decoy token monitoring",
+            "🍯 **Honeypot Admin Role Trap** - Trap & ban malicious users",
+            "🖥️ **Session Hijack Detector** - Suspicious session detection",
+            "💬 **Sentiment Tracker** - Raid coordination detection",
+            "📊 **Behavior Scoring Engine** - Coordinated attack detection",
+            "⏱️ **Join Limit Shield** - Per-guild velocity monitoring",
+            "🔑 **Auto Permission Rollback** - Revert dangerous permission changes",
+            "📸 **1-Click Server Snapshot & Restore** - Full server backup/restore",
+            "💾 **Auto Backup Engine** - Scheduled role/channel backups",
+            "🔗 **Anti-Vanity URL Hijack** - Detect unauthorized vanity changes",
+            "😀 **Emoji/Sticker Delete Protection** - Revert unauthorized deletions",
+            "💬 **Forum Channel Protection** - Monitor forum settings",
+            "🤖 **AI Raid Prediction Engine** - Statistical raid prediction",
+            "📑 **AI Security Report** - AI-powered security reports",
+            "🧠 **AI Command Assistant** - Natural language processing",
+            "🛡️ **GDPR Privacy Engine** - Data export & deletion compliance",
+            "⚡ **C++ Native Security Engine** - N-API accelerated scanning"
+          ];
+
+          const featureList = features.map((f, i) => 
+            `**${i + 1}.** ${f}`
+          ).join("\n");
+
+          await message.reply(
+            `📋 **ALL BOT FEATURES & CAPABILITIES**\n\n` +
+            featureList +
+            `\n\n**Total Active Features:** ${features.length}\n**Security Level:** MAXIMUM`
           ).catch(() => {});
           return;
         }
