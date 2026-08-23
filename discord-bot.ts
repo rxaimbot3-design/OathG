@@ -1717,10 +1717,6 @@ client.on("clientReady", async () => {
             default_member_permissions: "8"
           },
           {
-            name: "verify",
-            description: "🔓 Verify your account to access server channels"
-          },
-          {
             name: "panic-lockdown",
             description: "🚨 Emergency lock down on all server channels instantly"
           },
@@ -2168,7 +2164,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       if (!member) return;
 
 
-      // Prefix Command Fallback Handler (!analyze, !dashboard, !status, !help, !verify, etc)
+      // Prefix Command Fallback Handler (!analyze, !dashboard, !status, !help, etc)
       const rawContent = message.content.trim();
       if (rawContent.startsWith("!") || rawContent.startsWith("/")) {
         const parts = rawContent.slice(1).trim().split(/ +/);
