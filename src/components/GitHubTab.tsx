@@ -44,7 +44,6 @@ export default function GitHubTab() {
   const [repos, setRepos] = useState<Repository[]>([]);
   const [tokenInput, setTokenInput] = useState("");
   const [loadingRepos, setLoadingRepos] = useState(false);
-  const [isDemoMode, setIsDemoMode] = useState(true);
   const [simulating, setSimulating] = useState<string | null>(null);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [simSuccess, setSimSuccess] = useState<string | null>(null);
@@ -55,14 +54,14 @@ export default function GitHubTab() {
   const [newRepoDesc, setNewRepoDesc] = useState("");
   const [newRepoPrivate, setNewRepoPrivate] = useState(false);
   const [creatingRepo, setCreatingRepo] = useState(false);
-  const [createdRepoInfo, setCreatedRepoInfo] = useState<{ repo: string; cloneUrl: string; isDemo: boolean } | null>(null);
+  const [createdRepoInfo, setCreatedRepoInfo] = useState<{ repo: string; cloneUrl: string } | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<'existing' | 'create'>('existing');
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
 
   // Direct Git Push States
   const [pushing, setPushing] = useState(false);
   const [commitMessageInput, setCommitMessageInput] = useState("");
-  const [pushResult, setPushResult] = useState<{ success: boolean; message: string; isDemo?: boolean } | null>(null);
+  const [pushResult, setPushResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const handleDirectPush = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -92,8 +91,7 @@ export default function GitHubTab() {
       if (res.ok && data.success) {
         setPushResult({
           success: true,
-          message: data.message,
-          isDemo: data.isDemo
+          message: data.message
         });
         setCommitMessageInput("");
       } else {
@@ -196,7 +194,6 @@ export default function GitHubTab() {
       const data = await res.json();
       if (data.repos) {
         setRepos(data.repos);
-        setIsDemoMode(!!data.isDemo);
       }
     } catch (err) {
       // Safe error handling
@@ -359,8 +356,7 @@ export default function GitHubTab() {
           <div>
             <h3 className="text-sm font-bold text-rose-200">GitHub Token Not Configured</h3>
             <p className="text-xs text-rose-300/80 mt-1">
-              You must configure a valid <code className="text-rose-200 bg-rose-950/40 px-1 py-0.5 rounded">GITHUB_TOKEN</code> in your environment variables to create repositories, push code, or fetch live repository data. 
-              Until configured, the dashboard operates in local Demo Mode.
+               You must configure a valid <code className="text-rose-200 bg-rose-950/40 px-1 py-0.5 rounded">GITHUB_TOKEN</code> in your environment variables to create repositories, push code, or fetch live repository data.
             </p>
           </div>
         </div>
@@ -374,20 +370,11 @@ export default function GitHubTab() {
             <div className="flex items-center gap-2">
               <Github className="w-4.5 h-4.5 text-zinc-100" />
               <div>
-                <h3 className="font-black text-sm text-zinc-100">GitHub Repositories Panel</h3>
-                <p className="text-[10px] text-zinc-400">Link existing or create new repositories for your Discord bot</p>
-              </div>
-            </div>
-            {isDemoMode ? (
-              <span className="self-start sm:self-auto px-2 py-0.5 bg-[#27272a] border border-zinc-800 rounded-md text-[9px] font-bold text-zinc-500 tracking-wide">
-                Demo Mode
-              </span>
-            ) : (
-              <span className="self-start sm:self-auto px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 rounded-md text-[9px] font-bold text-emerald-400 tracking-wide">
-                Live Sync
-              </span>
-            )}
-          </div>
+                 <h3 className="font-black text-sm text-zinc-100">GitHub Repositories Panel</h3>
+                 <p className="text-[10px] text-zinc-400">Link existing or create new repositories for your Discord bot</p>
+               </div>
+             </div>
+           </div>
 
           {/* Sub Tab Switcher */}
           <div className="flex p-1 bg-[#27272a]/80 rounded-xl" id="github-subtabs">

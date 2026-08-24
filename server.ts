@@ -1327,7 +1327,9 @@ app.get("/api/health/detailed", requireAdminAuth, (req, res) => {
       gatewayLatency = client.ws.ping;
       heartbeat = client.ws.ping;
     }
-  } catch {}
+  } catch (err) {
+    console.warn("[HEALTH] Failed to read gateway latency:", err);
+  }
 
   const detailedHealth = {
     status: "healthy",
@@ -2762,7 +2764,9 @@ app.post("/api/github/push", requireAdminAuth, async (req, res) => {
     try {
       await execFileAsync("git", ["config", "user.name", "AI-Studio-Deployer"]);
       await execFileAsync("git", ["config", "user.email", "bot@aistudio.local"]);
-    } catch {}
+    } catch (err) {
+      console.warn("[GITHUB] Failed to configure git user:", err);
+    }
 
     await execFileAsync("git", ["add", "-A"]);
     
@@ -2771,7 +2775,9 @@ app.post("/api/github/push", requireAdminAuth, async (req, res) => {
     for (const file of sensitiveFiles) {
       try {
         await execFileAsync("git", ["reset", "--", file]);
-      } catch {}
+      } catch (err) {
+        console.warn(`[GITHUB] Failed to unstage sensitive file ${file}:`, err);
+      }
     }
 
     try {
@@ -2784,7 +2790,9 @@ app.post("/api/github/push", requireAdminAuth, async (req, res) => {
 
     try {
       await execFileAsync("git", ["remote", "remove", "origin"]);
-    } catch {}
+    } catch (err) {
+      console.warn("[GITHUB] Failed to remove existing remote:", err);
+    }
 
     await execFileAsync("git", ["remote", "add", "origin", remoteUrl]);
 

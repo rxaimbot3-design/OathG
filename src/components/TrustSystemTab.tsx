@@ -37,7 +37,6 @@ export default function TrustSystemTab({ onAddLog }: TrustSystemTabProps) {
   const [filterScore, setFilterScore] = useState<string>('all');
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [newUserForm, setNewUserForm] = useState({ username: '', userId: '', role: 'member' });
-  const [isDemo, setIsDemo] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -65,7 +64,6 @@ export default function TrustSystemTab({ onAddLog }: TrustSystemTabProps) {
               })
             }));
             setUsers(mapped);
-            setIsDemo(data.demo || false);
           }
         }
       } catch (err) {
@@ -141,11 +139,6 @@ export default function TrustSystemTab({ onAddLog }: TrustSystemTabProps) {
             <div>
               <h2 className="text-lg font-black text-zinc-100 uppercase tracking-tight">Trust System</h2>
               <p className="text-xs text-zinc-400 font-semibold">Trusted users, whitelist management, and trust scoring</p>
-              {isDemo && (
-                <span className="inline-block mt-1 px-2 py-0.5 text-[10px] font-black uppercase bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-md">
-                  Demo Data
-                </span>
-              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
