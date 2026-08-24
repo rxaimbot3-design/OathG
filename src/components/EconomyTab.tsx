@@ -28,6 +28,7 @@ export default function EconomyTab({ leaderboard, onAddLog }: EconomyTabProps) {
   const [dailyClaimed, setDailyClaimed] = useState(false);
   const [purchaseSuccess, setPurchaseSuccess] = useState<string | null>(null);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const [isImplemented, setIsImplemented] = useState(false);
 
   // Shop Items
   const shopItems = [

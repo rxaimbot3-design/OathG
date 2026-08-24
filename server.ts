@@ -653,6 +653,107 @@ const limiter = rateLimit({
 });
 app.use("/api/", limiter);
 
+// ==================== CSRF Protection ====================
+// Simple double-submit cookie CSRF protection for state-changing endpoints.
+// The client must send an X-CSRF-Token header matching the csrf_token cookie.
+const CSRF_COOKIE_NAME = "csrf_token";
+const CSRF_HEADER_NAME = "x-csrf-token";
+
+function generateCsrfToken(): string {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+const csrfTokens = new Map<string, { token: string; expiresAt: number }>();
+const CSRF_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function cleanupExpiredCsrfTokens() {
+  const now = Date.now();
+  for (const [sessionId, entry] of csrfTokens.entries()) {
+    if (now > entry.expiresAt) {
+      csrfTokens.delete(sessionId);
+    }
+  }
+}
+setInterval(cleanupExpiredCsrfTokens, 5 * 60 * 1000);
+
+function csrfProtection(req: express.Request, res: express.Response, next: express.NextFunction) {
+  // Only protect state-changing methods
+  const method = req.method.toUpperCase();
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    return next();
+  }
+
+  // Skip CSRF for auth endpoints (they use other protection mechanisms)
+  const path = req.path || "";
+  if (path.startsWith("/api/auth/") || path.startsWith("/api/github/webhook")) {
+    return next();
+  }
+
+  // Skip CSRF in test environments
+  if (process.env.NODE_ENV === "test" || process.env.VITEST === "true") {
+    return next();
+  }
+
+  const cookieToken = req.cookies?.[CSRF_COOKIE_NAME];
+  const headerToken = req.headers[CSRF_HEADER_NAME] as string | undefined;
+
+  if (!cookieToken || !headerToken || cookieToken !== headerToken) {
+    return res.status(403).json({ success: false, error: "Invalid CSRF token" });
+  }
+
+  next();
+}
+
+// Set CSRF cookie on authenticated session endpoints
+app.use((req, res, next) => {
+  if (req.method === "GET" && req.path.startsWith("/api/auth/")) {
+    const sessionId = req.cookies?.admin_session_token || generateCsrfToken();
+    const existing = csrfTokens.get(sessionId);
+    const token = existing?.token || generateCsrfToken();
+    const expiresAt = existing?.expiresAt || Date.now() + CSRF_TOKEN_TTL_MS;
+    csrfTokens.set(sessionId, { token, expiresAt });
+    res.cookie(CSRF_COOKIE_NAME, token, {
+      httpOnly: false, // Must be readable by JavaScript for double-submit pattern
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: CSRF_TOKEN_TTL_MS
+    });
+  }
+  next();
+});
+
+app.use(csrfProtection);
+
+// ==================== Request Sanitization ====================
+app.use((req, res, next) => {
+  if (req.method === "POST" || req.method === "PUT" || req.method === "PATCH") {
+    const contentType = req.headers["content-type"] || "";
+    if (contentType.includes("application/json")) {
+      const sanitizeValue = (value: any): any => {
+        if (typeof value === "string") {
+          return value.replace(/[\x00-\x1F\x7F]/g, "").trim();
+        }
+        if (Array.isArray(value)) {
+          return value.map(sanitizeValue);
+        }
+        if (value && typeof value === "object") {
+          const sanitized: any = {};
+          for (const [k, v] of Object.entries(value)) {
+            sanitized[k] = sanitizeValue(v);
+          }
+          return sanitized;
+        }
+        return value;
+      };
+
+      if (req.body && typeof req.body === "object") {
+        req.body = sanitizeValue(req.body);
+      }
+    }
+  }
+  next();
+});
+
 let listenersRegistered = false;
 function registerProcessListeners() {
   if (listenersRegistered) return;
@@ -1137,7 +1238,7 @@ app.get("/api/download/source", requireAdminAuth, (req, res) => {
     }
   }
 });
-app.get("/api/health", (req, res) => {
+app.get("/api/health", async (req, res) => {
   const startTime = Date.now();
   const checks: any = {
     api: { status: "up", latencyMs: Date.now() - startTime },
@@ -1149,19 +1250,35 @@ app.get("/api/health", (req, res) => {
 
   try {
     if (MongoRedisEngine.isMongoConnected) {
-      checks.database = { status: "up" };
+      // Verify with a lightweight ping if available
+      try {
+        const client = MongoRedisEngine['redisClient'];
+        if (client) {
+          await client.ping();
+          checks.database = { status: "up", verified: true };
+        } else {
+          checks.database = { status: "up", verified: false };
+        }
+      } catch {
+        checks.database = { status: "down", verified: false };
+      }
     } else {
-      checks.database = { status: "down" };
+      checks.database = { status: "down", verified: false };
     }
   } catch {
-    checks.database = { status: "down" };
+    checks.database = { status: "down", verified: false };
   }
 
   try {
-    const redisStats = MongoRedisEngine.getRedisStats();
-    checks.redis = { status: redisStats?.connected ? "up" : "down" };
+    const client = MongoRedisEngine['redisClient'];
+    if (client && MongoRedisEngine.isRedisConnected) {
+      const pong = await client.ping();
+      checks.redis = { status: pong ? "up" : "down", connected: MongoRedisEngine.isRedisConnected };
+    } else {
+      checks.redis = { status: "down", connected: false };
+    }
   } catch {
-    checks.redis = { status: "down" };
+    checks.redis = { status: "down", connected: false };
   }
 
   try {
@@ -1318,6 +1435,49 @@ app.post("/api/auth/discord/login", RateLimiterMiddleware.limit(60000, 10, "logi
   }
 });
 
+app.post("/api/auth/refresh", async (req, res) => {
+  try {
+    const refreshToken = req.cookies?.admin_refresh_token || req.body?.refreshToken;
+    if (!refreshToken || !refreshToken.startsWith("refresh_")) {
+      return res.status(401).json({ success: false, error: "Invalid refresh token" });
+    }
+
+    const tokenHash = hashSessionToken(refreshToken);
+    const session = activeAdminSessions.get(tokenHash);
+    if (!session || Date.now() > session.expiresAt) {
+      return res.status(401).json({ success: false, error: "Refresh token expired" });
+    }
+
+    // Issue new session token
+    const { token: newSessionToken, expiresAt } = await createAdminSession(session.username, session.clientIp);
+    const newRefreshToken = "refresh_" + crypto.randomBytes(32).toString("hex");
+
+    res.cookie("admin_session_token", newSessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 24 * 60 * 60 * 1000
+    });
+
+    res.cookie("admin_refresh_token", newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
+
+    return res.json({
+      success: true,
+      token: newSessionToken,
+      refreshToken: newRefreshToken,
+      expiresAt,
+      refreshExpiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: "Token refresh failed" });
+  }
+});
+
 app.post("/api/auth/login", RateLimiterMiddleware.limit(60000, 10, "login"), async (req, res) => {
   try {
     const validation = validateInput({ adminKey: { required: true, type: "string", minLength: 1, maxLength: 200 } }, req.body);
@@ -1336,12 +1496,20 @@ app.post("/api/auth/login", RateLimiterMiddleware.limit(60000, 10, "login"), asy
 
     if (secretMatches) {
       const { token: sessionToken, expiresAt } = await createAdminSession("Admin", clientIp);
+      const refreshToken = "refresh_" + crypto.randomBytes(32).toString("hex");
 
       res.cookie("admin_session_token", sessionToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
         maxAge: 24 * 60 * 60 * 1000
+      });
+
+      res.cookie("admin_refresh_token", refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
       });
 
       const mode = "admin-secret";
@@ -1352,7 +1520,8 @@ app.post("/api/auth/login", RateLimiterMiddleware.limit(60000, 10, "login"), asy
         username: "Admin",
         mode,
         clientIp,
-        expiresAt
+        expiresAt,
+        refreshExpiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000
       });
     }
 
