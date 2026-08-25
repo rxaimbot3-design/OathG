@@ -4020,6 +4020,9 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         const targetGuild = guild || (entry as any).guild || ((entry as any).guildId ? client.guilds.cache.get((entry as any).guildId) : null);
         if (!targetGuild) return;
 
+        // Use GuildContext for security modules (Phase 2 migration)
+        const ctx = getOrCreateGuildContext(targetGuild);
+
         let executorId = entry.executorId || entry.executor?.id;
         if (executorId) {
           recordWhitelistAction(executorId, targetGuild);
@@ -4042,8 +4045,8 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
            // Trigger Emergency Blind Quarantine to strip all dangerous permissions from roles below the bot
            await emergencyQuarantine(targetGuild);
           
-          // Initiate Full Channel Lockdown
-          await NukeDefense.lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
+          // Initiate Full Channel Lockdown using GuildContext
+          await ctx.getNukeDefense().lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
           if (executorId && executorId !== targetGuild.ownerId) {
             // If executed by any admin/whitelisted user who is not the owner -> BAN them!
@@ -4197,7 +4200,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
                 await punishRogueAdmin(targetGuild, executorId, "Mass Ban Nuke", `Banned ${bansByThisExecutor.length} members in 10s`).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
               } else {
                 // If owner, we lock down server
-                await NukeDefense.lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
+                await ctx.getNukeDefense().lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
               }
 
               await sendLiveAuditAlert(targetGuild, {
