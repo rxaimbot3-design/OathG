@@ -29,6 +29,21 @@ import { CppNativeEngine } from "./src/CppEngine.js";
 import { validateEnvironmentVariables } from "./src/EnvValidator.js";
 import { hashToken, scanForSecrets, validateInput, runBackupIntegrityTest } from "./src/security.js";
 
+// Modular route scaffolding (Phase 1 continued - routes are defined but not yet wired)
+// import { registerHealthRoutes } from "./src/server/routes/health.js";
+// import { registerDiscordRoutes } from "./src/server/routes/discord.js";
+// import { registerSecurityRoutes } from "./src/server/routes/security.js";
+// import { registerAuthRoutes } from "./src/server/routes/auth.js";
+// import { registerAdminRoutes } from "./src/server/routes/admin.js";
+// import { registerEnterpriseRoutes } from "./src/server/routes/enterprise.js";
+// import { registerBotRoutes } from "./src/server/routes/bot.js";
+// import { registerCppEngineRoutes } from "./src/server/routes/cpp-engine.js";
+// import { registerSnapshotRoutes } from "./src/server/routes/snapshots.js";
+// import { registerAnalyticsRoutes } from "./src/server/routes/analytics.js";
+// import { registerPremiumRoutes } from "./src/server/routes/premium.js";
+// import { registerSystemRoutes } from "./src/server/routes/system.js";
+// import { registerGitHubRoutes } from "./src/server/routes/github.js";
+
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 

@@ -2755,6 +2755,9 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       const member = newMessage.member;
       if (!member) return;
 
+      // Use GuildContext for security modules (Phase 2 migration)
+      const ctx = getOrCreateGuildContext(newMessage.guild);
+
       // Ignore if owner or whitelisted or admin
       if (isOwnerOrWhitelisted(member.id, newMessage.guild)) return;
       if (member.permissions.has("Administrator") || member.permissions.has("ManageMessages")) return;
@@ -3890,6 +3893,8 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       addBotLog(`[E++] RAW EVENT: channelCreate for ${channel.id}`, "info");
       if (!("guild" in channel) || !channel.guild) return;
 
+      const ctx = getOrCreateGuildContext(channel.guild);
+
       await EnhancedEventEngine.intercept(
         "Channel Creation",
         channel.guild,
@@ -3920,6 +3925,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     client.on("channelDelete", async (channel) => {
       addBotLog(`[E++] RAW EVENT: channelDelete for ${channel.id}`, "info");
       if (!("guild" in channel) || !channel.guild) return;
+      const ctx = getOrCreateGuildContext(channel.guild);
       await EnhancedEventEngine.intercept(
         "Channel Deletion",
         channel.guild,
@@ -3954,6 +3960,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     });
 
     client.on("roleCreate", async (role) => {
+      const ctx = getOrCreateGuildContext(role.guild);
       await EnhancedEventEngine.intercept(
         "Role Creation",
         role.guild,
@@ -3982,6 +3989,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     });
 
     client.on("roleDelete", async (role) => {
+      const ctx = getOrCreateGuildContext(role.guild);
       await EnhancedEventEngine.intercept(
         "Role Deletion",
         role.guild,
@@ -4630,6 +4638,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     client.on("channelUpdate", async (oldChannel, newChannel) => {
       if (!("guild" in newChannel) || !newChannel.guild) return;
       const guild = newChannel.guild;
+      const ctx = getOrCreateGuildContext(guild);
       if (activeGuildAudits.has(guild.id)) return;
       
       try {
@@ -4674,6 +4683,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     // 8. ANTI ROLE UPDATE (Prevent giving Admin/Dangerous perms fallback)
     client.on("roleUpdate", async (oldRole, newRole) => {
       const guild = newRole.guild;
+      const ctx = getOrCreateGuildContext(guild);
       try {
         const dangerousPerms = [PermissionFlagsBits.Administrator, PermissionFlagsBits.ManageRoles, PermissionFlagsBits.ManageGuild, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.BanMembers, PermissionFlagsBits.KickMembers, PermissionFlagsBits.ManageWebhooks];
         const hasDangerous = dangerousPerms.some(p => newRole.permissions.has(p));
@@ -4709,6 +4719,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     // 9. ANTI MEMBER ROLE UPDATE (Prevent rogue admins from assigning Admin roles fallback)
     client.on("guildMemberUpdate", async (oldMember, newMember) => {
       const guild = newMember.guild;
+      const ctx = getOrCreateGuildContext(guild);
       const addedRoles = newMember.roles.cache.filter(r => !oldMember.roles.cache.has(r.id));
       if (addedRoles.size === 0) return;
 
@@ -4750,6 +4761,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
     // 10. ANTI SERVER SETTINGS / GUILD UPDATE
     client.on("guildUpdate", async (oldGuild, newGuild) => {
+      const ctx = getOrCreateGuildContext(newGuild);
       try {
         const nameChanged = oldGuild.name !== newGuild.name;
         const iconChanged = oldGuild.icon !== newGuild.icon;
