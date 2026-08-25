@@ -25,10 +25,6 @@ export function atomicWriteJsonSync(filePath: string, data: any) {
     fs.closeSync(fd);
     fs.renameSync(tmpPath, filePath);
   } catch (err: any) {
-      const errStr = String(err?.message || err).toLowerCase();
-      if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
-        console.warn(AI_QUOTA_WARNING);
-      }
     if (fs.existsSync(tmpPath)) {
       try { fs.unlinkSync(tmpPath); } catch {}
     }
@@ -106,16 +102,26 @@ export class TokenVault {
         if (rawSalt.startsWith('"') && rawSalt.endsWith('"')) {
           rawSalt = rawSalt.slice(1, -1);
         }
-        this.cachedSalt = rawSalt;
+        if (rawSalt && rawSalt.length >= 16) {
+          this.cachedSalt = rawSalt;
+        } else {
+          throw new Error("Salt file corrupted or too short");
+        }
       } else {
         const newSalt = crypto.randomBytes(16).toString("hex");
         atomicWriteJsonSync(this.saltFile, newSalt);
         this.cachedSalt = newSalt;
       }
-    } catch {
-      this.cachedSalt = "ashtron_vault_salt_fallback";
+    } catch (err) {
+      // NEVER use a hardcoded fallback salt — it would break per-deployment key uniqueness
+      console.error("[TokenVault] Failed to load salt, generating fresh random salt:", err);
+      const freshSalt = crypto.randomBytes(16).toString("hex");
+      try {
+        atomicWriteJsonSync(this.saltFile, freshSalt);
+      } catch {}
+      this.cachedSalt = freshSalt;
     }
-    return this.cachedSalt || "ashtron_vault_salt_fallback";
+    return this.cachedSalt;
   }
 
   private static getKey(): Buffer {
@@ -188,11 +194,8 @@ export class TokenVault {
       decrypted += decipher.final("utf8");
       return decrypted;
     } catch (err: any) {
-      const errStr = String(err?.message || err).toLowerCase();
-      if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
-        console.warn(AI_QUOTA_WARNING);
-      }
       // Only self-destruct on explicit compromise signals, not normal decryption failures
+      const errStr = String(err?.message || err).toLowerCase();
       if (errStr.includes("tamper") || errStr.includes("compromise") || errStr.includes("breach") || errStr.includes("memory")) {
         this.triggerSelfDestruct("Memory decryption failed - Possible memory tampering.");
       }
@@ -578,10 +581,8 @@ export class WebhookGuard {
           }
         }
       } catch (err: any) {
-      const errStr = String(err?.message || err).toLowerCase();
-      if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
-        console.warn(AI_QUOTA_WARNING);
-      }}
+        console.error(`[WEBHOOK GUARD] Error scanning guild ${guild.name}:`, err);
+      }
     }
   }
 }
@@ -684,10 +685,8 @@ export class Quarantine {
       
       console.log(`☣️ [SILENT JAIL] User ${member.user.tag} has been shadow-banned and isolated.`);
     } catch (err: any) {
-      const errStr = String(err?.message || err).toLowerCase();
-      if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
-        console.warn(AI_QUOTA_WARNING);
-      }}
+      console.error(`[QUARANTINE] Error isolating user ${member.user.tag}:`, err);
+    }
   }
 }
 
@@ -913,10 +912,7 @@ export class OAuthMaliciousAppDetector {
       const threats = results.filter(Boolean).length;
       return { scanned: integrations.size, threatsFound: threats };
     } catch (err: any) {
-      const errStr = String(err?.message || err).toLowerCase();
-      if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
-        console.warn(AI_QUOTA_WARNING);
-      }
+      console.error("[OAUTH MALICIOUS APP] Error scanning integrations:", err);
       return { scanned: 0, threatsFound: 0 };
     }
   }
@@ -1510,10 +1506,6 @@ export class IPBanSystem {
       this.cachedBans = JSON.parse(fs.readFileSync(this.ipBansFile, "utf8"));
       return this.cachedBans || [];
     } catch (err: any) {
-      const errStr = String(err?.message || err).toLowerCase();
-      if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
-        console.warn(AI_QUOTA_WARNING);
-      }
       console.error("Error loading IP bans:", err);
       // Fail-closed: return last known good cache instead of clearing all bans
       return this.cachedBans || [];
@@ -1525,10 +1517,6 @@ export class IPBanSystem {
       this.cachedBans = bans;
       atomicWriteJsonSync(this.ipBansFile, bans);
     } catch (err: any) {
-      const errStr = String(err?.message || err).toLowerCase();
-      if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
-        console.warn(AI_QUOTA_WARNING);
-      }
       console.error("Error saving IP bans:", err);
     }
   }
@@ -1544,10 +1532,6 @@ export class IPBanSystem {
       this.cachedVerified = JSON.parse(fs.readFileSync(this.verifiedIpsFile, "utf8"));
       return this.cachedVerified || [];
     } catch (err: any) {
-      const errStr = String(err?.message || err).toLowerCase();
-      if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
-        console.warn(AI_QUOTA_WARNING);
-      }
       console.error("Error loading verified IPs:", err);
       // Fail-closed: return last known good cache instead of clearing all verified IPs
       return this.cachedVerified || [];
@@ -1559,10 +1543,6 @@ export class IPBanSystem {
       this.cachedVerified = ips;
       atomicWriteJsonSync(this.verifiedIpsFile, ips);
     } catch (err: any) {
-      const errStr = String(err?.message || err).toLowerCase();
-      if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
-        console.warn(AI_QUOTA_WARNING);
-      }
       console.error("Error saving verified IPs:", err);
     }
   }
@@ -2542,10 +2522,6 @@ export class AdminWhitelistSystem {
       this.cachedWhitelist = JSON.parse(fs.readFileSync(this.whitelistFile, "utf8"));
       return this.cachedWhitelist || [];
     } catch (err: any) {
-      const errStr = String(err?.message || err).toLowerCase();
-      if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
-        console.warn(AI_QUOTA_WARNING);
-      }
       console.error("Error loading Admin Whitelist:", err);
       return [];
     }
@@ -2556,10 +2532,6 @@ export class AdminWhitelistSystem {
       this.cachedWhitelist = records;
       atomicWriteJsonSync(this.whitelistFile, records);
     } catch (err: any) {
-      const errStr = String(err?.message || err).toLowerCase();
-      if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
-        console.warn(AI_QUOTA_WARNING);
-      }
       console.error("Error saving Admin Whitelist:", err);
     }
   }

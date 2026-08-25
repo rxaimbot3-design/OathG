@@ -152,10 +152,7 @@ namespace {
   constexpr uint32_t kBurstThreshold10s          = 30;
 
   // ============================================================
-  //  SIMD detection (compile-time)
-  //  NOTE: Actual SIMD intrinsics are NOT used in current code paths.
-  //  This flag remains false until AVX2/SSE4.2 instructions are
-  //  explicitly used in hashing or detection loops.
+  //  Compile-time feature flags
   // ============================================================
   constexpr bool kSimdAvailable = false;
 
@@ -825,7 +822,7 @@ Napi::Value SecurityEngine::GetMetrics(const Napi::CallbackInfo& info) {
   metrics.Set("p95LatencyMicroseconds", static_cast<int64_t>(latency_.percentile(95)));
   metrics.Set("p99LatencyMicroseconds", static_cast<int64_t>(latency_.percentile(99)));
   metrics.Set("throughputPerSecond",    throughput);
-  metrics.Set("simdAcceleration",       kSimdAvailable);
+  metrics.Set("simdAcceleration",       "scalar");
   metrics.Set("activeThreads",          std::max(1u, std::thread::hardware_concurrency()));
   metrics.Set("totalAuditsProcessed",   static_cast<int64_t>(total));
   metrics.Set("latencySampleCount",     static_cast<int64_t>(latency_.count()));

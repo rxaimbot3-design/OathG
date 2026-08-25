@@ -126,7 +126,7 @@ async function rollbackWhitelistedAdminActions(executorId: string, guild: Guild)
     try {
       if (action.type === "ban") {
         if (!guild.members.me?.permissions.has(PermissionFlagsBits.BanMembers)) continue;
-        await guild.bans.remove(action.targetId, "Zero Trust Self-Healing: Reverting compromised admin ban").catch(() => {});
+        await guild.bans.remove(action.targetId, "Zero Trust Self-Healing: Reverting compromised admin ban").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
         addBotLog(`✅ Unbanned victim user <@${action.targetId}>`, "info");
       } else if (action.type === "channelDelete") {
         if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageChannels)) continue;
@@ -188,12 +188,12 @@ function recordWhitelistAction(executorId: string, guild: Guild) {
       
       if (executorId === guild.ownerId) {
         sendOwnerCompromisedWarning(guild);
-        NukeDefense.lockdown(guild).catch(() => {});
+        NukeDefense.lockdown(guild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
         rollbackWhitelistedAdminActions(executorId, guild).catch(() => {});
         addBotLog(`🔒 [ZERO TRUST] Server auto-locked to protect against suspected Owner compromise!`, "error");
       } else {
         // Not the owner -> Auto Ban + Strip roles instantly!
-        punishRogueAdmin(guild, executorId, "Compromised Privileged Account Shield", "Exceeded admin action velocity limit (8 actions in 10s)").catch(() => {});
+        punishRogueAdmin(guild, executorId, "Compromised Privileged Account Shield", "Exceeded admin action velocity limit (8 actions in 10s)").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
         rollbackWhitelistedAdminActions(executorId, guild).catch(() => {});
         
         // Notify owner
@@ -384,6 +384,52 @@ const recentWhitelistedActions = new Map<string, {
   data: any;
   timestamp: number;
 }[]>();
+
+// Periodic cleanup for unbounded global trackers (prevents memory leaks in long-running bots)
+setInterval(() => {
+  const now = Date.now();
+  const maxAge = 30 * 60 * 1000; // 30 minutes
+
+  for (const [guildId, actions] of globalBanActions) {
+    const filtered = actions.filter(a => now - a.timestamp < maxAge);
+    if (filtered.length === 0) globalBanActions.delete(guildId);
+    else globalBanActions.set(guildId, filtered);
+  }
+
+  for (const [guildId, timestamps] of globalJoinHistory) {
+    const filtered = timestamps.filter(t => now - t < maxAge);
+    if (filtered.length === 0) globalJoinHistory.delete(guildId);
+    else globalJoinHistory.set(guildId, filtered);
+  }
+
+  for (const [guildId, timestamps] of globalLeaveHistory) {
+    const filtered = timestamps.filter(t => now - t < maxAge);
+    if (filtered.length === 0) globalLeaveHistory.delete(guildId);
+    else globalLeaveHistory.set(guildId, filtered);
+  }
+
+  for (const [guildId, actions] of recentWhitelistedActions) {
+    const filtered = actions.filter(a => now - a.timestamp < 30000);
+    if (filtered.length === 0) recentWhitelistedActions.delete(guildId);
+    else recentWhitelistedActions.set(guildId, filtered);
+  }
+
+  for (const [userId, times] of whitelistActionTimestamps) {
+    const filtered = times.filter(t => now - t < 10000);
+    if (filtered.length === 0) whitelistActionTimestamps.delete(userId);
+    else whitelistActionTimestamps.set(userId, filtered);
+  }
+
+  for (const [userId, data] of userSpamTracker) {
+    const filtered = data.filter(t => now - t < 60000);
+    if (filtered.length === 0) userSpamTracker.delete(userId);
+    else userSpamTracker.set(userId, filtered);
+  }
+
+  for (const [userId, data] of userViolations) {
+    if (now - data.timestamp > 3600000) userViolations.delete(userId);
+  }
+}, 5 * 60 * 1000);
 
 export function addBotLog(message: string, type: BotLog["type"] = "info") {
   const timestamp = new Date().toLocaleTimeString();
@@ -1075,7 +1121,7 @@ export function recordAndCheckSequentialKickBan(executorId: string, guild: Guild
     } catch (e: any) {}
 
     // 2. Punish Rogue Admin
-    punishRogueAdmin(guild, executorId, "🚨 SEQUENTIAL KICK/BAN NUKE DETECTED (PERMANENT IP-BAN)", `Executed ${timestamps.length} consecutive member kicks/bans in 15s`).catch(() => {});
+    punishRogueAdmin(guild, executorId, "🚨 SEQUENTIAL KICK/BAN NUKE DETECTED (PERMANENT IP-BAN)", `Executed ${timestamps.length} consecutive member kicks/bans in 15s`).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
     // 3. Live Alert
     sendLiveAuditAlert(guild, {
@@ -1505,7 +1551,7 @@ client.on("clientReady", async () => {
                    const isSelfBot = member.id === client.user?.id || (clientInstance?.application && member.id === clientInstance.application.id);
                    const isApproved = isSelfBot || approvedBots.includes(member.id);
                    if (!isApproved) {
-                      await member.kick("Zero Trust Active Sweep: Unapproved Bot Detected").catch(() => {});
+                      await member.kick("Zero Trust Active Sweep: Unapproved Bot Detected").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                       addBotLog(`🚨 [ACTIVE SWEEP] Found and kicked unapproved bot: ${member.user.tag}`, "error");
                    }
                 }
@@ -1521,7 +1567,7 @@ client.on("clientReady", async () => {
                 if (member.user.bot || isOwnerOrWhitelisted(member.id, guild, false)) continue;
                 if (member.permissions.has("Administrator") || member.permissions.has("ManageGuild") || member.permissions.has("BanMembers")) {
                    // A normal user has dangerous permissions during Admin Freeze! Remove all their roles.
-                   await member.roles.set([], "Zero Trust Active Sweep: Unauthorized Admin Permissions").catch(() => {});
+                   await member.roles.set([], "Zero Trust Active Sweep: Unauthorized Admin Permissions").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                    addBotLog(`🚨 [ACTIVE SWEEP] Stripped dangerous permissions from unauthorized user: ${member.user.tag}`, "error");
                 }
              }
@@ -2371,7 +2417,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           try {
             for (const r of latest.roles) {
               if (!message.guild.roles.cache.find(gr => gr.name === r.name)) {
-                await message.guild.roles.create({ name: r.name, color: r.color, permissions: BigInt(r.permissions.bitfield), reason: "1-Click Recovery" }).catch(() => {});
+                await message.guild.roles.create({ name: r.name, color: r.color, permissions: BigInt(r.permissions.bitfield), reason: "1-Click Recovery" }).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                 rolesRestoredCount++;
               }
             }
@@ -2391,7 +2437,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
               const exists = message.guild.channels.cache.find(gc => gc.name.toLowerCase() === c.name.toLowerCase() && gc.type === c.type);
               if (!exists) {
                 const mappedParentId = c.parentId ? createdCategories.get(c.parentId) : null;
-                await message.guild.channels.create({ name: c.name, type: c.type, parent: mappedParentId || undefined, reason: "1-Click Recovery" }).catch(() => {});
+                await message.guild.channels.create({ name: c.name, type: c.type, parent: mappedParentId || undefined, reason: "1-Click Recovery" }).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                 channelsRestoredCount++;
               }
             }
@@ -3471,7 +3517,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           // If it looks like a User ID, attempt Discord unban too
           const isIp = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(target) || target.includes(":");
           if (!isIp) {
-            await guild.bans.remove(target, "Zero-Trust IP Unban Command").catch(() => {});
+            await guild.bans.remove(target, "Zero-Trust IP Unban Command").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           }
 
           if (success) {
@@ -3490,7 +3536,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           } else {
             // Fallback unban even if not in DB
             if (!isIp) {
-              await guild.bans.remove(target, "Zero-Trust IP Unban Command").catch(() => {});
+              await guild.bans.remove(target, "Zero-Trust IP Unban Command").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
             }
             await safeReply(interaction, {
               content: `🛡️ Discord ban-list lookup executed for \`${target}\`. The target was not found in our custom IP ban database, but any Discord-level ban has been lifted.`
@@ -3944,17 +3990,17 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           setPanicLockdown(true, 600000);
           
           // Elevate Verification Level
-          await targetGuild.setVerificationLevel(4).catch(() => {});
+          await targetGuild.setVerificationLevel(4).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           
            // Trigger Emergency Blind Quarantine to strip all dangerous permissions from roles below the bot
            await emergencyQuarantine(targetGuild);
           
           // Initiate Full Channel Lockdown
-          await NukeDefense.lockdown(targetGuild).catch(() => {});
+          await NukeDefense.lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
           if (executorId && executorId !== targetGuild.ownerId) {
             // If executed by any admin/whitelisted user who is not the owner -> BAN them!
-            await punishRogueAdmin(targetGuild, executorId, "Member Prune Protection", "Executed member prune").catch(() => {});
+            await punishRogueAdmin(targetGuild, executorId, "Member Prune Protection", "Executed member prune").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
             
             await sendLiveAuditAlert(targetGuild, {
               title: "🚨 CRITICAL PRUNE DETECTED - ROGUE ADMIN BANNED",
@@ -4096,15 +4142,15 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
               // Revert all recent bans by this executor
               for (const banItem of bansByThisExecutor) {
-                await targetGuild.bans.remove(banItem.targetId, "Zero Trust Mass Ban Reverter: Automatic Unban").catch(() => {});
+                await targetGuild.bans.remove(banItem.targetId, "Zero Trust Mass Ban Reverter: Automatic Unban").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
               }
 
               if (executorId !== targetGuild.ownerId) {
                 // Auto Ban Rogue Admin!
-                await punishRogueAdmin(targetGuild, executorId, "Mass Ban Nuke", `Banned ${bansByThisExecutor.length} members in 10s`).catch(() => {});
+                await punishRogueAdmin(targetGuild, executorId, "Mass Ban Nuke", `Banned ${bansByThisExecutor.length} members in 10s`).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
               } else {
                 // If owner, we lock down server
-                await NukeDefense.lockdown(targetGuild).catch(() => {});
+                await NukeDefense.lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
               }
 
               await sendLiveAuditAlert(targetGuild, {
@@ -4143,7 +4189,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
           // Unban victim
           if (targetId) {
-            await targetGuild.bans.remove(targetId, "Zero Trust Anti-Nuke Revert").catch(() => {});
+            await targetGuild.bans.remove(targetId, "Zero Trust Anti-Nuke Revert").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           }
 
           if (executorId) {
@@ -4186,7 +4232,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
                   
                   // Revert
                   if (permChange.old !== undefined) {
-                     await role.setPermissions(oldPerms, "Zero Trust Anti-Nuke Revert").catch(() => {});
+                     await role.setPermissions(oldPerms, "Zero Trust Anti-Nuke Revert").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                   }
                   
                   await punishRogueAdmin(targetGuild, executorId, "Role Update (Elevated)", "Role: " + role.name);
@@ -4231,7 +4277,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
                  const targetMember = await targetGuild.members.fetch(targetId as string).catch(() => null);
                  if (targetMember) {
                      for (const roleObj of addChange.new as any[]) {
-                         await targetMember.roles.remove(roleObj.id, "Zero Trust Anti-Nuke Revert").catch(() => {});
+                         await targetMember.roles.remove(roleObj.id, "Zero Trust Anti-Nuke Revert").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                      }
                  }
 
@@ -4283,7 +4329,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
           if (botId) {
              const botMember = await targetGuild.members.fetch(botId as string).catch(() => null);
-             if (botMember) await botMember.kick("Zero Trust Anti-Nuke: Unauthorized Bot").catch(() => {});
+             if (botMember) await botMember.kick("Zero Trust Anti-Nuke: Unauthorized Bot").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           }
 
           await punishRogueAdmin(targetGuild, executorId, "Bot Addition", "Attempted to add an unauthorized bot: <@" + botId + ">");
@@ -4323,12 +4369,12 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
           const nameChange = entry.changes?.find((c: any) => c.key === "name");
           if (nameChange && nameChange.old) {
-            await targetGuild.setName(nameChange.old, "Zero Trust Anti-Nuke Revert").catch(() => {});
+            await targetGuild.setName(nameChange.old, "Zero Trust Anti-Nuke Revert").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           }
 
           const iconChange = entry.changes?.find((c: any) => c.key === "icon_hash");
           if (iconChange && iconChange.old) {
-            await targetGuild.setIcon(iconChange.old, "Zero Trust Anti-Nuke Revert").catch(() => {});
+            await targetGuild.setIcon(iconChange.old, "Zero Trust Anti-Nuke Revert").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           }
 
           await punishRogueAdmin(targetGuild, executorId, "Server Update", "Attempted to modify server settings");
@@ -4380,7 +4426,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         await emergencyQuarantine(guild);
 
         // Initiate Full Channel Lockdown
-        await NukeDefense.lockdown(guild).catch(() => {});
+        await NukeDefense.lockdown(guild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
         // Fetch Audit Logs to find the Rogue Admin who is kicking
         try {
@@ -4403,7 +4449,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
               if (count >= 4) { // Executor kicked at least 4 members recently
                 if (executorId !== guild.ownerId) {
                   // AUTO BAN + Role Strip rogue admin instantly!
-                  await punishRogueAdmin(guild, executorId, "Mass Kick Nuke Protection", `Automated kick velocity of ${count} kicks in 15s`).catch(() => {});
+                  await punishRogueAdmin(guild, executorId, "Mass Kick Nuke Protection", `Automated kick velocity of ${count} kicks in 15s`).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                   
                   await sendLiveAuditAlert(guild, {
                     title: "🚨 TIER 3: MASS KICK SHIELD - ROGUE ADMIN BANNED",
@@ -4705,7 +4751,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           
           const execMember = await guild.members.fetch(executor.id).catch(() => null);
           if (execMember) {
-            await execMember.ban({ reason: "Zero-Trust Strict Policy: Unauthorized Integration Addition (OAuth Bypass)" }).catch(() => {});
+            await execMember.ban({ reason: "Zero-Trust Strict Policy: Unauthorized Integration Addition (OAuth Bypass)" }).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           }
 
           if (!isPanic) {
@@ -4713,7 +4759,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
              if (integrations) {
                  for (const [_, int] of integrations) {
                      if (int.id === entry.targetId || int.user?.id === entry.targetId) {
-                         await int.delete("Zero Trust Anti-Nuke: Unauthorized Integration Removal").catch(() => {});
+                         await int.delete("Zero Trust Anti-Nuke: Unauthorized Integration Removal").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                      }
                  }
              }
@@ -4750,7 +4796,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           checkNukerAttackThreshold(executorId, guild.id, "MemberBanAdd");
 
           // Unban victim
-          await guild.bans.remove(ban.user, "Zero Trust Instant Anti-Nuke Ban Revert").catch(() => {});
+          await guild.bans.remove(ban.user, "Zero Trust Instant Anti-Nuke Ban Revert").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
           await punishRogueAdmin(guild, executorId, "Member Ban", `Victim: ${ban.user.tag} (Unbanned)`);
 
@@ -4790,7 +4836,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
           // Execute 1-Hour Timeout ONLY (No Ban!)
           if (message.member && message.member.moderatable) {
-            await message.member.timeout(60 * 60 * 1000, "Zero Trust Shield: Unauthorized link detected (Timeout policy enforced)").catch(() => {});
+            await message.member.timeout(60 * 60 * 1000, "Zero Trust Shield: Unauthorized link detected (Timeout policy enforced)").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           }
 
           // Audit Alert
@@ -4868,7 +4914,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         await guild.setVerificationLevel(4).catch(() => {});
         
         // Initiate Full Channel Lockdown
-        await NukeDefense.lockdown(guild).catch(() => {});
+        await NukeDefense.lockdown(guild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
         await sendLiveAuditAlert(guild, {
           title: "🚨 TIER 1: JOIN RAID SHIELD / VELOCITY LOCK ENGAGED",

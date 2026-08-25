@@ -248,7 +248,8 @@ async function redisGetSession(tokenHash: string): Promise<AdminSession | null> 
     const raw = await client.get(getRedisSessionKey(tokenHash));
     if (!raw) return null;
     return JSON.parse(raw);
-  } catch {
+  } catch (err: any) {
+    console.error("[Redis] Failed to get session:", err.message);
     return null;
   }
 }
@@ -258,7 +259,8 @@ async function redisSetSession(tokenHash: string, session: AdminSession, ttlSec:
     const client = MongoRedisEngine['redisClient'];
     if (!client || !MongoRedisEngine.isRedisConnected) return;
     await client.setEx(getRedisSessionKey(tokenHash), ttlSec, JSON.stringify(session));
-  } catch {
+  } catch (err: any) {
+    console.error("[Redis] Failed to set session:", err.message);
     // silently fallback to in-memory cache
   }
 }
@@ -268,7 +270,8 @@ async function redisDelSession(tokenHash: string): Promise<void> {
     const client = MongoRedisEngine['redisClient'];
     if (!client || !MongoRedisEngine.isRedisConnected) return;
     await client.del(getRedisSessionKey(tokenHash));
-  } catch {
+  } catch (err: any) {
+    console.error("[Redis] Failed to delete session:", err.message);
     // silently fallback to in-memory cache
   }
 }
@@ -293,8 +296,8 @@ async function purgeRevokedSessionsFromRedis(): Promise<void> {
         await client.del(key);
       }
     }
-  } catch {
-    // ignore
+  } catch (err: any) {
+    console.error("[Redis] Failed to purge revoked sessions:", err.message);
   }
 }
 
