@@ -1169,6 +1169,23 @@ app.get("/api/health", (req, res) => {
     checks.discordBot = { status: "down" };
   }
 
+  try {
+    const { aiServiceMonitor } = require("./src/core/ai-service-monitor");
+    const aiHealth = aiServiceMonitor.getHealth();
+    checks.aiService = {
+      status: aiHealth.status === "operational" || aiHealth.status === "disabled" ? "up" : "down",
+      details: {
+        totalCalls: aiHealth.totalCalls,
+        failedCalls: aiHealth.failedCalls,
+        consecutiveFailures: aiHealth.consecutiveFailures,
+        lastError: aiHealth.lastError,
+        quotaExhaustedAt: aiHealth.quotaExhaustedAt
+      }
+    };
+  } catch {
+    checks.aiService = { status: "down" };
+  }
+
   const allUp = Object.values(checks).every((c: any) => c.status === "up");
   const status = allUp ? "healthy" : "degraded";
 
@@ -1232,6 +1249,23 @@ app.get("/api/health/detailed", requireAdminAuth, (req, res) => {
       simd: cppMetrics.simdAcceleration || false,
       nativeLoaded: cppMetrics.engineName?.includes("Native") || false
     },
+    aiService: (() => {
+      try {
+        const { aiServiceMonitor } = require("./src/core/ai-service-monitor");
+        const health = aiServiceMonitor.getHealth();
+        return {
+          status: health.status,
+          totalCalls: health.totalCalls,
+          failedCalls: health.failedCalls,
+          consecutiveFailures: health.consecutiveFailures,
+          lastError: health.lastError,
+          lastErrorAt: health.lastErrorAt,
+          quotaExhaustedAt: health.quotaExhaustedAt
+        };
+      } catch {
+        return { status: "unknown" };
+      }
+    })(),
     workers: {
       active: cppMetrics.activeThreads || 0,
       crashed: 0,
