@@ -5,7 +5,7 @@
  * new modular implementations. Over time, classes will migrate here.
  */
 
-// Core interfaces
+// Core interfaces and contexts
 export {
   BotContext,
   DefaultBotContext,
@@ -46,6 +46,25 @@ export type {
 export { AntiInviteShield, AntiInviteShieldInstance } from "./anti-invite-shield";
 export { JoinLimitShield, JoinLimitShieldInstance } from "./join-limit-shield";
 export { IPBanSystem, IPBanSystemInstance, type IPBanRecord, type VerifiedIPRecord } from "./ip-ban-system";
+export { TokenVault, TokenVaultInstance, type VaultEntry } from "./token-vault";
+export { NukeDefense, NukeDefenseInstance } from "./nuke-defense";
+export { AuditLogMonitor, AuditLogMonitorInstance, type AuditAction } from "./audit-log-monitor";
+export { RateLimiter, RateLimiterInstance } from "./rate-limiter";
+export { SentimentTracker, SentimentTrackerInstance } from "./sentiment-tracker";
+export { WebhookGuard, WebhookGuardInstance } from "./webhook-guard";
+export { AutoHeal, AutoHealInstance, type ChannelData, type RoleData } from "./auto-heal";
+export { Quarantine, QuarantineInstance } from "./quarantine";
+export { TemporalRaidLock, TemporalRaidLockInstance } from "./temporal-raid-lock";
+export { BehaviorScoring, BehaviorScoringInstance, type RiskEntry } from "./behavior-scoring";
+export { SessionHijackDetector, SessionHijackDetectorInstance, type SessionInfo } from "./session-hijack-detector";
+export { OAuthMaliciousAppDetector, OAuthMaliciousAppDetectorInstance } from "./oauth-malicious-app-detector";
+export { AutoPermissionRollback, AutoPermissionRollbackInstance, type PermissionChange } from "./auto-permission-rollback";
+export { ServerSnapshotRestore, ServerSnapshotRestoreInstance, type ServerSnapshotData } from "./server-snapshot-restore";
+export { AntiVanityHijack, AntiVanityHijackInstance, type VanityChange } from "./anti-vanity-hijack";
+export { EmojiStickerProtection, EmojiStickerProtectionInstance } from "./emoji-sticker-protection";
+export { ForumChannelProtection, ForumChannelProtectionInstance } from "./forum-channel-protection";
+export { AIRaidPrediction, AIRaidPredictionInstance, type RaidRiskPrediction } from "./ai-raid-prediction";
+export { HoneypotAdminRole, HoneypotAdminRoleInstance } from "./honeypot-admin-role";
 
 // Legacy re-exports (to be gradually replaced)
 export {

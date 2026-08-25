@@ -53,11 +53,18 @@ import {
    AICommandAssistant, MongoRedisEngine, PremiumLicenseSystem, IPBanSystem, 
    JoinLimitShield, AntiInviteShield, InviteTrackerEngine, ZeroTrustSecurityEngine, AiRaidPredictionEngine, atomicWriteJsonSync 
 } from "./src/SecurityFeatures.js";
+// New modular imports (gradual migration)
+import { botContext } from "./src/core/contexts/BotContext.js";
+import { GuildContext, getGuildContext } from "./src/core/contexts/GuildContext.js";
 import { validateEnvironmentVariables } from "./src/EnvValidator.js";
 import { CppNativeEngine } from "./src/CppEngine.js";
 
 // ==================== STABILITY & SAFETY HELPERS ====================
 
+// Helper to get or create GuildContext for a guild
+function getOrCreateGuildContext(guild: Guild): GuildContext {
+  return getGuildContext(guild, botContext);
+}
 
 // Global Module Tracker State
 export const userSpamTracker = new Map<string, number[]>();

@@ -4,7 +4,7 @@
  */
 
 import type { SecurityModule } from "../core/interfaces/SecurityModule";
-import type { TtlMap } from "../security/MapManager";
+import { TtlMap } from "../security/MapManager";
 
 export class JoinLimitShieldInstance implements SecurityModule {
   readonly name = "joinLimitShield";

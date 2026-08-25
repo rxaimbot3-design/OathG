@@ -8,9 +8,9 @@ export { GuildContext } from "./contexts/GuildContext";
 
 export type {
   SecurityModule,
-  GuildStateStore as IGuildStateStore,
   BotContext as IBotContext,
   GuildContext as IGuildContext,
+  GuildStateStore as IGuildStateStore,
   NukeDefenseModule,
   AuditMonitorModule,
   IPBanModule,
