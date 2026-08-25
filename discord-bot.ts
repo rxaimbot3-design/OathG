@@ -2090,6 +2090,7 @@ client.on("clientReady", async () => {
 
     // Auto-clean guild command duplicates when joining a new server
     client.on("guildCreate", async (guild) => {
+      const ctx = getOrCreateGuildContext(guild);
       try {
         addBotLog(`📥 Joined new server '${guild.name}' (${guild.id}). Ensuring single global slash command set...`, "info");
         await guild.commands.set([]);
@@ -4814,14 +4815,15 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     // 16. Anti-Invite Link Monitor (Shield)
     client.on("messageCreate", async (message) => {
       if (!message.guild || message.author.bot) return;
-      if (!AntiInviteShield.isEnabled()) return;
+      const ctx = getOrCreateGuildContext(message.guild);
+      if (!ctx.getAntiInviteShield().isEnabled()) return;
 
       // Exempt Owner and Whitelist
       if (message.author.id === message.guild.ownerId || isOwnerOrWhitelisted(message.author.id, message.guild, false)) {
         return;
       }
 
-      const isLink = AntiInviteShield.containsInvite(message.content) || 
+      const isLink = ctx.getAntiInviteShield().containsInvite(message.content) || 
                      /(https?:\/\/[^\s]+|discord\.gg\/[a-zA-Z0-9]+|discord\.com\/invite\/[a-zA-Z0-9]+|t\.me\/[a-zA-Z0-9_]+)/i.test(message.content);
 
       if (isLink) {
@@ -5092,6 +5094,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     client.on("inviteCreate", async (invite) => {
       const guild = invite.guild as Guild;
       if (!guild || !guild.ownerId) return;
+      const ctx = getOrCreateGuildContext(guild);
 
       const inviter = invite.inviter;
       if (!inviter) return;
@@ -5110,6 +5113,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     client.on("inviteDelete", async (invite) => {
       const guild = invite.guild as Guild;
       if (!guild) return;
+      const ctx = getOrCreateGuildContext(guild);
       globalInvitesCache.get(guild.id)?.delete(invite.code);
     });
 
