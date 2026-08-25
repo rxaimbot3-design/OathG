@@ -56,6 +56,38 @@ import {
 import { validateEnvironmentVariables } from "./src/EnvValidator.js";
 import { CppNativeEngine } from "./src/CppEngine.js";
 
+// ==================== PERMISSION HELPERS ====================
+
+/**
+ * Check if the bot has sufficient permissions for a specific operation.
+ * Returns true if the bot has the required permissions, false otherwise.
+ */
+function hasBotPermission(guild: Guild, requiredPerms: PermissionFlagsBits[]): boolean {
+  const me = guild.members.me;
+  if (!me) return false;
+  
+  for (const perm of requiredPerms) {
+    if (!me.permissions.has(perm)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Check if a user has admin-level permissions (without requiring full Administrator).
+ * This allows users with specific management permissions to be treated as admins.
+ */
+function hasEffectiveAdminPermission(member: GuildMember | null): boolean {
+  if (!member) return false;
+  return member.permissions.has(PermissionFlagsBits.Administrator) ||
+         member.permissions.has(PermissionFlagsBits.ManageGuild) ||
+         member.permissions.has(PermissionFlagsBits.BanMembers) ||
+         member.permissions.has(PermissionFlagsBits.KickMembers) ||
+         member.permissions.has(PermissionFlagsBits.ManageChannels) ||
+         member.permissions.has(PermissionFlagsBits.ManageRoles);
+}
+
 // ==================== STABILITY & SAFETY HELPERS ====================
 
 
@@ -173,7 +205,7 @@ function recordWhitelistAction(executorId: string, guild: Guild) {
 
   // Track actions for any administrator / privileged user to prevent compromise
   const attacker = guild.members.cache.get(executorId);
-  const isPrivileged = executorId === guild.ownerId || ownerWhitelist.includes(executorId) || (attacker && attacker.permissions.has(PermissionFlagsBits.Administrator));
+  const isPrivileged = executorId === guild.ownerId || ownerWhitelist.includes(executorId) || hasEffectiveAdminPermission(attacker);
 
   if (isPrivileged) {
     const now = Date.now();
@@ -451,7 +483,7 @@ export function getDiscordBotStatus() {
   const tokenConfigured = !!process.env.DISCORD_BOT_TOKEN;
   const clientId = process.env.DISCORD_CLIENT_ID || "";
   const inviteLink = clientId 
-    ? `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=1099511627775&scope=bot%20applications.commands`
+    ? `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=35973659687&scope=bot%20applications.commands`
     : "";
 
   let latency = 0;
@@ -787,11 +819,11 @@ function checkCommandPermission(
     return { allowed: true };
   }
 
-  if (options.requireAdmin && (member?.permissions?.has(PermissionFlagsBits.Administrator) || member?.permissions?.has(PermissionFlagsBits.ManageGuild))) {
+  if (options.requireAdmin && hasEffectiveAdminPermission(member)) {
     return { allowed: true };
   }
 
-  return { allowed: false, reason: "⛔ Insufficient permissions: Administrator or Manage Guild permission required." };
+  return { allowed: false, reason: "⛔ Insufficient permissions: Administrator, Manage Server, or moderation permissions required." };
 }
 
 async function notifyServerOwner(guild: Guild, executorId: string, actionType: string, victimDetails: string, success: boolean, errorMsg: string) {
@@ -2227,8 +2259,8 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         }
 
         if (pCmd === "analyze" || pCmd === "security-status" || pCmd === "status") {
-          if (!message.member?.permissions.has(PermissionFlagsBits.Administrator) && !message.member?.permissions.has(PermissionFlagsBits.ManageGuild) && message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild)) {
-            await message.reply("❌ **Access Denied!** Requires Administrator or Manage Server permissions.").catch(() => {});
+          if (!hasEffectiveAdminPermission(message.member) && message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild)) {
+            await message.reply("❌ **Access Denied!** Requires Administrator, Manage Server, or moderation permissions.").catch(() => {});
             return;
           }
           const stats = getSecurityStats();
@@ -2817,9 +2849,9 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
       // 5. Handle User Context Menu Commands
       if (interaction.isUserContextMenuCommand()) {
-        const memberPerms = interaction.memberPermissions;
-        if (!memberPerms?.has(PermissionFlagsBits.Administrator) && !memberPerms?.has(PermissionFlagsBits.ManageGuild) && interaction.user.id !== interaction.guild?.ownerId && !(interaction.guild ? isOwnerOrWhitelisted(interaction.user.id, interaction.guild) : false)) {
-          await interaction.reply({ content: "❌ **Access Denied!** Requires Administrator or Manage Server permissions.", ephemeral: true });
+        const member = interaction.member;
+        if (!hasEffectiveAdminPermission(member) && interaction.user.id !== interaction.guild?.ownerId && !(interaction.guild ? isOwnerOrWhitelisted(interaction.user.id, interaction.guild) : false)) {
+          await interaction.reply({ content: "❌ **Access Denied!** Requires Administrator, Manage Server, or moderation permissions.", ephemeral: true });
           return;
         }
         const targetMember = interaction.targetMember as GuildMember;
