@@ -8,13 +8,10 @@
  * Usage: import { PermissionFlags, GatewayIntents } from './discord-v15-shims';
  */
 
-import type { PermissionFlagsBits, GatewayIntentBits, ChannelType } from "discord.js";
+import { PermissionFlagsBits, GatewayIntentBits, ChannelType } from "discord.js";
 
-/**
- * Permission flag mappings that may change in v15.
- * Currently identity mappings.
- */
-export const PermissionFlags = {
+// Permission flag numeric values (from discord.js v14)
+const PF = {
   Administrator: PermissionFlagsBits.Administrator,
   ManageGuild: PermissionFlagsBits.ManageGuild,
   ManageChannels: PermissionFlagsBits.ManageChannels,
@@ -32,6 +29,12 @@ export const PermissionFlags = {
   AddReactions: PermissionFlagsBits.AddReactions,
   CreateInstantInvite: PermissionFlagsBits.CreateInstantInvite,
 } as const;
+
+/**
+ * Permission flag mappings that may change in v15.
+ * Currently identity mappings.
+ */
+export const PermissionFlags = PF;
 
 /**
  * Gateway intent mappings that may change in v15.
@@ -88,11 +91,11 @@ export function hasPermission(
 export function isEffectiveAdmin(member: any): boolean {
   if (!member) return false;
   return (
-    member.permissions?.has(PermissionFlagsBits.Administrator) ||
-    member.permissions?.has(PermissionFlagsBits.ManageGuild) ||
-    member.permissions?.has(PermissionFlagsBits.BanMembers) ||
-    member.permissions?.has(PermissionFlagsBits.KickMembers) ||
-    member.permissions?.has(PermissionFlagsBits.ManageChannels) ||
-    member.permissions?.has(PermissionFlagsBits.ManageRoles)
+    member.permissions?.has(PF.Administrator) ||
+    member.permissions?.has(PF.ManageGuild) ||
+    member.permissions?.has(PF.BanMembers) ||
+    member.permissions?.has(PF.KickMembers) ||
+    member.permissions?.has(PF.ManageChannels) ||
+    member.permissions?.has(PF.ManageRoles)
   );
 }
