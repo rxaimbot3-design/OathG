@@ -4594,9 +4594,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     client.on("webhookUpdate", async (channel) => {
       if (!("guild" in channel) || !channel.guild) return;
       const guild = channel.guild;
+      const ctx = getOrCreateGuildContext(guild);
 
       // 16. Advanced Webhook Guard
-      await WebhookGuard.verify(guild);
+      await ctx.getWebhookGuard().verify(guild);
 
       try {
         const entry = await fetchAuditLogWithRetry(guild, AuditLogEvent.WebhookCreate, undefined, 6, 300);
@@ -4779,8 +4780,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     });
 
     client.on("guildIntegrationsUpdate", async (guild) => {
+      const ctx = getOrCreateGuildContext(guild);
+      
       // ALWAS scan for malicious apps immediately, regardless of who added them
-      await OAuthMaliciousAppDetector.scanGuildIntegrations(guild, (msg) => {
+      await ctx.getOAuthMaliciousAppDetector().scanGuildIntegrations(guild, (msg) => {
         addBotLog(msg, "error");
         sendLiveAuditAlert(guild, {
           title: "🚨 MALICIOUS OAUTH APP DETECTED & DELETED",
@@ -4826,6 +4829,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
     client.on("guildBanAdd", async (ban) => {
       const guild = ban.guild;
+      const ctx = getOrCreateGuildContext(guild);
       const startTime = Date.now();
 
       try {
