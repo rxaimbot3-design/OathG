@@ -4441,6 +4441,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
     client.on("guildMemberRemove", async (member) => {
       const guild = member.guild;
+      const ctx = getOrCreateGuildContext(guild);
       const startTime = Date.now();
 
       // Record Leave in Invite Tracker Engine
@@ -4475,8 +4476,8 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         // Trigger Emergency Blind Quarantine to strip admin/kick permissions from all suspect roles below the bot
         await emergencyQuarantine(guild);
 
-        // Initiate Full Channel Lockdown
-        await NukeDefense.lockdown(guild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
+        // Initiate Full Channel Lockdown using GuildContext
+        await ctx.getNukeDefense().lockdown(guild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
         // Fetch Audit Logs to find the Rogue Admin who is kicking
         try {
