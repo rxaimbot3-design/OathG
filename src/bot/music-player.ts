@@ -40,8 +40,6 @@ export interface MusicPlayerService {
 
 export class PlayDlMusicPlayer implements MusicPlayerService {
   async play(guildId: string, query: string, requesterId: string): Promise<TrackInfo | null> {
-    // Play-dl implementation
-    // This is a placeholder that preserves the existing behavior
     console.warn(`[MUSIC] play-dl backend is deprecated. Consider migrating to a maintained alternative.`);
     return null;
   }

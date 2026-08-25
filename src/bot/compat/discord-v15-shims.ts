@@ -70,8 +70,6 @@ export const ChannelTypes = {
  * Returns false until v15 is released and adopted.
  */
 export function isDiscordV15(): boolean {
-  // When v15 is released, check package version or API presence
-  // For now, always false since we're on v14
   return false;
 }
 
