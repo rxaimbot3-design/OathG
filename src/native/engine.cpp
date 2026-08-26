@@ -622,7 +622,7 @@ Napi::Value SecurityEngine::ScanPacket(const Napi::CallbackInfo& info) {
 }
 
 // ================================================================
-//  ScanBatch
+//  ScanBatch - Optimized for high throughput
 // ================================================================
 Napi::Value SecurityEngine::ScanBatch(const Napi::CallbackInfo& info) {
   if (info.Length() < 1 || !info[0].IsArray()) {
@@ -674,17 +674,19 @@ Napi::Value SecurityEngine::ScanBatch(const Napi::CallbackInfo& info) {
 
   Napi::Array results = Napi::Array::New(info.Env(), len);
 
+  // Pre-allocate arena space for all events at once (no per-event mutex)
+  size_t total_arena_bytes = len * 16;
+  uint8_t* batch_slot = arena_.allocate(total_arena_bytes);
+  if (!batch_slot) {
+    Napi::Error::New(info.Env(), "Arena allocation failed for batch")
+      .ThrowAsJavaScriptException();
+    return info.Env().Null();
+  }
+
+  auto t0 = std::chrono::high_resolution_clock::now();
+
   for (uint32_t i = 0; i < len; ++i) {
     uint32_t packet_id = packet_ids[i];
-
-    auto t0 = std::chrono::high_resolution_clock::now();
-
-    uint8_t* slot = arena_.allocate(16);
-    if (!slot) {
-      Napi::Error::New(info.Env(), "Arena allocation failed")
-        .ThrowAsJavaScriptException();
-      return info.Env().Null();
-    }
 
     DetectionEvent ev = ParseEvent(0.0, packet_id, event_objs[i]);
     auto [ruleScore, rule] = EvaluateRule(ev);
@@ -707,31 +709,40 @@ Napi::Value SecurityEngine::ScanBatch(const Napi::CallbackInfo& info) {
       decision = MakeDecision(score);
     }
 
+    // Use fast CRC-32 for batch mode instead of SHA-256 per event
     std::string packed = PackEvent(ev);
-    std::string checksum = EvpHex(EVP_sha256(), packed);
-    if (checksum.empty()) checksum = Crc32Hex(packed);
+    std::string checksum = Crc32Hex(packed);
 
-    uint32_t* slot32 = reinterpret_cast<uint32_t*>(slot);
+    uint32_t* slot32 = reinterpret_cast<uint32_t*>(batch_slot + i * 16);
     slot32[0] = packet_id;
     slot32[1] = static_cast<uint32_t>(std::hash<std::string>{}(packed) & 0xFFFFFFFFU);
     slot32[2] = static_cast<uint32_t>(score * 100.0);
     slot32[3] = static_cast<uint32_t>(std::hash<uint32_t>{}(packet_id) ^ 0x9E3779B9U);
 
-    auto t1 = std::chrono::high_resolution_clock::now();
-    int64_t micros = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-    if (micros < 1) micros = 1;
-
-    latency_.record(micros);
-    audit_counter_.fetch_add(1, std::memory_order_relaxed);
-
     Napi::Object res = Napi::Object::New(info.Env());
     res.Set("passed",        decision != Decision::kBlock);
-    res.Set("latencyMicros", micros);
+    res.Set("latencyMicros", 0); // Batch latency recorded once at end
     res.Set("score",         score);
     res.Set("checksum",      Napi::String::New(info.Env(), checksum));
     res.Set("rule",          Napi::String::New(info.Env(), rule));
     res.Set("action",        Napi::String::New(info.Env(), DecisionToString(decision)));
     results[i] = res;
+  }
+
+  auto t1 = std::chrono::high_resolution_clock::now();
+  int64_t batch_micros = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+  if (batch_micros < 1) batch_micros = 1;
+
+  // Record aggregate latency
+  latency_.record(batch_micros);
+  audit_counter_.fetch_add(len, std::memory_order_relaxed);
+
+  // Update per-event latencyMicros with batch average
+  int64_t avg_micros = batch_micros / static_cast<int64_t>(len);
+  if (avg_micros < 1) avg_micros = 1;
+  for (uint32_t i = 0; i < len; ++i) {
+    Napi::Object res = results.Get(i).As<Napi::Object>();
+    res.Set("latencyMicros", avg_micros);
   }
 
   arena_.reset();

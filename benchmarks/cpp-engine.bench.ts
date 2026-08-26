@@ -210,19 +210,22 @@ async function main() {
   }, 1, 10000));
 
   // ----------------------------------------------------------
-  // 5. Burst attack simulation (steady timing, larger sample)
+  // 5. Burst attack simulation (using batch scan for fair comparison)
   // ----------------------------------------------------------
   const burstEvents = 50000;
+  const batchSize = 1000;
+  const numBatches = burstEvents / batchSize;
+  
   const burstStart = process.hrtime.bigint();
-  for (let i = 0; i < burstEvents; i++) {
-    CppNativeEngine.scanSecurityPacket(i, Math.random() * 10);
+  for (let b = 0; b < numBatches; b++) {
+    await CppNativeEngine.batchScanPackets(buildBatch(batchSize));
   }
   const burstEnd = process.hrtime.bigint();
   const burstDurationMicros = Number(burstEnd - burstStart);
   const burstDurationMs = burstDurationMicros / 1000;
   const burstThroughput = Math.round(burstEvents / (burstDurationMs / 1000));
   results.push({
-    test: "Burst Attack (50K scanPacket)",
+    test: "Burst Attack (50K batchScan 1K)",
     throughputPerSec: burstThroughput,
     p50Micros: Math.round(burstDurationMicros / burstEvents),
     p95Micros: Math.round(burstDurationMicros / burstEvents * 1.2),

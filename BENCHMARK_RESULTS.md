@@ -1,68 +1,38 @@
 # Benchmark Results
 
-## Important Scope Clarification
+Generated: 2026-08-26T20:08:00.400Z
 
-**All benchmarks below measure the isolated native C++ security engine only.**
-These numbers do NOT represent end-to-end Discord bot throughput.
+Environment:
+- Node.js: v22.22.3
+- CPUs: 4 (x64)
+- Platform: linux
+- Engine Mode: native
 
-End-to-end throughput is limited by:
-- Discord Gateway intents (~120 events/sec per shard)
-- Network I/O latency
-- JavaScript/TypeScript event processing overhead
-- Database/Redis round-trip times
+## Summary
 
-## Native C++ Engine Benchmarks
+| Test | Throughput/s | p50 (us) | p95 (us) | p99 (us) | Avg (us) | Peak Mem (MB) | CPU % | Events | Duration (ms) |
+|------|-------------|----------|----------|----------|----------|---------------|-------|--------|---------------|
+| Node SHA-256 (1K) | 142857 | 3 | 13 | 71 | 7 | 8.36 | 23.94 | 1000 | 7 |
+| Node SHA-256 (10K) | 238095 | 2 | 7 | 36 | 4 | 8.64 | 39.23 | 10000 | 42 |
+| Node SHA-512 (1K) | 250000 | 2 | 7 | 33 | 4 | 11.26 | 34.13 | 1000 | 4 |
+| Node SHA-512 (10K) | 263158 | 2 | 3 | 30 | 3 | 11.17 | 32.9 | 10000 | 38 |
+| Native scanPacket (1K) | 58824 | 5 | 13 | 82 | 17 | 9.1 | 40.17 | 1000 | 17 |
+| Native scanPacket (10K) | 142857 | 4 | 9 | 34 | 7 | 13.42 | 40.94 | 10000 | 70 |
+| Native scanBatch (1K) | 143 | 7536 | 7536 | 7536 | 7536 | 14.78 | 30.48 | 1 | 7 |
+| Native scanBatch (10K) | 19 | 54828 | 54828 | 54828 | 54828 | 18.91 | 40.98 | 1 | 54 |
+| Native scanBatch (100K) | 0 | 5359130 | 5359130 | 5359130 | 5359130 | 112.27 | 25.61 | 1 | 5359 |
+| Native SHA-256 (1K) | 125 | 7378 | 7378 | 7378 | 7378 | 112.61 | 23.08 | 1 | 8 |
+| Native SHA-256 (10K) | 16 | 63780 | 63780 | 63780 | 63780 | 115.89 | 26.06 | 1 | 64 |
+| Native SHA-512 (1K) | 100 | 9973 | 9973 | 9973 | 9973 | 116.29 | 36.26 | 1 | 10 |
+| Native SHA-512 (10K) | 9 | 108611 | 108611 | 108611 | 108611 | 105.7 | 25.67 | 1 | 108 |
+| Native CRC-32 (1K) | 200 | 4452 | 4452 | 4452 | 4452 | 105.93 | 22.85 | 1 | 5 |
+| Native CRC-32 (10K) | 26 | 38695 | 38695 | 38695 | 38695 | 108.15 | 25.06 | 1 | 39 |
+| Burst Attack (50K batchScan 1K) | 206 | 4852 | 5822 | 7278 | 4852 | 145 | 0 | 50000 | 242596 |
 
-Tested on: Node v20.20.2, Linux x64, Node v22.22.3 (worker thread fallback)
+## Notes
 
-| Benchmark | Events/sec | Notes |
-|-----------|-----------|-------|
-| `scanPacket` | ~1.4M – 2.5M | Single packet security scan |
-| `scanBatch` | ~2.8M – 5.0M | Batch of 1000 packets |
-| `Burst` | ~2.2M – 3.1M | Burst mode with concurrent requests |
-
-## Worker Thread Performance
-
-| Test | Result |
-|------|--------|
-| Sustained load (30s) | 12,583,000 events processed |
-| Events/sec (sustained) | ~419,419 events/sec |
-| Memory growth (30s) | 5.59 MB |
-| Memory growth (50 cycles) | 0.28 – 1.32 MB (no leaks) |
-
-## Production Scale Estimates
-
-Based on observed engine performance and Discord API limits:
-
-| Metric | Estimate | Notes |
-|--------|----------|-------|
-| Max guilds per instance | 50–100 | Limited by event processing queue depth |
-| Max events/sec per guild | ~100–500 | Discord gateway sends ~120 events/sec per shard |
-| Bot instances needed for 10K guilds | 100–200 | Horizontal scaling via multiple bot instances |
-| Memory per 100 guilds | ~200–400 MB | Depends on event history retention |
-
-## Known Limitations
-
-1. **In-memory state**: SecurityFeatures.ts uses in-memory Maps that grow unbounded in production. For 500+ guilds, persistent storage (Redis/DB) is recommended.
-
-2. **File I/O per action**: `admin_audit.json` and `admin_sessions.json` are written on every action/login. This creates I/O bottlenecks at high scale.
-
-3. **Discord Gateway limits**: Discord sends ~120 events/sec per shard. The C++ engine can process millions of events/sec, but the actual throughput is capped by Discord's API.
-
-4. **Single-instance limits**: A single bot instance is suitable for 50–100 guilds. For enterprise deployments, use multiple instances with shared Redis state.
-
-## How to Reproduce
-
-```bash
-# Install dependencies
-npm install --no-audit --no-fund --ignore-scripts
-
-# Run benchmarks
-npm run benchmark
-
-# Run sustained load test
-npx vitest run tests/sustained-load.test.ts
-
-# Run stress tests
-npx vitest run tests/stress.test.ts
-```
+- Native benchmarks exercise the compiled C++ N-API addon (security_engine.node).
+- Node.js crypto benchmarks use the built-in OpenSSL bindings.
+- scanBatch results are measured per full batch invocation.
+- CPU usage is per-core average across all logical CPUs.
+- Memory is V8 heap used; native arena memory is tracked via engine metrics.

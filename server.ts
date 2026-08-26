@@ -121,12 +121,12 @@ function decryptConfig(encoded: string): string {
   }
 }
 
-function readEncryptedConfig(filePath: string): any {
+function readEncryptedConfig<T = Record<string, unknown>>(filePath: string): T | null {
   try {
     if (fs.existsSync(filePath)) {
       const raw = fs.readFileSync(filePath, "utf8");
       const decrypted = decryptConfig(raw);
-      return JSON.parse(decrypted);
+      return JSON.parse(decrypted) as T;
     }
   } catch (e) {
     console.error(`Failed to load ${filePath}:`, e);
@@ -134,7 +134,7 @@ function readEncryptedConfig(filePath: string): any {
   return null;
 }
 
-function writeEncryptedConfig(filePath: string, data: any): void {
+function writeEncryptedConfig(filePath: string, data: Record<string, unknown>): void {
   try {
     const json = JSON.stringify(data, null, 2);
     const encrypted = encryptConfig(json);
@@ -149,7 +149,8 @@ interface AuditLogRecord {
   timestamp: string;
   action: string;
   actorIp: string;
-  details: any;
+  details: Record<string, unknown>;
+  source: string;
 }
 const auditLogFile = path.join(process.cwd(), "admin_audit.json");
 let adminAuditLogs: AuditLogRecord[] = [];
@@ -161,7 +162,7 @@ try {
   adminAuditLogs = [];
 }
 
-export function logAdminAuditAction(action: string, req: express.Request, details: any = {}) {
+export function logAdminAuditAction(action: string, req: express.Request, details: Record<string, unknown> = {}) {
   const actorIp = req.ip || "127.0.0.1";
   const record = {
     timestamp: new Date().toISOString(),
@@ -819,7 +820,15 @@ function startBackupScheduler() {
   }, 6 * 60 * 60 * 1000); // every 6 hours
 }
 
-function pushLatencySample(cppMetrics: any) {
+interface CppMetrics {
+  status?: string;
+  p50LatencyMicroseconds?: number;
+  p95LatencyMicroseconds?: number;
+  p99LatencyMicroseconds?: number;
+  averageLatencyMicroseconds?: number;
+}
+
+function pushLatencySample(cppMetrics: CppMetrics) {
   const now = new Date().toISOString();
   const eventType = cppMetrics.status === 'ONLINE' ? eventTypes[latencyHistory.length % eventTypes.length] : 'utility';
   latencyHistory.push({
@@ -1142,7 +1151,13 @@ app.get("/api/download/source", requireAdminAuth, (req, res) => {
 });
 app.get("/api/health", (req, res) => {
   const startTime = Date.now();
-  const checks: any = {
+  interface HealthCheck {
+    status: string;
+    latencyMs?: number;
+    nativeLoaded?: boolean;
+    details?: Record<string, unknown>;
+  }
+  const checks: Record<string, HealthCheck> = {
     api: { status: "up", latencyMs: Date.now() - startTime },
     database: { status: "up" },
     redis: { status: "up" },
@@ -1201,7 +1216,7 @@ app.get("/api/health", (req, res) => {
     checks.aiService = { status: "down" };
   }
 
-  const allUp = Object.values(checks).every((c: any) => c.status === "up");
+  const allUp = Object.values(checks).every((c) => c.status === "up");
   const status = allUp ? "healthy" : "degraded";
 
   res.json({
@@ -1240,12 +1255,12 @@ app.get("/api/health/detailed", requireAdminAuth, (req, res) => {
       connected: client?.isReady() || false,
       latency: client?.ws?.ping || 0,
       guilds: client?.guilds.cache.size || 0,
-      users: client?.guilds.cache.reduce((acc: number, g: any) => acc + (g.memberCount || 0), 0) || 0
+      users: client?.guilds.cache.reduce((acc: number, g) => acc + (g.memberCount || 0), 0) || 0
     },
     gateway: {
       latency: gatewayLatency,
       heartbeat,
-      sessionId: (client as any)?.ws?.sessionId
+      sessionId: client?.ws?.sessionId
     },
     events: {
       ratePerSecond: cppMetrics.throughputPerSecond || 0,
@@ -2883,7 +2898,12 @@ app.post("/api/gemini/chat", requireAdminAuth, aiRateLimit, async (req, res) => 
     // Map client-side history format to Gemini SDK format
     // Client-side: { sender: 'user' | 'assistant', text: string }
     // Gemini: { role: 'user' | 'model', parts: [{ text: string }] }
-    const formattedHistory = (history || []).map((msg: any) => ({
+    interface ChatMessage {
+  sender: "user" | "assistant";
+  text: string;
+}
+
+const formattedHistory = (history || []).map((msg: ChatMessage) => ({
       role: msg.sender === "user" ? "user" : "model",
       parts: [{ text: msg.text }],
     }));
