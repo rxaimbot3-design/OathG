@@ -6,6 +6,7 @@ import path from "path";
 import { Buffer } from "buffer";
 import { TtlMap, LruMap } from "./security/MapManager.js";
 import { withExponentialBackoff } from "./bot/utils.js";
+import { aiServiceMonitor } from "./core/ai-service-monitor.js";
 
 const AI_QUOTA_WARNING = "AI Quota limit reached in SecurityFeatures.";
 
@@ -633,7 +634,6 @@ export class AIDeepScan {
       const score = numberMatch ? parseInt(numberMatch[0]) : 0;
       
       // Record successful call
-      const { aiServiceMonitor } = require("../core/ai-service-monitor");
       aiServiceMonitor.recordCall(true);
       
       return isNaN(score) ? 0 : score;
@@ -641,7 +641,6 @@ export class AIDeepScan {
       const errStr = String(error?.message || error).toLowerCase();
       
       // Record failed call
-      const { aiServiceMonitor } = require("../core/ai-service-monitor");
       aiServiceMonitor.recordCall(false, error?.message || String(error));
       
       if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
