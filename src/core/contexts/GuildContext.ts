@@ -30,6 +30,8 @@ import { ForumChannelProtectionInstance } from "../../security/forum-channel-pro
 import { AIRaidPredictionInstance } from "../../security/ai-raid-prediction";
 import { HoneypotAdminRoleInstance } from "../../security/honeypot-admin-role";
 
+import { botContext } from "./BotContext";
+
 // ============================================================
 // GuildContext Implementation
 // ============================================================
@@ -179,4 +181,19 @@ export class GuildContext {
     this.stateStore.clear(this.guild.id);
     this._initialized = false;
   }
+}
+
+// Map to store GuildContext instances by guild ID
+const guildContextMap = new Map<string, GuildContext>();
+
+/**
+ * Get or create a GuildContext for a guild.
+ */
+export function getGuildContext(guild: Guild, botContextInstance: typeof botContext): GuildContext {
+  let context = guildContextMap.get(guild.id);
+  if (!context) {
+    context = new GuildContext(guild, botContextInstance);
+    guildContextMap.set(guild.id, context);
+  }
+  return context;
 }
