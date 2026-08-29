@@ -2,10 +2,6 @@
 import fs from "fs";
 import path from "path";
 import { GoogleGenAI } from "@google/genai";
-import { Readable } from "stream";
-import { spawn } from "child_process";
-import https from "https";
-import http from "http";
 import { 
   Client, 
   GatewayIntentBits, 
@@ -34,175 +30,88 @@ import {
   ChatInputCommandInteraction,
   Message
 } from "discord.js";
-import { 
-  TokenVault, OwnerLock, EnvScanner, DMFirewall, SlashOnly, AntiPhishing, RateLimiter, 
-  AuditLogMonitor, DailyBackup, AnomalyAI, CanaryToken, NukeDefense, GlobalIntelligence, 
-  WebhookGuard, AutoHeal, AIDeepScan, Quarantine, TemporalRaidLock, SentimentTracker, 
-  BehaviorScoring, HoneypotAdminRole, SessionHijackDetector, OAuthMaliciousAppDetector, 
-  BotTokenRotationSystem, AutoPermissionRollback, ServerSnapshotRestore, AntiVanityHijack, 
-  EmojiStickerProtection, ForumChannelProtection, AIRaidPrediction, AISecurityReport, 
-  AICommandAssistant, MongoRedisEngine, PremiumLicenseSystem, IPBanSystem, AutoBackupEngine, 
-  JoinLimitShield, AntiInviteShield, InviteTrackerEngine, ZeroTrustSecurityEngine, AiRaidPredictionEngine, atomicWriteJsonSync 
+import {
+  getAppBaseUrl,
+  sanitizeInput,
+  withTimeout,
+  withExponentialBackoff,
+  createSafeEmbed,
+  validateChannelType,
+  checkPermissionHierarchy,
+  safeCreateMessageCollector,
+  safeReply,
+  safeDeferReply,
+  CommandCooldownManager
+} from "./src/bot/utils.js";
+import {
+   TokenVault, OwnerLock, EnvScanner, DMFirewall, SlashOnly, AntiPhishing, RateLimiter, 
+   AuditLogMonitor, DailyBackup, AnomalyAI, CanaryToken, NukeDefense, GlobalIntelligence, 
+   WebhookGuard, AutoHeal, AIDeepScan, Quarantine, TemporalRaidLock, SentimentTracker, 
+   BehaviorScoring, HoneypotAdminRole, SessionHijackDetector, OAuthMaliciousAppDetector, 
+    BotTokenRotationSystem, AutoPermissionRollback, ServerSnapshotRestore, AutoBackupEngine, AntiVanityHijack, 
+   EmojiStickerProtection, ForumChannelProtection, AIRaidPrediction, AISecurityReport, 
+   AICommandAssistant, MongoRedisEngine, PremiumLicenseSystem, IPBanSystem, 
+   JoinLimitShield, AntiInviteShield, InviteTrackerEngine, ZeroTrustSecurityEngine, AiRaidPredictionEngine, atomicWriteJsonSync 
 } from "./src/SecurityFeatures.js";
+// New modular imports (gradual migration)
+import { botContext } from "./src/core/contexts/BotContext.js";
+import { GuildContext, getGuildContext } from "./src/core/contexts/GuildContext.js";
 import { validateEnvironmentVariables } from "./src/EnvValidator.js";
 import { CppNativeEngine } from "./src/CppEngine.js";
-import { getOrCreateGuildMusicState, getAudioStreamDetails } from "./src/services/MusicManager.js";
-import { playAudioInGuild, stopAudioInGuild, pauseAudioInGuild, resumeAudioInGuild } from "./src/services/VoiceService.js";
 
-export function getAppBaseUrl(): string {
-  if (process.env.APP_URL) return process.env.APP_URL;
-  if (process.env.PUBLIC_APP_URL) return process.env.PUBLIC_APP_URL;
-  if (process.env.RENDER_EXTERNAL_URL) return process.env.RENDER_EXTERNAL_URL;
-  if (process.env.RAILWAY_PUBLIC_DOMAIN) return `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
-  const port = process.env.PORT || 3000;
-  return `http://localhost:${port}`;
+// ==================== PERMISSION HELPERS ====================
+
+/**
+ * Check if the bot has sufficient permissions for a specific operation.
+ * Returns true if the bot has the required permissions, false otherwise.
+ */
+function hasBotPermission(guild: Guild, requiredPerms: PermissionFlagsBits[]): boolean {
+  const me = guild.members.me;
+  if (!me) return false;
+  
+  for (const perm of requiredPerms) {
+    if (!me.permissions.has(perm)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Check if a user has admin-level permissions (without requiring full Administrator).
+ * This allows users with specific management permissions to be treated as admins.
+ */
+function hasEffectiveAdminPermission(member: GuildMember | null): boolean {
+  if (!member) return false;
+  return member.permissions.has(PermissionFlagsBits.Administrator) ||
+         member.permissions.has(PermissionFlagsBits.ManageGuild) ||
+         member.permissions.has(PermissionFlagsBits.BanMembers) ||
+         member.permissions.has(PermissionFlagsBits.KickMembers) ||
+         member.permissions.has(PermissionFlagsBits.ManageChannels) ||
+         member.permissions.has(PermissionFlagsBits.ManageRoles);
 }
 
 // ==================== STABILITY & SAFETY HELPERS ====================
-export async function safeReply(interaction: any, payload: any) {
-  try {
-    if (!interaction) return null;
-    if (interaction.replied || interaction.deferred) {
-      return await interaction.editReply(payload);
-    } else {
-      return await interaction.reply(payload);
-    }
-  } catch (err) {
-    console.error("safeReply exception:", err);
-    try {
-      return await interaction.followUp(payload);
-    } catch (err2) {
-      console.error("safeReply followUp fallback exception:", err2);
-      return null;
-    }
-  }
-}
 
-export async function safeDeferReply(interaction: any, ephemeral: boolean = true) {
-  try {
-    if (!interaction) return;
-    if (!interaction.replied && !interaction.deferred) {
-      const options: any = {};
-      if (ephemeral) {
-        options.flags = MessageFlags.Ephemeral;
-      }
-      await interaction.deferReply(options);
-    }
-  } catch (err) {
-    console.error("safeDeferReply exception:", err);
-  }
+// Helper to get or create GuildContext for a guild
+function getOrCreateGuildContext(guild: Guild): GuildContext {
+  return getGuildContext(guild, botContext);
 }
-
 
 // Global Module Tracker State
 export const userSpamTracker = new Map<string, number[]>();
 export const userViolations = new Map<string, { count: number, timestamp: number }>();
 export let presenceRotatorInterval: NodeJS.Timeout | null = null;
 
+async function withRetry<T>(op: () => Promise<T>, label: string): Promise<T | undefined> {
+  try {
+    return await withExponentialBackoff(op, 3, 1000);
+  } catch (err: any) {
+    addBotLog(`🚨 CRITICAL: Discord API failure [${label}]: ${err.message}`, "error");
+  }
+}
+
 // ==================== ENTERPRISE UTILITY & PRIVACY HELPERS ====================
-
-// 1. Command Cooldown Manager (Per-user, per-command tracking with atomic lock)
-export class CommandCooldownManager {
-  private static cooldowns = new Map<string, Map<string, number>>();
-  private static locks = new Set<string>();
-
-  static checkAndSet(userId: string, commandName: string, cooldownSeconds: number = 3): { onCooldown: boolean; remaining: number } {
-    const lockKey = `${commandName}:${userId}`;
-    if (this.locks.has(lockKey)) {
-      return { onCooldown: true, remaining: cooldownSeconds };
-    }
-    this.locks.add(lockKey);
-
-    try {
-      if (!this.cooldowns.has(commandName)) {
-        this.cooldowns.set(commandName, new Map());
-      }
-      const timestamps = this.cooldowns.get(commandName)!;
-      const now = Date.now();
-      const cooldownAmount = cooldownSeconds * 1000;
-
-      if (timestamps.has(userId)) {
-        const expirationTime = timestamps.get(userId)! + cooldownAmount;
-        if (now < expirationTime) {
-          const remaining = (expirationTime - now) / 1000;
-          return { onCooldown: true, remaining };
-        }
-      }
-
-      timestamps.set(userId, now);
-      return { onCooldown: false, remaining: 0 };
-    } finally {
-      this.locks.delete(lockKey);
-    }
-  }
-
-  static clear() {
-    this.cooldowns.clear();
-    this.locks.clear();
-  }
-
-  static cleanup() {
-    const now = Date.now();
-    for (const [cmd, timestamps] of this.cooldowns.entries()) {
-      for (const [userId, time] of timestamps.entries()) {
-        if (now - time > 60000) { // 1 min threshold
-          timestamps.delete(userId);
-        }
-      }
-      if (timestamps.size === 0) {
-        this.cooldowns.delete(cmd);
-      }
-    }
-  }
-}
-
-// 2. Input Sanitization Engine (Injection & Buffer Overflow Protection)
-export function sanitizeInput(input: string, maxLength: number = 2000): string {
-  if (!input || typeof input !== "string") return "";
-  // 0. Normalize Unicode to NFKC
-  let clean = input.normalize("NFKC");
-  // 1. Strip all ASCII Control chars, Zero-Width chars, & Bi-Directional/RTL Overrides (\u202E, \u202D, \u202A-\u202C, \u200E, \u200F, \u2066-\u2069, \u061C, \uFEFF)
-  clean = clean.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200F\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\u061C\uFEFF]/gu, "");
-  // 2. Strip SQL & Script Injection Markers
-  clean = clean.replace(/(--|;|\/\*|\*\/|<script.*?>|<\/script>)/gi, "");
-  // 3. Limit repeating combining characters (Zalgo / crash texts)
-  clean = clean.replace(/[\u0300-\u036F\u1DC0-\u1DFF\u20D0-\u20FF\uFE20-\uFE2F]{3,}/gu, "");
-  // 4. Strip unauthorized Discord invite links
-  clean = clean.replace(/(https?:\/\/)?(www\.)?(discord\.gg|discord\.com\/invite)\/[a-zA-Z0-9]+/gi, "[INVITE-REMOVED]");
-  return clean.trim().slice(0, maxLength);
-}
-
-// 3. Operation Timeout Guard
-export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number = 10000, fallbackMessage: string = "Operation timed out"): Promise<T> {
-  let timer: NodeJS.Timeout;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(fallbackMessage)), timeoutMs);
-  });
-  // Prevent unhandled promise rejections if the original promise fails after the timeout
-  promise.catch(() => {});
-  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
-}
-
-// 4. Rate Limit Exponential Backoff Strategy
-export async function withExponentialBackoff<T>(operation: () => Promise<T>, maxRetries: number = 4, initialDelay: number = 1000): Promise<T> {
-  let delay = initialDelay;
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await operation();
-    } catch (err: any) {
-      const isRateLimit = err?.status === 429 || err?.code === 429 || err?.message?.includes("429") || err?.message?.includes("rate limit");
-      const retryAfter = err?.retryAfter || (err?.rawError?.retry_after ? err.rawError.retry_after * 1000 : null) || delay;
-      if (isRateLimit && attempt < maxRetries) {
-        console.warn(`⏳ Rate Limit Hit (429). Retrying in ${retryAfter}ms (Attempt ${attempt}/${maxRetries})...`);
-        await new Promise(res => setTimeout(res, retryAfter));
-        delay *= 2;
-      } else {
-        throw err;
-      }
-    }
-  }
-  throw new Error("Max retries exceeded");
-}
 
 // 5. GDPR Compliance & User Data Privacy Engine
 export class GDPRPrivacyEngine {
@@ -210,7 +119,7 @@ export class GDPRPrivacyEngine {
     return {
       userId,
       exportedAt: new Date().toISOString(),
-      privacyCompliance: "GDPR Compliant",
+      privacyCompliance: "GDPR-oriented privacy controls",
       trackedViolations: userViolations.get(userId) || null,
       ipBanStatus: IPBanSystem.isBanned(userId) ? "Active Ban" : "Clean",
       dataRetentionPolicy: "Transient logs only, no persistent database tracking of message text."
@@ -225,89 +134,6 @@ export class GDPRPrivacyEngine {
   }
 }
 
-// 6. Embed Validation & Size Protection Helper
-export function createSafeEmbed(data: {
-  title?: string;
-  description?: string;
-  color?: number;
-  thumbnail?: string | null;
-  fields?: { name: string; value: string; inline?: boolean }[];
-  footer?: { text: string; iconURL?: string };
-  author?: { name: string; iconURL?: string };
-}): EmbedBuilder {
-  const embed = new EmbedBuilder();
-  if (data.title) embed.setTitle(sanitizeInput(data.title, 250));
-  if (data.description) embed.setDescription(sanitizeInput(data.description, 3900));
-  if (data.color !== undefined) embed.setColor(data.color);
-  if (data.thumbnail) embed.setThumbnail(data.thumbnail);
-  if (data.footer?.text) embed.setFooter({ text: sanitizeInput(data.footer.text, 200), iconURL: data.footer.iconURL });
-  if (data.author?.name) embed.setAuthor({ name: sanitizeInput(data.author.name, 250), iconURL: data.author.iconURL });
-
-  if (data.fields && Array.isArray(data.fields)) {
-    const safeFields = data.fields.slice(0, 24).map(f => ({
-      name: sanitizeInput(f.name || "Field", 250) || "Field",
-      value: sanitizeInput(f.value || "N/A", 1020) || "N/A",
-      inline: !!f.inline
-    }));
-    embed.addFields(safeFields);
-  }
-  return embed;
-}
-
-// 7. Channel Type Guard Helper
-export function validateChannelType(channel: any, expectedTypes: ChannelType[]): { valid: boolean; typeName: string } {
-  if (!channel || !channel.type) return { valid: false, typeName: "Unknown" };
-  const valid = expectedTypes.includes(channel.type);
-  const typeName = ChannelType[channel.type] || `${channel.type}`;
-  return { valid, typeName };
-}
-
-// 8. Permission Hierarchy Respect Engine
-export function checkPermissionHierarchy(executor: GuildMember, target: GuildMember, botMember?: GuildMember): { allowed: boolean; reason?: string } {
-  if (!executor || !target) return { allowed: false, reason: "Invalid member objects." };
-  if (executor.guild.ownerId === executor.id) {
-    if (botMember && botMember.roles.highest.position <= target.roles.highest.position && target.guild.ownerId !== botMember.id) {
-      return { allowed: false, reason: "Bot's highest role is equal to or lower than target member's role." };
-    }
-    return { allowed: true };
-  }
-
-  if (target.id === target.guild.ownerId) {
-    return { allowed: false, reason: "Target member is the Server Owner." };
-  }
-
-  if (executor.roles.highest.position <= target.roles.highest.position) {
-    return { allowed: false, reason: "Your highest role is not above the target member's highest role." };
-  }
-
-  if (botMember && botMember.roles.highest.position <= target.roles.highest.position) {
-    return { allowed: false, reason: "Bot's highest role is equal to or lower than target member's highest role." };
-  }
-
-  return { allowed: true };
-}
-
-// 9. Memory Safe Message Collector with Auto Cleanup
-export function safeCreateMessageCollector(channel: TextChannel, filter: (m: any) => boolean, options: { time?: number; max?: number } = {}) {
-  try {
-    const timeoutMs = options.time || 60000;
-    const collector = channel.createMessageCollector({ filter, ...options, time: timeoutMs });
-    
-    const timer = setTimeout(() => {
-      if (!collector.ended) collector.stop("timeout");
-    }, timeoutMs + 1000);
-
-    collector.on("end", () => {
-      clearTimeout(timer);
-      collector.removeAllListeners();
-    });
-
-    return collector;
-  } catch (err) {
-    console.error("safeCreateMessageCollector failed:", err);
-    return null;
-  }
-}
 
 // Lazy Gemini helper instance
 const ai = {
@@ -339,7 +165,7 @@ async function rollbackWhitelistedAdminActions(executorId: string, guild: Guild)
     try {
       if (action.type === "ban") {
         if (!guild.members.me?.permissions.has(PermissionFlagsBits.BanMembers)) continue;
-        await guild.bans.remove(action.targetId, "Zero Trust Self-Healing: Reverting compromised admin ban").catch(() => {});
+        await guild.bans.remove(action.targetId, "Zero Trust Self-Healing: Reverting compromised admin ban").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
         addBotLog(`✅ Unbanned victim user <@${action.targetId}>`, "info");
       } else if (action.type === "channelDelete") {
         if (!guild.members.me?.permissions.has(PermissionFlagsBits.ManageChannels)) continue;
@@ -386,7 +212,7 @@ function recordWhitelistAction(executorId: string, guild: Guild) {
 
   // Track actions for any administrator / privileged user to prevent compromise
   const attacker = guild.members.cache.get(executorId);
-  const isPrivileged = executorId === guild.ownerId || ownerWhitelist.includes(executorId) || (attacker && attacker.permissions.has(PermissionFlagsBits.Administrator));
+  const isPrivileged = executorId === guild.ownerId || ownerWhitelist.includes(executorId) || hasEffectiveAdminPermission(attacker);
 
   if (isPrivileged) {
     const now = Date.now();
@@ -401,12 +227,12 @@ function recordWhitelistAction(executorId: string, guild: Guild) {
       
       if (executorId === guild.ownerId) {
         sendOwnerCompromisedWarning(guild);
-        NukeDefense.lockdown(guild).catch(() => {});
+        NukeDefense.lockdown(guild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
         rollbackWhitelistedAdminActions(executorId, guild).catch(() => {});
         addBotLog(`🔒 [ZERO TRUST] Server auto-locked to protect against suspected Owner compromise!`, "error");
       } else {
         // Not the owner -> Auto Ban + Strip roles instantly!
-        punishRogueAdmin(guild, executorId, "Compromised Privileged Account Shield", "Exceeded admin action velocity limit (8 actions in 10s)").catch(() => {});
+        punishRogueAdmin(guild, executorId, "Compromised Privileged Account Shield", "Exceeded admin action velocity limit (8 actions in 10s)").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
         rollbackWhitelistedAdminActions(executorId, guild).catch(() => {});
         
         // Notify owner
@@ -462,8 +288,6 @@ export interface SecurityStats {
   blockedAttacksCount: number;
   real100NukerDefenseActive: boolean;
   panicLockdownActive: boolean;
-  verifiedRoleChannelAuditStatus: string;
-  verifiedRoleName: string;
   lockedVCsCount: number;
   unlockedVCsCount: number;
   hiddenChannelsCount: number;
@@ -510,17 +334,36 @@ export function setPanicLockdown(active: boolean, autoResetMs = 15 * 60 * 1000) 
     }, autoResetMs);
   }
 }
-let verifiedRoleName = "Verified";
 let ownerWhitelist: string[] = []; // Array of user IDs explicitly whitelisted by owner
 let approvedBots: string[] = []; // Array of bot user IDs explicitly approved by the owner
 let strictAdminFreeze = false; // If true, non-whitelisted administrators are frozen. Server Owner and Whitelisted members maintain full access.
 
 const DATA_FILE = path.join(process.cwd(), "whitelist_data.json");
 
+function signWhitelistData(data: any): string {
+  const json = JSON.stringify(data);
+  const mac = (crypto as any).createHmac("sha256", process.env.ADMIN_SECRET || "").update(json).digest("hex");
+  return JSON.stringify({ data, mac });
+}
+
+function verifyWhitelistData(encoded: string): any {
+  try {
+    const parsed = JSON.parse(encoded);
+    if (!parsed.data || !parsed.mac) return null;
+    const json = JSON.stringify(parsed.data);
+    const expectedMac = (crypto as any).createHmac("sha256", process.env.ADMIN_SECRET || "").update(json).digest("hex");
+    if (parsed.mac !== expectedMac) return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
 function loadWhitelistState() {
   try {
     if (fs.existsSync(DATA_FILE)) {
-      const data = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+      const raw = fs.readFileSync(DATA_FILE, "utf-8");
+      const data = verifyWhitelistData(raw) || JSON.parse(raw);
       if (Array.isArray(data.ownerWhitelist)) ownerWhitelist = data.ownerWhitelist;
       if (Array.isArray(data.approvedBots)) approvedBots = data.approvedBots;
       if (typeof data.blockedAttacksCount === "number") blockedAttacksCount = data.blockedAttacksCount;
@@ -538,7 +381,8 @@ export function saveWhitelistState() {
       approvedBots,
       blockedAttacksCount
     };
-    atomicWriteJsonSync(DATA_FILE, data);
+    const signed = signWhitelistData(data);
+    fs.writeFileSync(DATA_FILE, signed, "utf-8");
   } catch (err: any) {
     console.error("Failed to save whitelist data:", err.message);
   }
@@ -580,6 +424,52 @@ const recentWhitelistedActions = new Map<string, {
   timestamp: number;
 }[]>();
 
+// Periodic cleanup for unbounded global trackers (prevents memory leaks in long-running bots)
+setInterval(() => {
+  const now = Date.now();
+  const maxAge = 30 * 60 * 1000; // 30 minutes
+
+  for (const [guildId, actions] of globalBanActions) {
+    const filtered = actions.filter(a => now - a.timestamp < maxAge);
+    if (filtered.length === 0) globalBanActions.delete(guildId);
+    else globalBanActions.set(guildId, filtered);
+  }
+
+  for (const [guildId, timestamps] of globalJoinHistory) {
+    const filtered = timestamps.filter(t => now - t < maxAge);
+    if (filtered.length === 0) globalJoinHistory.delete(guildId);
+    else globalJoinHistory.set(guildId, filtered);
+  }
+
+  for (const [guildId, timestamps] of globalLeaveHistory) {
+    const filtered = timestamps.filter(t => now - t < maxAge);
+    if (filtered.length === 0) globalLeaveHistory.delete(guildId);
+    else globalLeaveHistory.set(guildId, filtered);
+  }
+
+  for (const [guildId, actions] of recentWhitelistedActions) {
+    const filtered = actions.filter(a => now - a.timestamp < 30000);
+    if (filtered.length === 0) recentWhitelistedActions.delete(guildId);
+    else recentWhitelistedActions.set(guildId, filtered);
+  }
+
+  for (const [userId, times] of whitelistActionTimestamps) {
+    const filtered = times.filter(t => now - t < 10000);
+    if (filtered.length === 0) whitelistActionTimestamps.delete(userId);
+    else whitelistActionTimestamps.set(userId, filtered);
+  }
+
+  for (const [userId, data] of userSpamTracker) {
+    const filtered = data.filter(t => now - t < 60000);
+    if (filtered.length === 0) userSpamTracker.delete(userId);
+    else userSpamTracker.set(userId, filtered);
+  }
+
+  for (const [userId, data] of userViolations) {
+    if (now - data.timestamp > 3600000) userViolations.delete(userId);
+  }
+}, 5 * 60 * 1000);
+
 export function addBotLog(message: string, type: BotLog["type"] = "info") {
   const timestamp = new Date().toLocaleTimeString();
   botLogs.unshift({ timestamp, type, message });
@@ -600,7 +490,7 @@ export function getDiscordBotStatus() {
   const tokenConfigured = !!process.env.DISCORD_BOT_TOKEN;
   const clientId = process.env.DISCORD_CLIENT_ID || "";
   const inviteLink = clientId 
-    ? `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=1099511627775&scope=bot%20applications.commands`
+    ? `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=35973659687&scope=bot%20applications.commands`
     : "";
 
   let latency = 0;
@@ -675,8 +565,6 @@ export function getSecurityStats(): SecurityStats {
     blockedAttacksCount,
     real100NukerDefenseActive: true,
     panicLockdownActive,
-    verifiedRoleChannelAuditStatus: "100/100 Enforced & Audited",
-    verifiedRoleName,
     lockedVCsCount,
     unlockedVCsCount,
     hiddenChannelsCount,
@@ -938,11 +826,11 @@ function checkCommandPermission(
     return { allowed: true };
   }
 
-  if (options.requireAdmin && (member?.permissions?.has(PermissionFlagsBits.Administrator) || member?.permissions?.has(PermissionFlagsBits.ManageGuild))) {
+  if (options.requireAdmin && hasEffectiveAdminPermission(member)) {
     return { allowed: true };
   }
 
-  return { allowed: false, reason: "⛔ Insufficient permissions: Administrator or Manage Guild permission required." };
+  return { allowed: false, reason: "⛔ Insufficient permissions: Administrator, Manage Server, or moderation permissions required." };
 }
 
 async function notifyServerOwner(guild: Guild, executorId: string, actionType: string, victimDetails: string, success: boolean, errorMsg: string) {
@@ -960,7 +848,9 @@ async function notifyServerOwner(guild: Guild, executorId: string, actionType: s
                  "• **Victim Details:** " + victimDetails + "\n" +
                  "• **Rogue Admin:** <@" + executorId + "> (`" + executorId + "`)\n" +
                  "• **Status:** ✅ Rogue admin was **BANNED & Roles Stripped** instantly by Zero Trust policy."
-      }).catch(() => {});
+      }).catch((err) => {
+        addBotLog(`⚠️ Could not send success DM to server owner: ${err.message}`, "warning");
+      });
     } else {
       await dm.send({
         content: "⚠️ **CRITICAL ZERO TRUST ALERT (" + guild.name + ")**\n\n" +
@@ -972,9 +862,11 @@ async function notifyServerOwner(guild: Guild, executorId: string, actionType: s
                  "👉 **ACTION REQUIRED BY SERVER OWNER IMMEDIATELY:**\n" +
                  "1. Open **Server Settings -> Roles**\n" +
                  "2. Drag the **Bot's Role to the VERY TOP** of the Role list (above all Admin/Staff roles)\n" +
-                 "3. Ensure the Bot has **Ban Members**, **Manage Roles**, and **View Audit Log** permissions\n" +
+                 "3. Ensure the Bot has **Ban Members**, **Manage Roles**, and **View Audit Log** permissions!\n" +
                  "4. Manually ban <@" + executorId + ">"
-      }).catch(() => {});
+      }).catch((err) => {
+        addBotLog(`⚠️ Could not send failure DM to server owner: ${err.message}`, "warning");
+      });
     }
     addBotLog("📩 [OWNER NOTIFIED] Direct DM alert sent to Server Owner <@" + guild.ownerId + "> regarding Rogue Admin <@" + executorId + ">.", "info");
   } catch (e: any) {
@@ -1033,7 +925,9 @@ export async function punishRogueAdmin(guild: Guild, executorId: string, actionT
             ManageChannels: false,
             ManageRoles: false,
             ManageWebhooks: false
-          }, { reason: `Zero Trust Emergency Lockout: Unauthorized ${actionType}` }).catch(() => {});
+          }, { reason: `Zero Trust Emergency Lockout: Unauthorized ${actionType}` }).catch((err: any) => {
+            addBotLog(`⚠️ Could not create permission overwrite for <@${executorId}> on channel ${ch.id}: ${err.message}`, "warning");
+          });
         }
       }
       addBotLog(`🔒 [ZERO TRUST LOCKOUT] Applied channel permission isolation cage to Rogue Admin ID ${executorId} across all channels!`, "success");
@@ -1048,18 +942,20 @@ export async function punishRogueAdmin(guild: Guild, executorId: string, actionT
     await attacker.roles.set([], `Zero Trust Policy: ${actionType}`).then(() => {
       addBotLog(`🛡️ [ZERO TRUST] Stripped all roles from Rogue Admin <@${executorId}>`, "info");
       success = true;
-    }).catch(async (e) => {
-      addBotLog(`⚠️ Could not strip all roles from Rogue Admin <@${executorId}>: ${e.message}. Attempting individual lower role removal...`, "warning");
-      if (me) {
-        const removableRoles = attacker.roles.cache.filter(r => r.id !== guild.id && r.position < me.roles.highest.position);
-        if (removableRoles.size > 0) {
-          await attacker.roles.remove(removableRoles, `Zero Trust: Stripping staff roles`).then(() => {
-            addBotLog(`🛡️ [ZERO TRUST] Stripped ${removableRoles.size} staff roles from Rogue Admin <@${executorId}>!`, "info");
-            success = true;
-          }).catch(() => {});
-        }
-      }
-    });
+          }).catch(async (e) => {
+            addBotLog(`⚠️ Could not strip all roles from Rogue Admin <@${executorId}>: ${e.message}. Attempting individual lower role removal...`, "warning");
+            if (me) {
+              const removableRoles = attacker.roles.cache.filter(r => r.id !== guild.id && r.position < me.roles.highest.position);
+              if (removableRoles.size > 0) {
+                await attacker.roles.remove(removableRoles, `Zero Trust: Stripping staff roles`).then(() => {
+                  addBotLog(`🛡️ [ZERO TRUST] Stripped ${removableRoles.size} staff roles from Rogue Admin <@${executorId}>!`, "info");
+                  success = true;
+                }).catch((err) => {
+                  addBotLog(`❌ Failed to remove individual roles from Rogue Admin <@${executorId}>: ${err.message}`, "error");
+                });
+              }
+            }
+          });
 
     // 3. Direct Member Ban
     await attacker.ban({ deleteMessageSeconds: 604800, reason: `Zero Trust IP Ban: ${actionType}` }).then(() => {
@@ -1117,6 +1013,16 @@ export async function punishRogueAdmin(guild: Guild, executorId: string, actionT
     color: success ? 0xDC2626 : 0xF59E0B
   });
   await notifyServerOwner(guild, executorId, actionType, victimDetails, success, errorMsg);
+
+  // Fail-closed: if all enforcement actions failed, escalate to lockdown
+  if (!success) {
+    addBotLog(`🚨 [FAIL-CLOSED] All enforcement actions failed for Rogue Admin <@${executorId}>. Escalating to lockdown.`, "error");
+    try {
+      setPanicLockdown(true, 3600000); // 1 hour lockdown
+    } catch {
+      // ignore
+    }
+  }
 }
 
 
@@ -1163,7 +1069,9 @@ async function emergencyQuarantine(guild: Guild): Promise<void> {
     for (const [id, role] of roles) {
         if (role.position < botRolePosition && !role.managed && id !== guild.id) {
             if (role.permissions.has("Administrator") || role.permissions.has("ManageChannels") || role.permissions.has("ManageRoles") || role.permissions.has("ManageGuild")) {
-                await role.setPermissions(role.permissions.remove(["Administrator", "ManageChannels", "ManageRoles", "ManageGuild", "ManageWebhooks", "BanMembers", "KickMembers"]), "GOD MODE: Quarantining Rogue Roles").catch(() => {});
+                await role.setPermissions(role.permissions.remove(["Administrator", "ManageChannels", "ManageRoles", "ManageGuild", "ManageWebhooks", "BanMembers", "KickMembers"]), "GOD MODE: Quarantining Rogue Roles").catch((err) => {
+                    addBotLog(`⚠️ Could not quarantine role <@${role.id}>: ${err.message}`, "warning");
+                });
             }
         }
     }
@@ -1174,7 +1082,9 @@ async function emergencyQuarantine(guild: Guild): Promise<void> {
             await ch.permissionOverwrites.edit(guild.roles.everyone, {
                 SendMessages: false,
                 Connect: false
-            }).catch(() => {});
+            }).catch((err) => {
+                addBotLog(`⚠️ Could not lockdown channel ${ch.id}: ${err.message}`, "warning");
+            });
         }
     }
     
@@ -1250,7 +1160,7 @@ export function recordAndCheckSequentialKickBan(executorId: string, guild: Guild
     } catch (e: any) {}
 
     // 2. Punish Rogue Admin
-    punishRogueAdmin(guild, executorId, "🚨 SEQUENTIAL KICK/BAN NUKE DETECTED (PERMANENT IP-BAN)", `Executed ${timestamps.length} consecutive member kicks/bans in 15s`).catch(() => {});
+    punishRogueAdmin(guild, executorId, "🚨 SEQUENTIAL KICK/BAN NUKE DETECTED (PERMANENT IP-BAN)", `Executed ${timestamps.length} consecutive member kicks/bans in 15s`).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
     // 3. Live Alert
     sendLiveAuditAlert(guild, {
@@ -1351,245 +1261,9 @@ async function fetchAuditLogWithRetry(guild: Guild, type: AuditLogEvent, targetI
 
 export const activeGuildAudits = new Set<string>();
 
-// Audit and Enforce Channel Permissions Matrix for Verification System & Verified Role
-export async function auditAndApplyVerifiedRolePermissions(guild: Guild, customRoleName?: string) {
-  const targetRoleName = customRoleName || verifiedRoleName;
-  addBotLog(`Starting Zero Trust Verification & Channel Audit for server '${guild.name}' (Verified Role: '@${targetRoleName}')...`, "info");
-
-  activeGuildAudits.add(guild.id);
-  try {
-    let verifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === targetRoleName.toLowerCase());
-    if (!verifiedRole) {
-      verifiedRole = await guild.roles.create({
-        name: targetRoleName,
-        color: 0x34D399,
-        reason: "Zero Trust Verified Role Setup"
-      });
-      if (verifiedRole) markBotCreatedRole(verifiedRole.id);
-    }
-    
-    let unverifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === "unverified");
-    if (!unverifiedRole) {
-      unverifiedRole = await guild.roles.create({
-        name: "Unverified",
-        color: 0x9CA3AF,
-        reason: "Zero Trust Unverified Role Setup"
-      });
-      if (unverifiedRole) markBotCreatedRole(unverifiedRole.id);
-    }
-
-    let verifyChannel = guild.channels.cache.find(c => c.name.toLowerCase() === "verify" || c.name.toLowerCase() === "verification") as TextChannel;
-    if (!verifyChannel) {
-      try {
-        verifyChannel = await guild.channels.create({
-          name: "verify",
-          type: ChannelType.GuildText,
-          reason: "Zero Trust Verification Channel"
-        });
-        if (verifyChannel) markBotCreatedChannel(verifyChannel.id);
-      } catch (cErr: any) {}
-    }
-
-    if (verifyChannel) {
-      await verifyChannel.permissionOverwrites.edit(guild.roles.everyone, {
-        ViewChannel: true,
-        ReadMessageHistory: true,
-        SendMessages: false,
-        AddReactions: false
-      }).catch(() => {});
-
-      await verifyChannel.permissionOverwrites.edit(unverifiedRole, {
-        ViewChannel: true,
-        ReadMessageHistory: true,
-        SendMessages: false,
-        AddReactions: false
-      }).catch(() => {});
-
-      await verifyChannel.permissionOverwrites.edit(verifiedRole, {
-        ViewChannel: false
-      }).catch(() => {});
-
-      try {
-        const existingMsgs = await verifyChannel.messages.fetch({ limit: 10 }).catch(() => null);
-        const hasPanel = existingMsgs?.some(m => m.author.id === guild.members.me?.id && m.components.length > 0);
-        if (!hasPanel) {
-          const embed = new EmbedBuilder()
-            .setTitle("🛡️ SECURITY BOT | SERVER VERIFICATION")
-            .setDescription(
-              `### Welcome to **${guild.name}**!\n\n` +
-              `This server is protected by **Zero Trust Security Bot**.\n` +
-              `Please click the button below to verify your account.\n`
-            )
-            .setColor(0x3B82F6)
-            .setThumbnail(guild.iconURL({ forceStatic: false }) || null)
-            .setFooter({ text: "SecurityBot.gg • Zero Trust Protection Engine", iconURL: guild.client.user?.displayAvatarURL() });
-
-          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-              .setCustomId("verify_btn")
-              .setLabel("🛡️ Click To Verify")
-              .setStyle(ButtonStyle.Success)
-          );
-
-          await verifyChannel.send({ embeds: [embed], components: [row] });
-        }
-      } catch (msgErr: any) {}
-    }
-
-    const channels = await guild.channels.fetch();
-    let lockedVCs = 0;
-    let unlockedChannels = 0;
-    let hiddenChannels = 0;
-
-    for (const [id, channel] of channels) {
-      if (!channel || channel.isThread() || !('permissionOverwrites' in channel)) continue;
-      
-      const cName = channel.name.toLowerCase();
-      const parentName = channel.parent?.name.toLowerCase() || "";
-
-      if (channel.id === verifyChannel?.id) continue;
-
-      const isHidden = 
-        cName.includes("underground") || cName.includes("staff") || cName.includes("admin") || 
-        cName.includes("logs") || cName.includes("log") || cName.includes("secret") || 
-        cName.includes("mod") || cName.includes("owner") || cName.includes("private") || 
-        cName.includes("hideout") || cName.includes("hide out") || cName.includes("khopche") ||
-        cName.includes("management") || cName.includes("executive") || cName.includes("ticket") || cName.includes("audit") ||
-        parentName.includes("staff") || parentName.includes("admin") || parentName.includes("secret") || 
-        parentName.includes("owner") || parentName.includes("mod") || parentName.includes("private") || 
-        parentName.includes("underground") || parentName.includes("hideout") || parentName.includes("hide out") || parentName.includes("khopche");
-
-      if (channel.type === ChannelType.GuildCategory) {
-        if (isHidden) {
-          await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }).catch(() => {});
-          await channel.permissionOverwrites.edit(unverifiedRole, { ViewChannel: false }).catch(() => {});
-          await channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: false }).catch(() => {});
-        } else {
-          await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: true, Connect: true }).catch(() => {});
-          await channel.permissionOverwrites.edit(unverifiedRole, { ViewChannel: true, Connect: true }).catch(() => {});
-          await channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: true, Connect: true }).catch(() => {});
-        }
-        continue;
-      }
-
-      if (isHidden) {
-        hiddenChannels++;
-        await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false, SendMessages: false, Connect: false }).catch(() => {});
-        await channel.permissionOverwrites.edit(unverifiedRole, { ViewChannel: false, SendMessages: false, Connect: false }).catch(() => {});
-        await channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: false, SendMessages: false, Connect: false }).catch(() => {});
-      } else if (channel.type === ChannelType.GuildVoice) {
-        const isLockedVC = 
-          cName.includes("lock") || cName.includes("private") || cName.includes("vip") || 
-          cName.includes("titans") || cName.includes("authority") || cName.includes("no entry") || 
-          cName.includes("jail") || cName.includes("sensi") || cName.includes("khopche") || 
-          cName.includes("🔒") || cName.includes("🔐") || cName.includes("⛔") || cName.includes("🚫");
-
-        if (isLockedVC) {
-          lockedVCs++;
-          await channel.permissionOverwrites.edit(guild.roles.everyone, {
-            ViewChannel: true,
-            Connect: false,
-            Speak: false
-          }).catch(() => {});
-
-          await channel.permissionOverwrites.edit(unverifiedRole, {
-            ViewChannel: true,
-            Connect: false,
-            Speak: false
-          }).catch(() => {});
-
-          await channel.permissionOverwrites.edit(verifiedRole, {
-            ViewChannel: true,
-            Connect: false,
-            Speak: false
-          }).catch(() => {});
-        } else {
-          unlockedChannels++;
-          await channel.permissionOverwrites.edit(guild.roles.everyone, {
-            ViewChannel: true,
-            Connect: true,
-            Speak: false
-          }).catch(() => {});
-
-          await channel.permissionOverwrites.edit(unverifiedRole, {
-            ViewChannel: true,
-            Connect: true,
-            Speak: false
-          }).catch(() => {});
-
-          await channel.permissionOverwrites.edit(verifiedRole, {
-            ViewChannel: true,
-            Connect: true,
-            Speak: true,
-            UseVAD: true,
-            Stream: true
-          }).catch(() => {});
-        }
-      } else {
-        unlockedChannels++;
-        const isReadOnlyText = 
-          cName.includes("rule") || cName.includes("info") || cName.includes("announc") || 
-          cName.includes("welcome") || cName.includes("notif") || cName.includes("banned") || 
-          cName.includes("wall") || cName.includes("4v4") || cName.includes("victory") || 
-          cName.includes("star") || cName.includes("achievement") || cName.includes("emulator") || 
-          cName.includes("regedit") || cName.includes("wallpaper") ||
-          parentName.includes("wall of fame") || parentName.includes("settings") || parentName.includes("rules") || parentName.includes("info");
-
-        if (isReadOnlyText) {
-          await channel.permissionOverwrites.edit(guild.roles.everyone, {
-            ViewChannel: true,
-            ReadMessageHistory: true,
-            SendMessages: false,
-            AddReactions: true
-          }).catch(() => {});
-
-          await channel.permissionOverwrites.edit(unverifiedRole, {
-            ViewChannel: true,
-            ReadMessageHistory: true,
-            SendMessages: false,
-            AddReactions: true
-          }).catch(() => {});
-
-          await channel.permissionOverwrites.edit(verifiedRole, {
-            ViewChannel: true,
-            ReadMessageHistory: true,
-            SendMessages: false,
-            AddReactions: true
-          }).catch(() => {});
-        } else {
-          await channel.permissionOverwrites.edit(guild.roles.everyone, {
-            ViewChannel: true,
-            ReadMessageHistory: true,
-            SendMessages: false
-          }).catch(() => {});
-
-          await channel.permissionOverwrites.edit(unverifiedRole, {
-            ViewChannel: true,
-            ReadMessageHistory: true,
-            SendMessages: false
-          }).catch(() => {});
-
-          await channel.permissionOverwrites.edit(verifiedRole, {
-            ViewChannel: true,
-            ReadMessageHistory: true,
-            SendMessages: true,
-            EmbedLinks: true,
-            AttachFiles: true,
-            AddReactions: true,
-            UseExternalEmojis: true
-          }).catch(() => {});
-        }
-      }
-    }
-
-    addBotLog(`✅ Verification System Audit Complete for '${guild.name}': Public/Unlocked: ${unlockedChannels} | Locked VCs: ${lockedVCs} | Hidden Channels: ${hiddenChannels}`, "success");
-    activeGuildAudits.delete(guild.id);
-    return { lockedVCs, unlockedChannels, hiddenChannels };
-  } catch (err: any) {
-    activeGuildAudits.delete(guild.id);
-    addBotLog(`Error auditing verification channel permissions: ${err.message}`, "error");
-    throw err;
-  }
+// Verification system removed
+export async function auditAndApplyVerifiedRolePermissions(_guild: Guild, _customRoleName?: string) {
+  return { lockedVCs: 0, unlockedChannels: 0, hiddenChannels: 0 };
 }
 
 export async function stopDiscordBot() {
@@ -1657,7 +1331,7 @@ export class EnhancedEventEngine {
 
     let entry = await fetchAuditLogWithRetry(guild, actionType, targetId, 15, 300).catch(() => null);
 
-    // Re-check self memory in case it was updated during the audit log fetch (fixes race condition where websocket beats REST API)
+    // Re-check self memory in case it was updated during the audit log fetch (fixes race condition where polling beats REST API)
     if (selfMemoryCheck()) return;
 
     let executorId = entry?.executorId || entry?.executor?.id;
@@ -1728,24 +1402,39 @@ safeSetInterval(() => {
 }, 300000); // Every 5 minutes
 
 export async function startDiscordBot() {
+  console.log("[BOT-STARTUP] startDiscordBot() invoked");
   try {
     validateEnvironmentVariables();
+    console.log("[BOT-STARTUP] Environment validation passed");
   } catch (e: any) {
-    console.error("[startDiscordBot] Critical Environment validation error:", e?.message || e);
-    // process.exit(1);
+    console.error("[BOT-STARTUP] Critical Environment validation error:", e?.message || e);
+    botStatus = "offline";
+    isStartingBot = false;
+    return;
   }
 
   const token = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN)?.trim();
+  console.log("[BOT-STARTUP] Token present:", !!token, "length:", token?.length);
   if (token) TokenVault.store(token, "DISCORD_TOKEN");
   const geminiKey = process.env.GEMINI_API_KEY;
   if (geminiKey) TokenVault.store(geminiKey, "GEMINI_API_KEY");
 
   EnvScanner.scan();
   CanaryToken.setup();
+  CppNativeEngine.initEngine().catch(() => {});
+  BotTokenRotationSystem.setReconnectHandler(async (newToken) => {
+    addBotLog("[TOKEN-ROTATION] Reconnecting bot with new token...", "warning");
+    await stopDiscordBot();
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    process.env.DISCORD_BOT_TOKEN = newToken;
+    process.env.DISCORD_TOKEN = newToken;
+    await startDiscordBot();
+  });
 
   if (!token || token.length < 50 || token.includes("placeholder") || token.includes("your_token") || token.includes("token_here")) {
     addBotLog("DISCORD_BOT_TOKEN is not configured or invalid. Bot is offline.", "warning");
     botStatus = "offline";
+    isStartingBot = false;
     return;
   }
 
@@ -1755,10 +1444,11 @@ export async function startDiscordBot() {
   }
 
   isStartingBot = true;
-  addBotLog("Starting Discord bot connection with 100/100 Zero Trust Anti-Nuke Shield...", "info");
+  addBotLog("Starting Discord bot connection with Zero Trust Anti-Nuke Shield...", "info");
   botStatus = "connecting";
 
   try {
+    console.log("[BOT-STARTUP] Creating Discord Client with intents...");
     const client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -1800,7 +1490,7 @@ export async function startDiscordBot() {
     
 // 15 Minute Auto Backup (Moved inside 'ready' handler to prevent reconnect interval clearing issues)
 
-function handleRaidDetection(guild) {
+function handleRaidDetection(guild: Guild) {
     const raidCount = (raidActionCounter.get(guild.id) || 0) + 1;
     raidActionCounter.set(guild.id, raidCount);
     if (raidCount > 50 && !panicLockdownActive) {
@@ -1815,7 +1505,7 @@ function handleRaidDetection(guild) {
         (async () => {
             for (const [_, c] of guild.channels.cache) {
                 if (c.isTextBased()) {
-                    await c.permissionOverwrites.edit(guild.id, { SendMessages: false }).catch(() => {});
+                    await (c as any).permissionOverwrites.edit(guild.id, { SendMessages: false }).catch(() => {});
                 }
             }
         })().catch(() => {});
@@ -1837,7 +1527,7 @@ function startPresenceRotator(client: Client) {
     const memberCount = client.guilds.cache.reduce((acc, g) => acc + (g.memberCount || 0), 0);
     const activities = [
       { name: `🛡️ ${guildCount} Servers | /help`, type: ActivityType.Watching },
-      { name: `⚡ 100/100 Zero Trust Anti-Nuke`, type: ActivityType.Playing },
+      { name: `⚡ Zero Trust Anti-Nuke`, type: ActivityType.Playing },
       { name: `👥 Guarding ${memberCount} Members`, type: ActivityType.Watching },
       { name: `🧠 ASHTRON Enterprise AI`, type: ActivityType.Listening }
     ];
@@ -1850,7 +1540,8 @@ function startPresenceRotator(client: Client) {
   }, 30000);
 }
 
-client.on("ready", async () => {
+client.on("clientReady", async () => {
+    console.log("[BOT-READY] ready event fired");
     // Clear any previous running intervals to prevent leaks on reconnect
     activeIntervals.forEach(clearInterval);
     activeIntervals = [];
@@ -1866,9 +1557,11 @@ client.on("ready", async () => {
         try {
             const hasVerifyChannel = guild.channels.cache.some(c => c.name.toLowerCase() === "verify" || c.name.toLowerCase() === "verification");
             if (hasVerifyChannel) {
-                await auditAndApplyVerifiedRolePermissions(guild, verifiedRoleName).catch(() => {});
+                await auditAndApplyVerifiedRolePermissions(guild, "");
             }
-        } catch (err) {}
+        } catch (err: any) {
+            addBotLog(`🚨 CRITICAL: Failed to enforce verification matrix in '${guild.name}': ${err.message}`, "error");
+        }
     }
 
     // Initialize Invite Cache for all guilds
@@ -1897,7 +1590,7 @@ client.on("ready", async () => {
                    const isSelfBot = member.id === client.user?.id || (clientInstance?.application && member.id === clientInstance.application.id);
                    const isApproved = isSelfBot || approvedBots.includes(member.id);
                    if (!isApproved) {
-                      await member.kick("Zero Trust Active Sweep: Unapproved Bot Detected").catch(() => {});
+                      await member.kick("Zero Trust Active Sweep: Unapproved Bot Detected").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                       addBotLog(`🚨 [ACTIVE SWEEP] Found and kicked unapproved bot: ${member.user.tag}`, "error");
                    }
                 }
@@ -1913,7 +1606,7 @@ client.on("ready", async () => {
                 if (member.user.bot || isOwnerOrWhitelisted(member.id, guild, false)) continue;
                 if (member.permissions.has("Administrator") || member.permissions.has("ManageGuild") || member.permissions.has("BanMembers")) {
                    // A normal user has dangerous permissions during Admin Freeze! Remove all their roles.
-                   await member.roles.set([], "Zero Trust Active Sweep: Unauthorized Admin Permissions").catch(() => {});
+                   await member.roles.set([], "Zero Trust Active Sweep: Unauthorized Admin Permissions").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                    addBotLog(`🚨 [ACTIVE SWEEP] Stripped dangerous permissions from unauthorized user: ${member.user.tag}`, "error");
                 }
              }
@@ -1925,9 +1618,9 @@ client.on("ready", async () => {
     // 11. Daily Backup (Enterprise Configuration)
     safeSetInterval(() => {
         client.guilds.cache.forEach(guild => {
-             AutoBackupEngine.createBackup(guild).then(file => {
-               if (file) addBotLog(`📦 [AUTO-BACKUP] Scheduled daily backup created: ${file}`, "info");
-             }).catch(()=>console.log('backup failed'));
+             ServerSnapshotRestore.createSnapshot(guild).then(snap => {
+               if (snap) addBotLog(`📸 [SNAPSHOT] Scheduled daily snapshot created: ${snap.id}`, "info");
+             }).catch(()=>console.log('snapshot failed'));
         });
     }, 24 * 60 * 60 * 1000);
 
@@ -1982,6 +1675,7 @@ client.on("ready", async () => {
     }, 5 * 60 * 1000); // Run every 5 minutes
 
       botStatus = "online";
+      console.log("[BOT-READY] botStatus set to online");
       const user = client.user;
       if (user) {
         botUser = {
@@ -1992,14 +1686,19 @@ client.on("ready", async () => {
         };
         addBotLog(`Successfully logged in as ${user.tag}! Zero Trust Anti-Nuke active.`, "success");
         
-        user.setPresence({
-          activities: [{ name: "🛡️ Anti-Chomu Activated", type: ActivityType.Watching }],
-          status: "online"
-        });
+        try {
+          user.setPresence({
+            activities: [{ name: "🛡️ Anti-Chomu Activated", type: ActivityType.Watching }],
+            status: "online"
+          });
+        } catch (presenceErr) {
+          console.error("[BOT-READY] setPresence failed:", presenceErr);
+        }
       }
 
       // Fetch connected guilds
       try {
+        console.log("[BOT-READY] Fetching guilds...");
         const guilds = await client.guilds.fetch();
         botGuilds = await Promise.all(
           guilds.map(async (g) => {
@@ -2068,13 +1767,15 @@ client.on("ready", async () => {
             };
           })
         );
-        addBotLog(`Guarding ${botGuilds.length} server(s) with 100/100 Zero Trust Security.`, "info");
+        console.log("[BOT-READY] Guild fetch complete, count:", botGuilds.length);
+        addBotLog(`Guarding ${botGuilds.length} server(s) with Zero Trust Security.`, "info");
       } catch (gErr: any) {
         addBotLog(`Failed to load server lists: ${gErr.message}`, "warning");
       }
 
       // Register Slash Commands Cleanly (Guild-level for instant sync, clear global duplicates)
       try {
+        console.log("[BOT-READY] Registering slash commands...");
         const commands = [
           {
             name: "analyze",
@@ -2085,28 +1786,13 @@ client.on("ready", async () => {
             name: "dashboard",
             description: "🌐 Get link to Web Control Panel & Dashboard"
           },
-          {
-            name: "deploy-defense",
-            description: "🛡️ Deploy all 6 Zero Trust Anti-Nuke Security Layers",
-            default_member_permissions: "8"
-          },
-          {
-            name: "zerotrust",
-            description: "🛡️ View status of all 6 Zero Trust Defense Layers",
-            default_member_permissions: "8"
-          },
-          {
-            name: "6layers",
-            description: "⚡ Enforce all 6 Defense Layers of ASHTRON Zero Trust Engine",
-            default_member_permissions: "8"
-          },
-          {
-            name: "setup-verify",
-            description: "✅ Deploy #verify channel with interactive button",
-            default_member_permissions: "8"
-          },
-          {
-            name: "setup-honeypot",
+           {
+             name: "deploy-defense",
+             description: "🛡️ Deploy all 6 Zero Trust Anti-Nuke Security Layers",
+             default_member_permissions: "8"
+           },
+           {
+             name: "setup-honeypot",
             description: "🍯 Deploy decoy Honeypot Trap link (Auto-bans IP & Discord if clicked)",
             default_member_permissions: "8"
           },
@@ -2114,22 +1800,6 @@ client.on("ready", async () => {
             name: "setup-invite-tracker",
             description: "📩 Deploy #invite-logs channel for real-time invite tracking",
             default_member_permissions: "8"
-          },
-          {
-            name: "verify",
-            description: "🔓 Verify your account to access server channels"
-          },
-          {
-            name: "ask",
-            description: "🤖 Ask anything to the Gemini AI GOD Brain",
-            options: [
-              {
-                name: "question",
-                type: 3,
-                description: "The question to ask Gemini AI",
-                required: true
-              }
-            ]
           },
           {
             name: "panic-lockdown",
@@ -2147,6 +1817,11 @@ client.on("ready", async () => {
                 required: true
               }
             ]
+          },
+          {
+            name: "all",
+            description: "📋 View all active bot features and capabilities",
+            default_member_permissions: "8"
           },
           {
             name: "whitelist-admin",
@@ -2288,26 +1963,13 @@ client.on("ready", async () => {
           },
           {
             name: "security-status",
-            description: "🛡️ Check real-time 100/100 Zero Trust Anti-Nuke status",
+             description: "🛡️ Check real-time Zero Trust Anti-Nuke status",
             default_member_permissions: "8"
           },
           {
             name: "server-health",
             description: "⚡ Check bot latency, shard status, and system stats",
             default_member_permissions: "8"
-          },
-          {
-            name: "verify-audit",
-            description: "📋 Audit channel permissions for Verified Role",
-            default_member_permissions: "8",
-            options: [
-              {
-                name: "rolename",
-                type: 3,
-                description: "Optional role name (defaults to 'Verified')",
-                required: false
-              }
-            ]
           },
           {
             name: "test-nuke-defense",
@@ -2358,10 +2020,6 @@ client.on("ready", async () => {
           {
             name: "help",
             description: "🤖 View list of all ASHTRON Bot commands & features"
-          },
-          {
-            name: "nowplaying",
-            description: "🎵 View details of currently playing track"
           },
           {
             name: "invites",
@@ -2471,6 +2129,7 @@ client.on("ready", async () => {
 
     // Auto-clean guild command duplicates when joining a new server
     client.on("guildCreate", async (guild) => {
+      const ctx = getOrCreateGuildContext(guild);
       try {
         addBotLog(`📥 Joined new server '${guild.name}' (${guild.id}). Ensuring single global slash command set...`, "info");
         await guild.commands.set([]);
@@ -2484,6 +2143,8 @@ client.on("ready", async () => {
     client.on("guildDelete", async (guild) => {
       try {
         addBotLog(`📤 Left server '${guild.name}' (${guild.id}). Cleaning up cached tracking and security data.`, "info");
+        const ctx = getOrCreateGuildContext(guild);
+        ctx.getInviteTracker(); // Ensure tracker is initialized before reset
         InviteTrackerEngine.resetGuild(guild.id);
       } catch (err: any) {
         addBotLog(`⚠️ Guild cleanup note for ${guild.name}: ${err.message}`, "warning");
@@ -2520,29 +2181,35 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     client.on("messageCreate", async (message) => {
       if (!message || message.author?.bot) return;
 
-      // Military-Grade Feature: Sentiment & Toxicity Scanner
-      if (message.content) {
-        SentimentTracker.analyzeMessage(message, (msg) => addBotLog(msg, "warning"));
+      // Use GuildContext for security modules (Phase 2 migration)
+      let ctx: GuildContext | undefined;
+      if (message.guild) {
+        ctx = getOrCreateGuildContext(message.guild);
       }
-    
-    // 6. DM Firewall
-    if (DMFirewall.handle(message)) return;
-    
-    // 7. Slash Only
-    if (SlashOnly.checkMessage(message)) return;
-    
-    // 8. Anti-Phishing
-    await AntiPhishing.scanMessage(message);
 
-    // 18. AI Deep Scan
-    if (message.content.length > 10) {
-      const threatScore = await AIDeepScan.analyzeMessage(message.content, message.author.id, message.channel.id);
-      if (threatScore > 80) {
-        if (message.member) await Quarantine.isolate(message.member);
-        await message.delete().catch(() => {});
-        console.log(`🚨 [AI DEEP SCAN] Blocked message from ${message.author.tag} (Score: ${threatScore})`);
+      // Sentiment & Toxicity Scanner
+      if (message.content && ctx) {
+        await ctx.getSentimentTracker().analyzeMessage(message, (msg) => addBotLog(msg, "warning"));
       }
-    }
+    
+      // 6. DM Firewall
+      if (DMFirewall.handle(message)) return;
+      
+      // 7. Slash Only
+      if (SlashOnly.checkMessage(message)) return;
+      
+      // 8. Anti-Phishing
+      await AntiPhishing.scanMessage(message);
+
+      // 18. AI Deep Scan
+      if (message.content.length > 10 && ctx) {
+        const threatScore = await AIDeepScan.analyzeMessage(message.content, message.author.id, message.channel.id);
+        if (threatScore > 80) {
+          if (message.member) await ctx.getQuarantine().isolate(message.member);
+          await message.delete().catch(() => {});
+          console.log(`🚨 [AI DEEP SCAN] Blocked message from ${message.author.tag} (Score: ${threatScore})`);
+        }
+      }
 
       if (!message.guild || message.author.bot) return;
 
@@ -2550,33 +2217,33 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       if (!member) return;
 
 
-      // Prefix Command Fallback Handler (!analyze, !dashboard, !status, !help, !verify, etc)
+      // Prefix Command Fallback Handler (!analyze, !dashboard, !status, !help, etc)
       const rawContent = message.content.trim();
       if (rawContent.startsWith("!") || rawContent.startsWith("/")) {
         const parts = rawContent.slice(1).trim().split(/ +/);
         const pCmd = parts[0].toLowerCase();
 
-        if (pCmd === "deploy-defense" || pCmd === "zerotrust" || pCmd === "6layers" || pCmd === "6-layers" || pCmd === "security") {
+        if (pCmd === "deploy-defense" || pCmd === "6-layers" || pCmd === "security") {
           if (message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild)) {
             await message.reply("❌ **Access Denied!** Requires Whitelisted Admin or Owner clearance.").catch(() => {});
             return;
           }
 
           addBotLog(`🚀 [!${pCmd}] Triggered by ${message.author.tag} in '${message.guild.name}'! Enforcing all 6 Zero Trust Defense Layers...`, "info");
-          const auditRes = await auditAndApplyVerifiedRolePermissions(message.guild, verifiedRoleName);
+          const auditRes = await auditAndApplyVerifiedRolePermissions(message.guild, "");
           const stats = getSecurityStats();
 
           await sendLiveAuditAlert(message.guild, {
             title: "🛡️ ALL 6 ZERO TRUST DEFENSE LAYERS ACTIVE & ENFORCED",
             description: `**Triggered By:** <@${message.author.id}> (${message.author.tag})\n` +
-                         `**Security Score:** 🟢 100/100 MAXIMUM SHIELD\n` +
+                          `**Security Score:** 🟢 MAXIMUM SHIELD\n` +
                          `**Audit Channel:** <#${message.guild.channels.cache.find(c => c.name === "security-logs")?.id || ""}>\n` +
-                         `**6 Defense Layers:** All 100% Armed & Operational`,
+                         `**6 Defense Layers:** All Armed & Operational`,
             color: 0x10B981
           });
 
           const embed = new EmbedBuilder()
-            .setTitle("🛡️ ASHTRON 6-LAYER ZERO TRUST SECURITY SHIELD (100/100)")
+             .setTitle("🛡️ ASHTRON 6-LAYER ZERO TRUST SECURITY SHIELD")
             .setColor(0x10B981)
             .setDescription(
               `⚡ **1-COMMAND DEPLOYMENT EXECUTED PERFECTLY IN \`${message.guild.name}\`**\n\n` +
@@ -2600,7 +2267,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
               `• 🙈 Hidden Staff Channels: \`${auditRes.hiddenChannels}\` Channels\n\n` +
               `✅ **Status:** All 6 Layers Active • Total Attacks Blocked: \`${stats.blockedAttacksCount}\``
             )
-            .setFooter({ text: "ASHTRON 100/100 Zero Trust Security Suite" })
+             .setFooter({ text: "ASHTRON Zero Trust Security Suite" })
             .setTimestamp();
 
           await message.reply({ embeds: [embed] }).catch(() => {});
@@ -2608,14 +2275,14 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         }
 
         if (pCmd === "analyze" || pCmd === "security-status" || pCmd === "status") {
-          if (!message.member?.permissions.has(PermissionFlagsBits.Administrator) && !message.member?.permissions.has(PermissionFlagsBits.ManageGuild) && message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild)) {
-            await message.reply("❌ **Access Denied!** Requires Administrator or Manage Server permissions.").catch(() => {});
+          if (!hasEffectiveAdminPermission(message.member) && message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild)) {
+            await message.reply("❌ **Access Denied!** Requires Administrator, Manage Server, or moderation permissions.").catch(() => {});
             return;
           }
           const stats = getSecurityStats();
           const botRole = message.guild.members.me?.roles.highest;
           const ping = client.ws.ping;
-          const auditRes = await auditAndApplyVerifiedRolePermissions(message.guild, verifiedRoleName);
+          const auditRes = await auditAndApplyVerifiedRolePermissions(message.guild, "");
 
           await message.reply(
             `🔍 **FULL SERVER & SECURITY AI ANALYSIS REPORT**\n\n` +
@@ -2630,7 +2297,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
             `• **Panic Lockdown Mode:** \`${stats.panicLockdownActive ? "ACTIVE 🚨" : "STANDBY 🟢"}\` \n` +
             `• **Verified Role Permissions:** \`Locked VCs: ${auditRes.lockedVCs} | Unlocked: ${auditRes.unlockedChannels} | Hidden: ${auditRes.hiddenChannels}\` \n` +
             `• **Total Blocked Attacks:** \`${stats.blockedAttacksCount}\` Threats Mitigated\n\n` +
-            `✅ **System Status:** All 6 Defense Layers Active & 100% Operational!`
+              `✅ **System Status:** Defense modules operational`
           ).catch(() => {});
           return;
         }
@@ -2644,7 +2311,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
             .setDescription(
               "Welcome to the **ASHTRON Enterprise Zero Trust Web Portal**.\n\n" +
               "• 🛡️ **Zero Trust Security:** Configure 6 Defense Layers, Anti-Nuke & Admin Freeze\n" +
-              "• 📊 **Live Logs & Audits:** Monitor real-time websocket gateway events & threat streams\n" +
+               "• 📊 **Live Logs & Audits:** Monitor real-time HTTP polling events & threat streams\n" +
               "• 🤖 **AI Neural Core:** Custom prompts, Gemini 2.5 Flash setup & bot status\n" +
               `👉 **Click the button below or URL to open the Web Dashboard:**\n\`${link}\``
             )
@@ -2668,15 +2335,58 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
             `🤖 **ASHTRON ZERO TRUST BOT COMMANDS** (Works with both \`!\` and \`/\`)\n\n` +
             `• \`!deploy-defense\` / \`/deploy-defense\` - Deploy all 6 Zero Trust Anti-Nuke Layers\n` +
             `• \`!recover\` / \`/recover\` - 1-Click Server Restoration from backup\n` +
-            `• \`!panic-lockdown\` / \`/panic-lockdown\` - Server-wide channel lockdown\n` +
-            `• \`!analyze\` / \`/analyze\` - AI Security & Server Health Report\n` +
-            `• \`!dashboard\` / \`/dashboard\` - Web Control Panel link\n` +
-            `• \`!setup-verify\` / \`/setup-verify\` - Create #verify channel & verification button\n` +
-            `• \`!setup-honeypot\` / \`/setup-honeypot\` - Generate decoy Honeypot Trap link (Auto-bans IP & Discord)\n` +
-            `• \`!setup-invites\` / \`/setup-invite-tracker\` - Deploy real-time invite tracker\n` +
-            `• \`!invites\` / \`/invites\` - Check invite statistics\n` +
-            `• \`!ask <question>\` / \`/ask\` - Query the GOD AI Core Brain\n` +
-            `• \`!sync\` - Force re-sync Slash Commands (\`/\`) directly to this server`
+             `• \`!panic-lockdown\` / \`/panic-lockdown\` - Server-wide channel lockdown\n` +
+             `• \`!analyze\` / \`/analyze\` - AI Security & Server Health Report\n` +
+             `• \`!dashboard\` / \`/dashboard\` - Web Control Panel link\n` +
+             `• \`!setup-honeypot\` / \`/setup-honeypot\` - Generate decoy Honeypot Trap link (Auto-bans IP & Discord)\n` +
+             `• \`!setup-invite-tracker\` - Deploy real-time invite tracker\n` +
+             `• \`!invites\` / \`/invites\` - Check invite statistics\n` +
+             `• \`!all\` / \`/all\` - View all bot features and capabilities\n` +
+             `• \`!sync\` - Force re-sync Slash Commands (\`/\`) directly to this server`
+          ).catch(() => {});
+          return;
+        }
+
+        if (pCmd === "all" || pCmd === "features" || pCmd === "all-features") {
+          const features = [
+            "🛡️ **Zero Trust Anti-Nuke Engine** - Real-time audit log interception",
+            "🔒 **Owner-Only Zero Trust Hierarchy** - Admin bypass protection",
+            "💊 **Self-Healing Auto-Recovery** - Auto-recreate deleted channels/roles",
+            "🚨 **Anti-Raid & Mass-Join Shield** - Join spike detection & lockdown",
+            "🎣 **Webhook & Integration Guard** - Unauthorized webhook deletion",
+            "🔴 **Panic Lockdown** - Emergency server-wide lockdown",
+            "🚫 **Zero-Trust IP-Ban System** - Persistent IP/user banlist",
+            "📩 **Real-Time Invite Tracker** - Track invite usage & fake accounts",
+            "🔗 **Anti-Invite Link Shield** - Block unauthorized Discord invites",
+            "🔍 **OAuth Malicious App Detector** - Remove malicious integrations",
+            "🔄 **Bot Token Rotation** - Auto-rotate on compromise",
+            "🎯 **Canary Token Alerts** - Decoy token monitoring",
+            "🍯 **Honeypot Admin Role Trap** - Trap & ban malicious users",
+            "🖥️ **Session Hijack Detector** - Suspicious session detection",
+            "💬 **Sentiment Tracker** - Raid coordination detection",
+            "📊 **Behavior Scoring Engine** - Coordinated attack detection",
+            "⏱️ **Join Limit Shield** - Per-guild velocity monitoring",
+            "🔑 **Auto Permission Rollback** - Revert dangerous permission changes",
+            "📸 **1-Click Server Snapshot & Restore** - Full server backup/restore",
+            "💾 **Auto Backup Engine** - Scheduled role/channel backups",
+            "🔗 **Anti-Vanity URL Hijack** - Detect unauthorized vanity changes",
+            "😀 **Emoji/Sticker Delete Protection** - Revert unauthorized deletions",
+            "💬 **Forum Channel Protection** - Monitor forum settings",
+            "🤖 **AI Raid Prediction Engine** - Statistical raid prediction",
+            "📑 **AI Security Report** - AI-powered security reports",
+            "🧠 **AI Command Assistant** - Natural language processing",
+            "🛡️ **GDPR Privacy Engine** - Data export & deletion compliance",
+            "⚡ **C++ Native Security Engine** - N-API accelerated scanning"
+          ];
+
+          const featureList = features.map((f, i) => 
+            `**${i + 1}.** ${f}`
+          ).join("\n");
+
+          await message.reply(
+            `📋 **ALL BOT FEATURES & CAPABILITIES**\n\n` +
+            featureList +
+            `\n\n**Total Active Features:** ${features.length}\n**Security Level:** MAXIMUM`
           ).catch(() => {});
           return;
         }
@@ -2699,7 +2409,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
                 `1. Copy this link and place it in channel topics, \`#admin-secret-leaks\`, or suspicious DM conversations as bait.\n` +
                 `2. Anyone can copy the link text without triggering anything.\n` +
                 `3. As soon as a rogue admin, nuker, or intruder **clicks or opens** the link in a browser:\n` +
-                `   - 🛑 Their **IP Address is permanently blacklisted** in Zero Trust IP Shield.\n` +
+                 `   - 🛑 Their **IP Address is blocked** in Zero Trust IP Shield.\n` +
                 `   - 🔨 Their **Discord Account is auto-banned** from the server.\n` +
                 `   - 🚨 A red alert with attacker IP details is sent to \`#security-logs\`!`,
               color: 0xF59E0B
@@ -2738,7 +2448,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           return;
         }
 
-        if (pCmd === "recover" || pCmd === "nuke-reversal") {
+        if (pCmd === "recover") {
           if (message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild)) {
             await message.reply("❌ **Access Denied!** Requires Whitelisted Admin or Owner clearance.").catch(() => {});
             return;
@@ -2755,15 +2465,15 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           try {
             for (const r of latest.roles) {
               if (!message.guild.roles.cache.find(gr => gr.name === r.name)) {
-                await message.guild.roles.create({ name: r.name, color: r.color, permissions: BigInt(r.permissions.bitfield), reason: "1-Click Recovery" }).catch(() => {});
+                await message.guild.roles.create({ name: r.name, color: r.color, permissions: BigInt(r.permissions.bitfield), reason: "1-Click Recovery" }).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                 rolesRestoredCount++;
               }
             }
-            const categories = latest.channels.filter(c => c.type === ChannelType.GuildCategory);
-            const otherChannels = latest.channels.filter(c => c.type !== ChannelType.GuildCategory);
-            const createdCategories = new Map<string, string>();
-            for (const cat of categories) {
-              let existingCat = message.guild.channels.cache.find(gc => gc.name.toLowerCase() === cat.name.toLowerCase() && gc.type === ChannelType.GuildCategory);
+             const categories = latest.channels.filter((c: any) => c.type === ChannelType.GuildCategory);
+             const otherChannels = latest.channels.filter((c: any) => c.type !== ChannelType.GuildCategory);
+             const createdCategories = new Map<string, string>();
+             for (const cat of categories) {
+               let existingCat = message.guild.channels.cache.find(gc => gc.name.toLowerCase() === cat.name.toLowerCase() && gc.type === ChannelType.GuildCategory);
               if (!existingCat) {
                 const newCat = await message.guild.channels.create({ name: cat.name, type: ChannelType.GuildCategory, reason: "1-Click Recovery" }).catch(() => null);
                 if (newCat) createdCategories.set(cat.id, newCat.id);
@@ -2775,7 +2485,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
               const exists = message.guild.channels.cache.find(gc => gc.name.toLowerCase() === c.name.toLowerCase() && gc.type === c.type);
               if (!exists) {
                 const mappedParentId = c.parentId ? createdCategories.get(c.parentId) : null;
-                await message.guild.channels.create({ name: c.name, type: c.type, parent: mappedParentId || undefined, reason: "1-Click Recovery" }).catch(() => {});
+                await message.guild.channels.create({ name: c.name, type: c.type, parent: mappedParentId || undefined, reason: "1-Click Recovery" }).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                 channelsRestoredCount++;
               }
             }
@@ -2784,7 +2494,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
               `🔄 **1-CLICK SERVER RECOVERY SUCCESSFUL!**\n\n` +
               `• **Roles Restored:** \`${rolesRestoredCount}\` Roles\n` +
               `• **Channels Restored:** \`${channelsRestoredCount}\` Channels\n` +
-              `• **Status:** 🟢 100% Secure & Online`
+               `• **Status:** 🟢 Secured & Online`
             ).catch(() => {});
           } catch (err: any) {
             await message.reply(`❌ **Recovery Error:** ${err.message}`).catch(() => {});
@@ -2815,43 +2525,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           return;
         }
 
-        if (pCmd === "ask" || pCmd === "ai") {
-          const question = parts.slice(1).join(" ");
-          if (!question) {
-            await message.reply("❓ Please provide a question, e.g. `!ask What is Zero Trust security?`").catch(() => {});
-            return;
-          }
-          let reply = "";
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000);
-            try {
-              const reqConfig: any = {
-                systemInstruction: "You are ASHTRON AI, the ultimate Discord security and server management bot. Be concise, helpful, and friendly.",
-              };
-              reqConfig.httpOptions = { fetchOptions: { signal: controller.signal } };
-              const response = await ai.models.generateContent({
-                model: "gemini-1.5-flash",
-                contents: question,
-                config: reqConfig
-              });
-              reply = response.text || "No response received from Gemini AI.";
-            } finally {
-              clearTimeout(timeoutId);
-            }
-          } catch (geminiErr: any) {
-            const errStr = String(geminiErr?.message || geminiErr).toLowerCase();
-            if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
-              reply = "Quota limit reached for AI generation, but all ASHTRON security shields remain 100% active!";
-            } else {
-              reply = `AI Error: ${geminiErr?.message || geminiErr}`;
-            }
-          }
-          await message.reply(`🤖 **ASHTRON AI:**\n${reply.slice(0, 1900)}`).catch(() => {});
-          return;
-        }
-
-        if (pCmd === "setup-invite-tracker" || pCmd === "setup-invites") {
+        if (pCmd === "setup-invite-tracker") {
           if (message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild)) {
             await message.reply("❌ **Access Denied!** Requires Whitelisted Admin or Owner clearance.").catch(() => {});
             return;
@@ -3009,7 +2683,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       const isLink = linkRegex.test(content);
       let isMalicious = false;
       if (isLink) {
-         // Smart Scam Scanner (VirusTotal Mock)
+         // Local Scam Scanner (no external API)
          const maliciousDomains = ["grabify", "free-nitro", "steam-gift", "token-grab", "ip-logger", "discord-nitro.com"];
          isMalicious = maliciousDomains.some(d => content.toLowerCase().includes(d));
          if (isMalicious) {
@@ -3082,6 +2756,9 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       const member = newMessage.member;
       if (!member) return;
 
+      // Use GuildContext for security modules (Phase 2 migration)
+      const ctx = getOrCreateGuildContext(newMessage.guild);
+
       // Ignore if owner or whitelisted or admin
       if (isOwnerOrWhitelisted(member.id, newMessage.guild)) return;
       if (member.permissions.has("Administrator") || member.permissions.has("ManageMessages")) return;
@@ -3118,7 +2795,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
                        memberPerms?.has(PermissionFlagsBits.ManageGuild) || 
                        memberPerms?.has(PermissionFlagsBits.ManageChannels) ||
                        interaction.user.id === interaction.guild?.ownerId || 
-                       isOwnerOrWhitelisted(interaction.user.id, interaction.guild);
+                       (interaction.guild ? isOwnerOrWhitelisted(interaction.user.id, interaction.guild) : false);
 
         if (!isAuth) {
           await interaction.respond([]).catch(() => {});
@@ -3170,45 +2847,6 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           return;
         }
 
-        if (customId === "verify_btn") {
-          const guild = interaction.guild;
-          if (!guild) return;
-          await safeDeferReply(interaction, true);
-
-          try {
-            let verifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === verifiedRoleName.toLowerCase());
-            if (!verifiedRole) {
-              verifiedRole = await guild.roles.create({
-                name: verifiedRoleName,
-                color: 0x34D399,
-                reason: "Zero Trust Verification System Setup"
-              });
-            }
-
-            const member = interaction.member as GuildMember;
-            if (member.roles.cache.has(verifiedRole.id)) {
-              await safeReply(interaction, { content: "ℹ️ **Already Verified!** You already have access to public text and voice channels." });
-              return;
-            }
-
-            await member.roles.add(verifiedRole, "Verification System: User clicked Verify button").catch(() => {});
-            const unverifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === "unverified");
-            if (unverifiedRole && member.roles.cache.has(unverifiedRole.id)) {
-              await member.roles.remove(unverifiedRole, "Verification System: User is now verified").catch(() => {});
-            }
-            addBotLog(`✅ User ${member.user.tag} completed verification in '${guild.name}'`, "success");
-
-            await safeReply(interaction, { 
-              content: `🎉 **Verification Complete!**\n\nWelcome to **${guild.name}**! You now have full access to public text and voice channels.\n*(Note: Private staff channels remain hidden, and locked VCs remain locked).*` 
-            });
-
-          } catch (err: any) {
-            addBotLog(`Error verifying member ${interaction.user.tag}: ${err.message}`, "error");
-            await safeReply(interaction, { content: `❌ Verification failed: ${err.message}` });
-          }
-          return;
-        }
-
         await safeReply(interaction, { content: `✅ Interaction acknowledged (\`${customId}\`).`, ephemeral: true });
         return;
       }
@@ -3230,9 +2868,9 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
       // 5. Handle User Context Menu Commands
       if (interaction.isUserContextMenuCommand()) {
-        const memberPerms = interaction.memberPermissions;
-        if (!memberPerms?.has(PermissionFlagsBits.Administrator) && !memberPerms?.has(PermissionFlagsBits.ManageGuild) && interaction.user.id !== interaction.guild?.ownerId && !isOwnerOrWhitelisted(interaction.user.id, interaction.guild)) {
-          await interaction.reply({ content: "❌ **Access Denied!** Requires Administrator or Manage Server permissions.", ephemeral: true });
+        const member = interaction.member;
+        if (!hasEffectiveAdminPermission(member) && interaction.user.id !== interaction.guild?.ownerId && !(interaction.guild ? isOwnerOrWhitelisted(interaction.user.id, interaction.guild) : false)) {
+          await interaction.reply({ content: "❌ **Access Denied!** Requires Administrator, Manage Server, or moderation permissions.", ephemeral: true });
           return;
         }
         const targetMember = interaction.targetMember as GuildMember;
@@ -3321,132 +2959,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       }
 
       try {
-        if (commandName === "nowplaying") {
-          const musicState = getOrCreateGuildMusicState(guild.id);
-
-          if (musicState && musicState.currentTrack) {
-            const track = musicState.currentTrack;
-            const isPlayingStr = musicState.isPaused ? "Paused ⏸️" : "Playing 🎵";
-            await interaction.reply({
-              embeds: [createSafeEmbed({
-                title: `🎵 Currently Playing: ${track.title}`,
-                description: `• **Artist:** ${track.artist || "AI Music Engine"}\n` +
-                             `• **Status:** ${isPlayingStr}\n` +
-                             `• **Volume:** ${musicState.volume}%\n` +
-                             `• **Queue Length:** ${musicState.queue.length} upcoming tracks\n` +
-                             `• **Requested By:** ${track.requestedBy || "User"}\n` +
-                             `• **Duration:** ${track.durationSeconds || 210} seconds`,
-                color: 0x3B82F6,
-                thumbnail: track.thumbnail || null
-              })],
-              ephemeral: false
-            }).catch(() => {});
-          } else {
-            await interaction.reply({
-              embeds: [createSafeEmbed({
-                title: "🎵 Currently Playing Track",
-                description: "No active voice connection or active track playing at the moment.\nUse the **Web Dashboard** or `/play` to stream high-fidelity audio!",
-                color: 0x3B82F6,
-                fields: [
-                  { name: "Voice Status", value: "Idle", inline: true },
-                  { name: "Audio Engine", value: "ASHTRON High-Fidelity Synthesizer", inline: true },
-                  { name: "Queue Size", value: `${musicState?.queue?.length || 0} tracks`, inline: true }
-                ]
-              })],
-              ephemeral: true
-            }).catch(() => {});
-          }
-          return;
-        }
-
-        if (commandName === "play" || commandName === "stop" || commandName === "skip" || commandName === "pause" || commandName === "resume") {
-          const guildMember = interaction.member as GuildMember;
-          const userVoiceChannel = guildMember?.voice?.channel;
-          if (!userVoiceChannel) {
-            await interaction.reply({ content: "❌ **Voice Error:** You must be connected to a Voice Channel to use music commands.", ephemeral: true });
-            return;
-          }
-
-          const botVoiceChannel = guild.members.me?.voice?.channel;
-          if (botVoiceChannel && botVoiceChannel.id !== userVoiceChannel.id) {
-            await interaction.reply({ content: "❌ **Voice Error:** You must be in the same voice channel as the bot to use music controls.", ephemeral: true });
-            return;
-          }
-
-          // DJ Role / Admin permission check for disruptive actions (stop, skip, pause)
-          if (commandName === "stop" || commandName === "skip" || commandName === "pause") {
-            const hasDjRole = guildMember.roles?.cache?.some(r => r.name.toLowerCase().includes("dj")) || false;
-            const isAdminOrOwner = isOwnerOrWhitelisted(interaction.user.id, guild, false) || (guildMember.permissions && guildMember.permissions.has(PermissionFlagsBits.ManageGuild));
-            const isAloneWithBot = userVoiceChannel.members.filter(m => !m.user.bot).size <= 1;
-
-            if (!hasDjRole && !isAdminOrOwner && !isAloneWithBot) {
-              await interaction.reply({ content: "⛔ **DJ Permission Required:** You need the 'DJ' role or Manage Guild permission to control playback when others are listening.", ephemeral: true });
-              return;
-            }
-          }
-
-          const musicState = getOrCreateGuildMusicState(guild.id);
-          const VoiceService = { playAudioInGuild, stopAudioInGuild, pauseAudioInGuild, resumeAudioInGuild };
-
-          if (commandName === "play") {
-             let query = interaction.options.getString("query") || "phonk";
-             if (query.length > 250) query = query.slice(0, 250);
-             if (musicState.queue.length >= 100) {
-               await interaction.reply({ content: "❌ **Queue Full:** Maximum queue limit of 100 tracks reached.", ephemeral: true });
-               return;
-             }
-             const { songUrl, title, artist, durationSeconds, thumbnail } = await getAudioStreamDetails(query);
-             const track = {
-                id: `track_${Date.now()}`,
-                title, artist, durationSeconds: durationSeconds || 210, url: songUrl, requestedBy: interaction.user.username,
-                thumbnail: thumbnail || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500'
-             };
-             
-             if (!musicState.currentTrack) {
-                musicState.currentTrack = track;
-                musicState.isPlaying = true;
-                musicState.isPaused = false;
-                musicState.positionSeconds = 0;
-                if (VoiceService && VoiceService.playAudioInGuild) VoiceService.playAudioInGuild(guild.id, track.url).catch(console.error);
-                await interaction.reply(`▶️ **Started Playing:** ${title} by ${artist}`);
-             } else {
-                musicState.queue.push(track);
-                await interaction.reply(`📝 **Queued:** ${title} by ${artist}`);
-             }
-          } else if (commandName === "stop") {
-             musicState.currentTrack = null;
-             musicState.isPlaying = false;
-             musicState.isPaused = false;
-             musicState.queue = [];
-             if (VoiceService && VoiceService.stopAudioInGuild) VoiceService.stopAudioInGuild(guild.id);
-             await interaction.reply(`⏹️ **Playback Stopped & Queue Cleared!**`);
-          } else if (commandName === "skip") {
-             if (musicState.queue.length > 0) {
-               musicState.currentTrack = musicState.queue.shift();
-               musicState.isPlaying = true;
-               musicState.isPaused = false;
-               musicState.positionSeconds = 0;
-               if (VoiceService && VoiceService.playAudioInGuild && musicState.currentTrack) {
-                 VoiceService.playAudioInGuild(guild.id, musicState.currentTrack.url).catch(console.error);
-               }
-               await interaction.reply(`⏭️ **Skipped! Now Playing:** ${musicState.currentTrack?.title}`);
-             } else {
-               musicState.currentTrack = null;
-               musicState.isPlaying = false;
-               if (VoiceService && VoiceService.stopAudioInGuild) VoiceService.stopAudioInGuild(guild.id);
-               await interaction.reply(`⏭️ **Skipped!** Queue is now empty.`);
-             }
-          } else if (commandName === "pause") {
-             musicState.isPaused = true;
-             await interaction.reply(`⏸️ **Paused!**`);
-          } else if (commandName === "resume") {
-             musicState.isPaused = false;
-             await interaction.reply(`▶️ **Resumed!**`);
-          }
-          return;
-        }
-
-        if (commandName === "help") {
+         if (commandName === "help") {
           await interaction.reply({
             embeds: [{
               title: "🤖 ASHTRON BOT COMMANDS & FEATURES",
@@ -3454,11 +2967,9 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
                 "🛡️ **SECURITY & MANAGEMENT:**\n" +
                 "• `/analyze` — Full AI security scan\n" +
                 "• `/dashboard` — Web control panel link\n" +
-                "• `/deploy-defense` — Activate 100/100 Zero Trust Anti-Nuke\n" +
-                "• `/setup-verify` — Deploy verification system\n" +
+                "• `/deploy-defense` — Activate Zero Trust Anti-Nuke\n" +
                 "• `/setup-invite-tracker` — Deploy invite logger\n" +
-                "• `/invites` / `/invite-leaderboard` — Invite statistics\n" +
-                "• `/ask <question>` — Query Gemini AI Brain",
+                "• `/invites` / `/invite-leaderboard` — Invite statistics",
               color: 0x3B82F6
             }],
             ephemeral: true
@@ -3475,7 +2986,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
             .setDescription(
               "Welcome to the **ASHTRON Enterprise Zero Trust Web Portal**.\n\n" +
               "• 🛡️ **Zero Trust Security:** Configure 6 Defense Layers, Anti-Nuke & Admin Freeze\n" +
-              "• 📊 **Live Logs & Audits:** Monitor real-time websocket gateway events & threat streams\n" +
+               "• 📊 **Live Logs & Audits:** Monitor real-time HTTP polling events & threat streams\n" +
               "• 🤖 **AI Neural Core:** Custom prompts, Gemini 2.5 Flash setup & bot status\n" +
               `👉 **Click the button below or URL to open the Web Dashboard:**\n\`${link}\``
             )
@@ -3501,7 +3012,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           return;
         }
 
-      if (commandName === "setup-invite-tracker" || commandName === "setup-invites") {
+      if (commandName === "setup-invite-tracker") {
         if (interaction.user.id !== guild.ownerId && !isOwnerOrWhitelisted(interaction.user.id, guild)) {
           await interaction.reply({ embeds: [{ title: "🛡️ ZERO TRUST ENGINE", description: "❌ **Access Denied!** Requires Whitelisted Admin or Owner clearance.", color: 0xDC2626 }], ephemeral: true });
           return;
@@ -3586,37 +3097,6 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         return;
       }
 
-      if (commandName === "setup-verify") {
-        if (interaction.user.id !== guild.ownerId && !isOwnerOrWhitelisted(interaction.user.id, guild)) {
-          await interaction.reply({ embeds: [{ title: "🛡️ ZERO TRUST ENGINE", description: "❌ **Access Denied!**\nThis action requires **E++** (Extreme) clearance.\nOnly the Server Owner or explicitly Whitelisted Admins can execute this action.\n*Your attempt has been logged.*", color: 0xDC2626 }], ephemeral: true });
-          return;
-        }
-        await interaction.deferReply();
-        try {
-          const res = await auditAndApplyVerifiedRolePermissions(guild, verifiedRoleName);
-          await sendLiveAuditAlert(guild, {
-            title: "✅ VERIFICATION SYSTEM DEPLOYED",
-            description: `**Configured By:** <@${interaction.user.id}>\n` +
-                         `**Verify Channel:** \`#verify\` configured with interactive Verify button.\n` +
-                         `**Role Permissions Enforced:** Unverified members restricted to \`#verify\` only.`,
-            color: 0x34D399
-          });
-          await interaction.editReply(
-            `✅ **VERIFICATION SYSTEM DEPLOYED!**\n\n` +
-            `• **Verification Channel:** \`#verify\` created/configured with interactive **✅ Verify Here** button.\n` +
-            `• **Unverified Permissions:** \`@everyone\` restricted to \`#verify\` channel only.\n` +
-            `• **Live Audit Channel:** \`#security-logs\` created & notified.\n` +
-            `• **Verified Channel Matrix:**\n` +
-            `  - 🔓 Unlocked Channels for Verified: \`${res.unlockedChannels}\` Channels\n` +
-            `  - 🔒 Locked VCs Preserved: \`${res.lockedVCs}\` Voice Channels\n` +
-            `  - 🙈 Hidden Staff Channels Preserved: \`${res.hiddenChannels}\` Channels`
-          );
-        } catch (err: any) {
-          await interaction.editReply(`❌ Setup failed: ${err.message}`);
-        }
-        return;
-      }
-
       if (commandName === "setup-honeypot" || commandName === "honeypot-link") {
         if (interaction.user.id !== guild.ownerId && !isOwnerOrWhitelisted(interaction.user.id, guild)) {
           await interaction.reply({ embeds: [{ title: "🛡️ ZERO TRUST ENGINE", description: "❌ **Access Denied!**\nRequires Server Owner or Whitelisted Admin clearance.", color: 0xDC2626 }], ephemeral: true });
@@ -3635,7 +3115,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
               `1. Copy this link and place it in channel topic, \`#admin-secret-leaks\`, or suspicious DM chats as bait.\n` +
               `2. Normal members can copy it safely.\n` +
               `3. If a rogue admin, nuker, or bot **clicks/opens** the link in their browser:\n` +
-              `   - 🛑 Their **IP Address is permanently blacklisted**.\n` +
+               `   - 🛑 Their **IP Address is blocked**.\n` +
               `   - 🔨 Their **Discord Account is auto-banned** from the server.\n` +
               `   - 🚨 An alert with attacker IP details is sent to \`#security-logs\`!`,
             color: 0xF59E0B
@@ -3728,34 +3208,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         return;
       }
 
-      if (commandName === "verify") {
-        await safeDeferReply(interaction, true);
-        try {
-          let verifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === verifiedRoleName.toLowerCase());
-          if (!verifiedRole) {
-            verifiedRole = await guild.roles.create({
-              name: verifiedRoleName,
-              color: 0x34D399,
-              reason: "Zero Trust Verification System Setup"
-            });
-          }
-
-          const mem = interaction.member as GuildMember;
-          if (mem.roles.cache.has(verifiedRole.id)) {
-            await safeReply(interaction, { content: "ℹ️ **Already Verified!** You already have access to server channels." });
-            return;
-          }
-
-          await mem.roles.add(verifiedRole, "Verified via /verify command");
-          await safeReply(interaction, { content: `🎉 **Verification Complete!** Full public channels unlocked for you in **${guild.name}**!` });
-        } catch (err: any) {
-          await safeReply(interaction, { content: `❌ Verification failed: ${err.message}` });
-        }
-        return;
-      }
-
-      
-      if (commandName === "deploy-defense" || commandName === "zerotrust" || commandName === "6layers") {
+      if (commandName === "deploy-defense") {
         if (interaction.user.id !== guild.ownerId && !isOwnerOrWhitelisted(interaction.user.id, guild)) {
           await interaction.reply({ embeds: [{ title: "🛡️ ZERO TRUST ENGINE", description: "❌ **Access Denied!**\nThis action requires **E++** (Extreme) clearance.\nOnly the Server Owner or explicitly Whitelisted Admins can execute this action.\n*Your attempt has been logged.*", color: 0xDC2626 }], ephemeral: true });
           return;
@@ -3765,16 +3218,16 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           addBotLog(`🚀 [/${commandName}] Triggered by ${interaction.user.tag} in '${guild.name}'! Deploying all 6 Zero Trust Anti-Nuke Shield Layers...`, "info");
           
           // 1. Audit and Enforce Verified Role Matrix
-          const auditRes = await auditAndApplyVerifiedRolePermissions(guild, verifiedRoleName);
+          const auditRes = await auditAndApplyVerifiedRolePermissions(guild, "");
           
           // 2. Refresh Security State
           const stats = getSecurityStats();
           
           // 3. Dispatch Live Audit Feed Banner to #security-logs Channel
           await sendLiveAuditAlert(guild, {
-            title: "🛡️ 100/100 ALL 6 ZERO TRUST DEFENSE LAYERS ARMED & ACTIVE",
+             title: "🛡️ ALL 6 ZERO TRUST DEFENSE LAYERS ARMED & ACTIVE",
             description: `**Deployment Initiator:** <@${interaction.user.id}> (${interaction.user.tag})\n` +
-                         `**Security Rating:** 🟢 100/100 MAXIMUM SHIELD\n` +
+                          `**Security Rating:** 🟢 MAXIMUM SHIELD\n` +
                          `**Sub-17ms Multi-Thread Protection:** Active for Kicks/Bans/Deletes/Webhooks\n` +
                          `**Verified Role Matrix Enforced:**\n` +
                          `• Locked VCs Preserved: \`${auditRes.lockedVCs}\` Voice Channels\n` +
@@ -3785,7 +3238,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
           await safeReply(interaction, {
             embeds: [{
-              title: "🛡️ ASHTRON 6-LAYER ZERO TRUST DEFENSE SYSTEM ACTIVATED (100/100)",
+               title: "🛡️ ASHTRON 6-LAYER ZERO TRUST DEFENSE SYSTEM ACTIVATED",
               color: 0x10B981,
               description:
                 `⚡ **ALL 6 SECURITY DEFENSE LAYERS DEPLOYED IN 1 COMMAND FOR \`${guild.name}\`**\n\n` +
@@ -3807,7 +3260,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
                 `• 🔒 Locked VCs Preserved: \`${auditRes.lockedVCs}\` Voice Channels\n` +
                 `• 🔓 Public Unlocked Channels: \`${auditRes.unlockedChannels}\` Channels\n` +
                 `• 🙈 Hidden Staff Channels: \`${auditRes.hiddenChannels}\` Channels\n\n` +
-                `✅ **Status:** 100/100 Maximum Security Shield Active • All 6 Layers Armed`,
+                `✅ **Status:** Maximum Security Shield Active • All 6 Layers Armed`,
               footer: { text: "ASHTRON Zero Trust Security Engine" },
               timestamp: new Date().toISOString()
             }]
@@ -3826,7 +3279,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         }
         const stats = getSecurityStats();
         await interaction.reply({
-          content: `🛡️ **ULTIMATE ZERO TRUST SECURITY STATUS (100/100)**\n\n` +
+           content: `🛡️ **ULTIMATE ZERO TRUST SECURITY STATUS**\n\n` +
                    `• **Security Score:** \`${stats.securityScore}/100\` (MAXIMUM)\n` +
                    `• **Zero Trust Owner-Only:** \`ACTIVE\` (No Admin Exemption)\n` +
                    `• **Anti-100 Nuker Burst Defense:** \`ACTIVE\`\n` +
@@ -3847,34 +3300,12 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         await interaction.reply({
           content: `⚡ **Bot Operational Health & Cluster Status:**\n` +
                    `• **Gateway Ping:** ${ping}ms\n` +
-                   `• **Sharding Engine:** Auto-Sharded (Shard 0/0)\n` +
+                    `• **Deployment:** Single-Instance Gateway (Shard 0)\n` +
                    `• **AI Core:** Gemini 3.6 Flash Active\n` +
-                   `• **Zero-Trust Shield:** 100/100 Enforcement Ready`
+                    `• **Zero-Trust Shield:** Enforcement Ready`
         });
         return;
       }
-
-      if (commandName === "verify-audit") {
-        if (interaction.user.id !== guild.ownerId && !isOwnerOrWhitelisted(interaction.user.id, guild)) {
-          await interaction.reply({ embeds: [{ title: "🛡️ ZERO TRUST ENGINE", description: "❌ **Access Denied!**\nThis action requires **E++** (Extreme) clearance.\nOnly the Server Owner or explicitly Whitelisted Admins can execute this action.\n*Your attempt has been logged.*", color: 0xDC2626 }], ephemeral: true });
-          return;
-        }
-        await interaction.deferReply();
-        const roleName = interaction.options.getString("rolename") || verifiedRoleName;
-        try {
-          const res = await auditAndApplyVerifiedRolePermissions(guild, roleName);
-          await interaction.editReply(
-            `✅ **Verified Role Security Audit Completed for '@${roleName}'!**\n\n` +
-            `🔒 **Locked VCs Preserved:** ${res.lockedVCs} voice channels\n` +
-            `🔓 **Unlocked Public Channels:** ${res.unlockedChannels} channels\n` +
-            `🙈 **Hidden Staff Channels Preserved:** ${res.hiddenChannels} channels`
-          );
-        } catch (err: any) {
-          await interaction.editReply(`❌ Audit failed: ${err.message}`);
-        }
-        return;
-      }
-
       if (commandName === "panic-lockdown") {
         if (interaction.user.id !== guild.ownerId && !isOwnerOrWhitelisted(interaction.user.id, guild)) {
           await interaction.reply({ embeds: [{ title: "🛡️ ZERO TRUST ENGINE", description: "❌ **Access Denied!**\nThis action requires **E++** (Extreme) clearance.\nOnly the Server Owner or explicitly Whitelisted Admins can execute this action.\n*Your attempt has been logged.*", color: 0xDC2626 }], ephemeral: true });
@@ -4033,14 +3464,14 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         const filename = await AutoBackupEngine.createBackup(guild);
 
         if (filename) {
-          addBotLog(`📦 [AUTO-BACKUP] Manual backup created: ${filename}`, "success");
+          addBotLog(`[AUTO-BACKUP] Manual backup created: ${filename}`, "success");
           await safeReply(interaction, {
             embeds: [{
-              title: "📦 SERVER BACKUP SUCCESSFUL",
-              description: `✅ **Server configuration successfully backed up!**\n\n` +
-                           `• **Filename:** \`${filename}\`\n` +
-                           `• **Content:** All roles, channels, and permissions.\n` +
-                           `• **Storage:** Saved in the local secure backup folder.\n\n` +
+              title: "SERVER BACKUP SUCCESSFUL",
+              description: `**Server configuration successfully backed up!**\n\n` +
+                           `**Filename:** \`${filename}\`\n` +
+                           `**Content:** All roles, channels, and permissions.\n` +
+                           `**Storage:** Saved in the local secure backup folder.\n\n` +
                            `*In the future, in case of a raid or accidental deletion, everything can be restored using this file.*`,
               color: 0x10B981
             }]
@@ -4137,7 +3568,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           // If it looks like a User ID, attempt Discord unban too
           const isIp = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(target) || target.includes(":");
           if (!isIp) {
-            await guild.bans.remove(target, "Zero-Trust IP Unban Command").catch(() => {});
+            await guild.bans.remove(target, "Zero-Trust IP Unban Command").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           }
 
           if (success) {
@@ -4156,7 +3587,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           } else {
             // Fallback unban even if not in DB
             if (!isIp) {
-              await guild.bans.remove(target, "Zero-Trust IP Unban Command").catch(() => {});
+              await guild.bans.remove(target, "Zero-Trust IP Unban Command").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
             }
             await safeReply(interaction, {
               content: `🛡️ Discord ban-list lookup executed for \`${target}\`. The target was not found in our custom IP ban database, but any Discord-level ban has been lifted.`
@@ -4205,7 +3636,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         return;
       }
 
-      if (commandName === "recover" || commandName === "nuke-reversal") {
+      if (commandName === "recover") {
         if (interaction.user.id !== guild.ownerId && !isOwnerOrWhitelisted(interaction.user.id, guild)) {
           await interaction.reply({ embeds: [{ title: "🛡️ ZERO TRUST ENGINE", description: "❌ **Access Denied!**\nThis action requires **E++** (Extreme) clearance.\nOnly the Server Owner or explicitly Whitelisted Admins can execute this action.\n*Your attempt has been logged.*", color: 0xDC2626 }], ephemeral: true });
           return;
@@ -4230,9 +3661,9 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
                }
            }
 
-           // 2. Recreate categories first so channels can be mapped correctly
-           const categories = latest.channels.filter(c => c.type === ChannelType.GuildCategory);
-           const otherChannels = latest.channels.filter(c => c.type !== ChannelType.GuildCategory);
+            // 2. Recreate categories first so channels can be mapped correctly
+            const categories = latest.channels.filter((c: any) => c.type === ChannelType.GuildCategory);
+            const otherChannels = latest.channels.filter((c: any) => c.type !== ChannelType.GuildCategory);
 
            // Re-create missing categories
            const createdCategories = new Map<string, string>(); // maps old parentId to new categoryId
@@ -4253,7 +3684,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
            for (const c of otherChannels) {
                const exists = guild.channels.cache.find(gc => gc.name.toLowerCase() === c.name.toLowerCase() && gc.type === c.type);
                if (!exists) {
-                   const mappedParentId = c.parentId ? (createdCategories.get(c.parentId) || guild.channels.cache.find(gc => gc.name === latest.channels.find(lc => lc.id === c.parentId)?.name)?.id) : null;
+                    const mappedParentId = c.parentId ? (createdCategories.get(c.parentId) || guild.channels.cache.find(gc => gc.name === latest.channels.find((lc: any) => lc.id === c.parentId)?.name)?.id) : null;
                    await guild.channels.create({ name: c.name, type: c.type, parent: mappedParentId || undefined, reason: "1-Click Server Recovery" }).catch(() => {});
                    channelsRestoredCount++;
                }
@@ -4269,7 +3700,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
                             `• **Roles Restored:** \`${rolesRestoredCount}\`\n` +
                             `• **Channels Restored:** \`${channelsRestoredCount}\`\n` +
                             `• **Backup Timestamp:** <t:${Math.floor(latest.timestamp/1000)}:F>\n` +
-                            `• **Status:** 🟢 **100% Secure & Online**\n\n` +
+                             `• **Status:** 🟢 **Secured & Online**\n\n` +
                             `*All channels and categories have been mapped back to their structure.*`,
                color: 0x10B981,
                footer: { text: "🛡️ Zero Trust Anti-Nuke Recovery System" }
@@ -4339,7 +3770,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         }
 
         await interaction.deferReply();
-        const vRole = guild.roles.cache.find(r => r.name.toLowerCase() === verifiedRoleName.toLowerCase()) || guild.roles.everyone;
+        const vRole = guild.roles.cache.find(r => r.name.toLowerCase() === "verified".toLowerCase()) || guild.roles.everyone;
         await (targetChannel as VoiceChannel).permissionOverwrites.edit(vRole, { Connect: false, Speak: false }).catch(() => {});
         await interaction.editReply(`🔒 Voice channel **${targetChannel.name}** is now strictly **LOCKED** for verified members!`);
         return;
@@ -4357,7 +3788,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         }
 
         await interaction.deferReply();
-        const vRole = guild.roles.cache.find(r => r.name.toLowerCase() === verifiedRoleName.toLowerCase()) || guild.roles.everyone;
+        const vRole = guild.roles.cache.find(r => r.name.toLowerCase() === "verified".toLowerCase()) || guild.roles.everyone;
         await (targetChannel as VoiceChannel).permissionOverwrites.edit(vRole, { Connect: true, Speak: true }).catch(() => {});
         await interaction.editReply(`🔓 Voice channel **${targetChannel.name}** is now **UNLOCKED** for verified members!`);
         return;
@@ -4375,19 +3806,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         }
 
         await interaction.deferReply();
-        const vRole = guild.roles.cache.find(r => r.name.toLowerCase() === verifiedRoleName.toLowerCase()) || guild.roles.everyone;
+        const vRole = guild.roles.cache.find(r => r.name.toLowerCase() === "verified".toLowerCase()) || guild.roles.everyone;
         await (targetChannel as GuildChannel).permissionOverwrites.edit(vRole, { ViewChannel: false }).catch(() => {});
         await (targetChannel as GuildChannel).permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }).catch(() => {});
         await interaction.editReply(`🙈 Channel **${targetChannel.name}** is now strictly **HIDDEN** from regular members!`);
-        return;
-      }
-
-      // Legacy Layer Commands redirecting to Unified Zero Trust Shield
-      if (commandName === "layer1" || commandName === "layer2" || commandName === "layer3" || commandName === "layer4" || commandName === "layer5" || commandName === "layer6") {
-        await interaction.reply({
-          content: `🛡️ **ASHTRON ZERO TRUST ENGINE:** All 6 defense layers (Prevention, Detection, Containment, Recovery, Monitoring, Reliability) are unified under **\` /deploy-defense \`** or **\` /zerotrust \`**.\n\nUse **\`/deploy-defense\`** to enforce and view status for all 6 layers simultaneously!`,
-          ephemeral: true
-        }).catch(() => {});
         return;
       }
 
@@ -4406,7 +3828,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           const channelCount = guild.channels.cache.size;
           const roleCount = guild.roles.cache.size;
 
-          const auditRes = await auditAndApplyVerifiedRolePermissions(guild, verifiedRoleName);
+          const auditRes = await auditAndApplyVerifiedRolePermissions(guild, "");
 
           await interaction.editReply(
             `🔍 **FULL SERVER & SECURITY AI ANALYSIS REPORT**\n\n` +
@@ -4421,7 +3843,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
             `• **Panic Lockdown Mode:** \`${stats.panicLockdownActive ? "ACTIVE 🚨" : "STANDBY 🟢"}\` \n` +
             `• **Verified Role Permissions:** \`Locked VCs: ${auditRes.lockedVCs} | Unlocked: ${auditRes.unlockedChannels} | Hidden: ${auditRes.hiddenChannels}\` \n` +
             `• **Total Blocked Attacks:** \`${stats.blockedAttacksCount}\` Threats Mitigated\n\n` +
-            `✅ **System Status:** All 6 Defense Layers Active & 100% Operational!`
+              `✅ **System Status:** Defense modules operational`
           );
         } catch (e: any) {
           await interaction.editReply(`❌ Analysis failed: ${e.message}`);
@@ -4444,109 +3866,6 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           `• **Total Blocked Attacks (All-Time):** \`${res.blockedAttacksCount}\` Attacks\n` +
           `• **Security Score:** \`${res.securityScore}/100\` (MAXIMUM SHIELD INTACT)`
         );
-        return;
-      }
-
-      // Handle AI Ask Command
-      if (commandName === "ask") {
-        const textParam = interaction.options.getString("question") || "";
-        if (!textParam.trim()) {
-          await interaction.reply({ content: "Error: Please provide a valid text prompt.", ephemeral: true });
-          return;
-        }
-
-        await interaction.deferReply();
-        try {
-          const ai = getAi();
-          if (!ai) {
-            await interaction.editReply("❌ AI system is currently disabled. Configure `GEMINI_API_KEY` in environment settings.");
-            return;
-          }
-
-          const GOD_AI_SYSTEM_INSTRUCTION = `You are the GOD AI Brain of the "EXCLUSIVE" Discord Server.
-Identity: You are not just a bot. You are the CEO, Head Mod, Security, Salesman, and Content Manager of this server.
-
-PERSONALITY:
-- Speak in English. Keep it short. Max 2 lines.
-- Max 1 emoji. Be casual, use terms like "bro" or "ok". Do not be overly formal.
-- Provide direct actions and solutions. Do not lecture.
-- If you don't know, just say "Bro, I don't know about this."
-
-CORE RULES:
-1. Safety First: If you see swearing, scams, nukes, raids, or threats, delete and timeout/ban immediately. No warnings.
-2. Memory: Check the 7-day server memory before making a decision.
-3. Speed: Make decisions within 0.5s.
-
-YOUR 6 MODES:
-The input will start with [MODE: NAME]. Act accordingly.
-
-[MODE: RAID_DREAM]
-INPUT: 7 days log: {server_logs}
-TASK: State Raid risk % + Top 3 suspects + Reason + Action.
-OUTPUT JSON: {"risk":"85%","suspects":["@user1"],"reason":"...","action":"lock"}
-
-[MODE: CODE_DOCTOR]
-INPUT: Error: {error_message} Code: {code}
-TASK: State where the bug is + Fixed code + Reason in 1 line.
-
-[MODE: VC_GOD]
-INPUT: Transcript: "{text}" User: {userId}
-TASK: Check for swearing, scams, threats, or AI Voice.
-OUTPUT JSON: If problem: {"action":"mute","duration":"10m","reason":"swearing"} Else: {"action":"ok"}
-
-[MODE: SALES_CLOSER]
-INPUT: Customer: "{msg}" Product: $14.99/mo Anti-Nuke, AI Mod, VC
-TASK: Sell the product in English in 2 lines. Do not pressure.
-
-[MODE: VIRAL_CONTENT]
-INPUT: Topic: {server_topic}
-TASK: Provide 1 Poll + 1 Meme + 1 Event idea. Use today's trend. 3 lines of English.
-
-[MODE: AI_JUDGE]
-INPUT: Report: {report} Evidence: {messages}
-TASK: Who is guilty + Why + What is the punishment.
-OUTPUT JSON: {"guilty":"@user","reason":"...","punishment":"7d_timeout"}
-
-FINAL RULE:
-Your Goal: Server 100% safe + Members active + Owner's income increased.`;
-
-          let reply = "";
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000);
-            try {
-              const reqConfig: any = {
-                systemInstruction: GOD_AI_SYSTEM_INSTRUCTION,
-              };
-              reqConfig.httpOptions = { fetchOptions: { signal: controller.signal } };
-              const response = await ai.models.generateContent({
-                model: "gemini-1.5-flash",
-                contents: textParam,
-                config: reqConfig
-              });
-              reply = response.text || "No response received from Gemini.";
-            } finally {
-              clearTimeout(timeoutId);
-            }
-          } catch (geminiErr: any) {
-            const errStr = String(geminiErr?.message || geminiErr).toLowerCase();
-            if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
-              reply = `Bhai, amar AI quota limit sesh hoye gece! Tobe chinta nai, amar Zero Trust 100/100 Anti-Nuke shield fully active ase! 👍`;
-            } else {
-              reply = `AI Error: ${geminiErr?.message || geminiErr}`;
-            }
-          }
-
-          const truncatedReply = reply.length > 1950 ? reply.slice(0, 1950) + "\n*(truncated due to length)*" : reply;
-          await interaction.editReply(`🤖 **Ultimate AI Core Reply**:\n\n${truncatedReply}`);
-        } catch (aiErr: any) {
-          const errStr = String(aiErr?.message || aiErr).toLowerCase();
-          if (errStr.includes("quota") || errStr.includes("resource_exhausted") || errStr.includes("429") || errStr.includes("exceeded")) {
-            await interaction.editReply(`Bhai, amar AI quota limit sesh hoye gece! Tobe chinta nai, amar Zero Trust 100/100 Anti-Nuke shield fully active ase! 👍`);
-          } else {
-            await interaction.editReply(`❌ AI generation error: ${aiErr?.message || aiErr}`);
-          }
-        }
         return;
       }
 
@@ -4575,29 +3894,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
       addBotLog(`[E++] RAW EVENT: channelCreate for ${channel.id}`, "info");
       if (!("guild" in channel) || !channel.guild) return;
 
-      // Auto-Enforce Verification Permissions on newly created channels/categories
-      if ('permissionOverwrites' in channel) {
-        try {
-          const guild = channel.guild;
-          const verifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === verifiedRoleName.toLowerCase());
-          if (verifiedRole) {
-            const chName = channel.name.toLowerCase();
-            const parentName = channel.parent?.name.toLowerCase() || "";
-            const isHidden = chName.includes("staff") || chName.includes("admin") || chName.includes("logs") || chName.includes("log") || chName.includes("secret") || chName.includes("mod") || chName.includes("owner") || chName.includes("private") || chName.includes("vip") || chName.includes("ticket") || chName.includes("audit") || chName.includes("management") || chName.includes("executive") || chName.includes("dev") || parentName.includes("staff") || parentName.includes("admin") || parentName.includes("secret") || parentName.includes("owner") || parentName.includes("mod") || parentName.includes("private") || parentName.includes("vip");
-            
-            if (chName === "verify" || chName === "verification") {
-              await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: true, SendMessages: false, ReadMessageHistory: true }).catch(() => {});
-              await channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: false }).catch(() => {});
-            } else if (isHidden) {
-              await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }).catch(() => {});
-              await channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: false }).catch(() => {});
-            } else {
-              await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }).catch(() => {});
-              await channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: true, ReadMessageHistory: true }).catch(() => {});
-            }
-          }
-        } catch (err: any) {}
-      }
+      const ctx = getOrCreateGuildContext(channel.guild);
 
       await EnhancedEventEngine.intercept(
         "Channel Creation",
@@ -4629,6 +3926,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
     client.on("channelDelete", async (channel) => {
       addBotLog(`[E++] RAW EVENT: channelDelete for ${channel.id}`, "info");
       if (!("guild" in channel) || !channel.guild) return;
+      const ctx = getOrCreateGuildContext(channel.guild);
       await EnhancedEventEngine.intercept(
         "Channel Deletion",
         channel.guild,
@@ -4663,6 +3961,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
     });
 
     client.on("roleCreate", async (role) => {
+      const ctx = getOrCreateGuildContext(role.guild);
       await EnhancedEventEngine.intercept(
         "Role Creation",
         role.guild,
@@ -4691,6 +3990,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
     });
 
     client.on("roleDelete", async (role) => {
+      const ctx = getOrCreateGuildContext(role.guild);
       await EnhancedEventEngine.intercept(
         "Role Deletion",
         role.guild,
@@ -4724,10 +4024,13 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
       );
     });
 
-    client.on("guildAuditLogEntryCreate", async (entry, guild) => {
+    client.on("guildAuditLogEntryCreate", async (entry: any, guild: Guild) => {
       try {
         const targetGuild = guild || (entry as any).guild || ((entry as any).guildId ? client.guilds.cache.get((entry as any).guildId) : null);
         if (!targetGuild) return;
+
+        // Use GuildContext for security modules (Phase 2 migration)
+        const ctx = getOrCreateGuildContext(targetGuild);
 
         let executorId = entry.executorId || entry.executor?.id;
         if (executorId) {
@@ -4746,17 +4049,17 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
           setPanicLockdown(true, 600000);
           
           // Elevate Verification Level
-          await targetGuild.setVerificationLevel(4).catch(() => {});
+          await targetGuild.setVerificationLevel(4).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           
-          // Trigger Emergency Blind Quarantine to strip all dangerous permissions from roles below the bot
-          await emergencyQuarantine(targetGuild).catch(() => {});
+           // Trigger Emergency Blind Quarantine to strip all dangerous permissions from roles below the bot
+           await emergencyQuarantine(targetGuild);
           
-          // Initiate Full Channel Lockdown
-          await NukeDefense.lockdown(targetGuild).catch(() => {});
+          // Initiate Full Channel Lockdown using GuildContext
+          await ctx.getNukeDefense().lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
           if (executorId && executorId !== targetGuild.ownerId) {
             // If executed by any admin/whitelisted user who is not the owner -> BAN them!
-            await punishRogueAdmin(targetGuild, executorId, "Member Prune Protection", "Executed member prune").catch(() => {});
+            await punishRogueAdmin(targetGuild, executorId, "Member Prune Protection", "Executed member prune").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
             
             await sendLiveAuditAlert(targetGuild, {
               title: "🚨 CRITICAL PRUNE DETECTED - ROGUE ADMIN BANNED",
@@ -4829,7 +4132,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
           if (targetId && recentProcessedKicks.has(targetId)) return;
           if (targetId) markKickProcessed(targetId);
 
-          addBotLog("🚨 [WEBSOCKET REAL-TIME] Unauthorized Kick detected! Rogue Admin: " + executorTag + " (" + (executorId || "Unknown") + "), Victim Target ID: " + targetId, "error");
+          addBotLog("🚨 [GATEWAY REAL-TIME] Unauthorized Kick detected! Rogue Admin: " + executorTag + " (" + (executorId || "Unknown") + "), Victim Target ID: " + targetId, "error");
           if (executorId) {
             checkNukerAttackThreshold(executorId, targetGuild.id, "MemberKick");
           }
@@ -4898,15 +4201,15 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
 
               // Revert all recent bans by this executor
               for (const banItem of bansByThisExecutor) {
-                await targetGuild.bans.remove(banItem.targetId, "Zero Trust Mass Ban Reverter: Automatic Unban").catch(() => {});
+                await targetGuild.bans.remove(banItem.targetId, "Zero Trust Mass Ban Reverter: Automatic Unban").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
               }
 
               if (executorId !== targetGuild.ownerId) {
                 // Auto Ban Rogue Admin!
-                await punishRogueAdmin(targetGuild, executorId, "Mass Ban Nuke", `Banned ${bansByThisExecutor.length} members in 10s`).catch(() => {});
+                await punishRogueAdmin(targetGuild, executorId, "Mass Ban Nuke", `Banned ${bansByThisExecutor.length} members in 10s`).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
               } else {
                 // If owner, we lock down server
-                await NukeDefense.lockdown(targetGuild).catch(() => {});
+                await ctx.getNukeDefense().lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
               }
 
               await sendLiveAuditAlert(targetGuild, {
@@ -4938,14 +4241,14 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
             return;
           }
 
-          addBotLog("🚨 [WEBSOCKET REAL-TIME] Unauthorized Ban detected! Rogue Admin: " + executorTag + " (" + (executorId || "Unknown") + "), Victim Target ID: " + targetId, "error");
+          addBotLog("🚨 [GATEWAY REAL-TIME] Unauthorized Ban detected! Rogue Admin: " + executorTag + " (" + (executorId || "Unknown") + "), Victim Target ID: " + targetId, "error");
           if (executorId) {
             checkNukerAttackThreshold(executorId, targetGuild.id, "MemberBanAdd");
           }
 
           // Unban victim
           if (targetId) {
-            await targetGuild.bans.remove(targetId, "Zero Trust Anti-Nuke Revert").catch(() => {});
+            await targetGuild.bans.remove(targetId, "Zero Trust Anti-Nuke Revert").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           }
 
           if (executorId) {
@@ -4983,12 +4286,12 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
                 const hasDangerous = dangerousPerms.some((p: any) => role.permissions.has(p));
                 
                 if (hasDangerous) {
-                  addBotLog("🚨 [WEBSOCKET REAL-TIME] Unauthorized Role Update detected! Rogue Admin: " + executorTag + " (" + executorId + ")", "error");
+                  addBotLog("🚨 [GATEWAY REAL-TIME] Unauthorized Role Update detected! Rogue Admin: " + executorTag + " (" + executorId + ")", "error");
                   checkNukerAttackThreshold(executorId, targetGuild.id, "RoleUpdate");
                   
                   // Revert
                   if (permChange.old !== undefined) {
-                     await role.setPermissions(oldPerms, "Zero Trust Anti-Nuke Revert").catch(() => {});
+                     await role.setPermissions(oldPerms, "Zero Trust Anti-Nuke Revert").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                   }
                   
                   await punishRogueAdmin(targetGuild, executorId, "Role Update (Elevated)", "Role: " + role.name);
@@ -5027,13 +4330,13 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
              }
 
              if (hasDangerous) {
-                 addBotLog("🚨 [WEBSOCKET REAL-TIME] Unauthorized Role Assignment detected! Rogue Admin: " + executorTag + " (" + executorId + ") to User: " + targetId, "error");
+                 addBotLog("🚨 [GATEWAY REAL-TIME] Unauthorized Role Assignment detected! Rogue Admin: " + executorTag + " (" + executorId + ") to User: " + targetId, "error");
                  checkNukerAttackThreshold(executorId, targetGuild.id, "MemberRoleUpdate");
 
                  const targetMember = await targetGuild.members.fetch(targetId as string).catch(() => null);
                  if (targetMember) {
                      for (const roleObj of addChange.new as any[]) {
-                         await targetMember.roles.remove(roleObj.id, "Zero Trust Anti-Nuke Revert").catch(() => {});
+                         await targetMember.roles.remove(roleObj.id, "Zero Trust Anti-Nuke Revert").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                      }
                  }
 
@@ -5080,12 +4383,12 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
           if (isOwnerOrWhitelisted(executorId, targetGuild)) return;
 
           const botId = entry.targetId;
-          addBotLog("🚨 [WEBSOCKET REAL-TIME] Unauthorized Bot Addition detected! Rogue Admin: " + executorTag + " (" + executorId + ") added bot " + botId, "error");
+          addBotLog("🚨 [GATEWAY REAL-TIME] Unauthorized Bot Addition detected! Rogue Admin: " + executorTag + " (" + executorId + ") added bot " + botId, "error");
           checkNukerAttackThreshold(executorId, targetGuild.id, "BotAdd");
 
           if (botId) {
              const botMember = await targetGuild.members.fetch(botId as string).catch(() => null);
-             if (botMember) await botMember.kick("Zero Trust Anti-Nuke: Unauthorized Bot").catch(() => {});
+             if (botMember) await botMember.kick("Zero Trust Anti-Nuke: Unauthorized Bot").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           }
 
           await punishRogueAdmin(targetGuild, executorId, "Bot Addition", "Attempted to add an unauthorized bot: <@" + botId + ">");
@@ -5120,17 +4423,17 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
           const executorTag = executor ? (executor.tag || executor.username) : executorId;
           if (isOwnerOrWhitelisted(executorId, targetGuild)) return;
 
-          addBotLog("🚨 [WEBSOCKET REAL-TIME] Unauthorized Server Settings Change detected! Rogue Admin: " + executorTag + " (" + executorId + ")", "error");
+          addBotLog("🚨 [GATEWAY REAL-TIME] Unauthorized Server Settings Change detected! Rogue Admin: " + executorTag + " (" + executorId + ")", "error");
           checkNukerAttackThreshold(executorId, targetGuild.id, "GuildUpdate");
 
           const nameChange = entry.changes?.find((c: any) => c.key === "name");
           if (nameChange && nameChange.old) {
-            await targetGuild.setName(nameChange.old, "Zero Trust Anti-Nuke Revert").catch(() => {});
+            await targetGuild.setName(nameChange.old, "Zero Trust Anti-Nuke Revert").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           }
 
           const iconChange = entry.changes?.find((c: any) => c.key === "icon_hash");
           if (iconChange && iconChange.old) {
-            await targetGuild.setIcon(iconChange.old, "Zero Trust Anti-Nuke Revert").catch(() => {});
+            await targetGuild.setIcon(iconChange.old, "Zero Trust Anti-Nuke Revert").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           }
 
           await punishRogueAdmin(targetGuild, executorId, "Server Update", "Attempted to modify server settings");
@@ -5147,6 +4450,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
 
     client.on("guildMemberRemove", async (member) => {
       const guild = member.guild;
+      const ctx = getOrCreateGuildContext(guild);
       const startTime = Date.now();
 
       // Record Leave in Invite Tracker Engine
@@ -5179,10 +4483,10 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
         await guild.setVerificationLevel(4).catch(() => {});
 
         // Trigger Emergency Blind Quarantine to strip admin/kick permissions from all suspect roles below the bot
-        await emergencyQuarantine(guild).catch(() => {});
+        await emergencyQuarantine(guild);
 
-        // Initiate Full Channel Lockdown
-        await NukeDefense.lockdown(guild).catch(() => {});
+        // Initiate Full Channel Lockdown using GuildContext
+        await ctx.getNukeDefense().lockdown(guild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
         // Fetch Audit Logs to find the Rogue Admin who is kicking
         try {
@@ -5205,7 +4509,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
               if (count >= 4) { // Executor kicked at least 4 members recently
                 if (executorId !== guild.ownerId) {
                   // AUTO BAN + Role Strip rogue admin instantly!
-                  await punishRogueAdmin(guild, executorId, "Mass Kick Nuke Protection", `Automated kick velocity of ${count} kicks in 15s`).catch(() => {});
+                  await punishRogueAdmin(guild, executorId, "Mass Kick Nuke Protection", `Automated kick velocity of ${count} kicks in 15s`).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                   
                   await sendLiveAuditAlert(guild, {
                     title: "🚨 TIER 3: MASS KICK SHIELD - ROGUE ADMIN BANNED",
@@ -5300,9 +4604,10 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
     client.on("webhookUpdate", async (channel) => {
       if (!("guild" in channel) || !channel.guild) return;
       const guild = channel.guild;
+      const ctx = getOrCreateGuildContext(guild);
 
       // 16. Advanced Webhook Guard
-      await WebhookGuard.verify(guild);
+      await ctx.getWebhookGuard().verify(guild);
 
       try {
         const entry = await fetchAuditLogWithRetry(guild, AuditLogEvent.WebhookCreate, undefined, 6, 300);
@@ -5334,6 +4639,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
     client.on("channelUpdate", async (oldChannel, newChannel) => {
       if (!("guild" in newChannel) || !newChannel.guild) return;
       const guild = newChannel.guild;
+      const ctx = getOrCreateGuildContext(guild);
       if (activeGuildAudits.has(guild.id)) return;
       
       try {
@@ -5378,6 +4684,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
     // 8. ANTI ROLE UPDATE (Prevent giving Admin/Dangerous perms fallback)
     client.on("roleUpdate", async (oldRole, newRole) => {
       const guild = newRole.guild;
+      const ctx = getOrCreateGuildContext(guild);
       try {
         const dangerousPerms = [PermissionFlagsBits.Administrator, PermissionFlagsBits.ManageRoles, PermissionFlagsBits.ManageGuild, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.BanMembers, PermissionFlagsBits.KickMembers, PermissionFlagsBits.ManageWebhooks];
         const hasDangerous = dangerousPerms.some(p => newRole.permissions.has(p));
@@ -5413,6 +4720,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
     // 9. ANTI MEMBER ROLE UPDATE (Prevent rogue admins from assigning Admin roles fallback)
     client.on("guildMemberUpdate", async (oldMember, newMember) => {
       const guild = newMember.guild;
+      const ctx = getOrCreateGuildContext(guild);
       const addedRoles = newMember.roles.cache.filter(r => !oldMember.roles.cache.has(r.id));
       if (addedRoles.size === 0) return;
 
@@ -5454,6 +4762,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
 
     // 10. ANTI SERVER SETTINGS / GUILD UPDATE
     client.on("guildUpdate", async (oldGuild, newGuild) => {
+      const ctx = getOrCreateGuildContext(newGuild);
       try {
         const nameChanged = oldGuild.name !== newGuild.name;
         const iconChanged = oldGuild.icon !== newGuild.icon;
@@ -5485,8 +4794,10 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
     });
 
     client.on("guildIntegrationsUpdate", async (guild) => {
+      const ctx = getOrCreateGuildContext(guild);
+      
       // ALWAS scan for malicious apps immediately, regardless of who added them
-      await OAuthMaliciousAppDetector.scanGuildIntegrations(guild, (msg) => {
+      await ctx.getOAuthMaliciousAppDetector().scanGuildIntegrations(guild, (msg) => {
         addBotLog(msg, "error");
         sendLiveAuditAlert(guild, {
           title: "🚨 MALICIOUS OAUTH APP DETECTED & DELETED",
@@ -5507,7 +4818,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
           
           const execMember = await guild.members.fetch(executor.id).catch(() => null);
           if (execMember) {
-            await execMember.ban({ reason: "Zero-Trust Strict Policy: Unauthorized Integration Addition (OAuth Bypass)" }).catch(() => {});
+            await execMember.ban({ reason: "Zero-Trust Strict Policy: Unauthorized Integration Addition (OAuth Bypass)" }).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           }
 
           if (!isPanic) {
@@ -5515,7 +4826,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
              if (integrations) {
                  for (const [_, int] of integrations) {
                      if (int.id === entry.targetId || int.user?.id === entry.targetId) {
-                         await int.delete("Zero Trust Anti-Nuke: Unauthorized Integration Removal").catch(() => {});
+                         await int.delete("Zero Trust Anti-Nuke: Unauthorized Integration Removal").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
                      }
                  }
              }
@@ -5532,6 +4843,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
 
     client.on("guildBanAdd", async (ban) => {
       const guild = ban.guild;
+      const ctx = getOrCreateGuildContext(guild);
       const startTime = Date.now();
 
       try {
@@ -5552,7 +4864,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
           checkNukerAttackThreshold(executorId, guild.id, "MemberBanAdd");
 
           // Unban victim
-          await guild.bans.remove(ban.user, "Zero Trust 100/100 Instant Anti-Nuke Ban Revert").catch(() => {});
+          await guild.bans.remove(ban.user, "Zero Trust Instant Anti-Nuke Ban Revert").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
           await punishRogueAdmin(guild, executorId, "Member Ban", `Victim: ${ban.user.tag} (Unbanned)`);
 
@@ -5570,14 +4882,15 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
     // 16. Anti-Invite Link Monitor (Shield)
     client.on("messageCreate", async (message) => {
       if (!message.guild || message.author.bot) return;
-      if (!AntiInviteShield.isEnabled()) return;
+      const ctx = getOrCreateGuildContext(message.guild);
+      if (!ctx.getAntiInviteShield().isEnabled()) return;
 
       // Exempt Owner and Whitelist
       if (message.author.id === message.guild.ownerId || isOwnerOrWhitelisted(message.author.id, message.guild, false)) {
         return;
       }
 
-      const isLink = AntiInviteShield.containsInvite(message.content) || 
+      const isLink = ctx.getAntiInviteShield().containsInvite(message.content) || 
                      /(https?:\/\/[^\s]+|discord\.gg\/[a-zA-Z0-9]+|discord\.com\/invite\/[a-zA-Z0-9]+|t\.me\/[a-zA-Z0-9_]+)/i.test(message.content);
 
       if (isLink) {
@@ -5592,7 +4905,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
 
           // Execute 1-Hour Timeout ONLY (No Ban!)
           if (message.member && message.member.moderatable) {
-            await message.member.timeout(60 * 60 * 1000, "Zero Trust Shield: Unauthorized link detected (Timeout policy enforced)").catch(() => {});
+            await message.member.timeout(60 * 60 * 1000, "Zero Trust Shield: Unauthorized link detected (Timeout policy enforced)").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
           }
 
           // Audit Alert
@@ -5614,18 +4927,13 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
     // 17. Final Verification
     client.on("guildMemberAdd", async (member) => {
       const guild = member.guild;
-      try {
-        const unverifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === "unverified");
-        if (unverifiedRole) {
-          await member.roles.add(unverifiedRole, "Auto-assign Unverified role on join").catch(() => {});
-        }
-      } catch (e) {}
+      const ctx = getOrCreateGuildContext(guild);
       
       // 🛡️ ANTI-RAID JOIN-LIMIT SHIELD
-      const isRaid = JoinLimitShield.recordJoin(guild.id);
+      const isRaid = ctx.getJoinLimitShield().recordJoin(guild.id);
       if (isRaid) {
         addBotLog(`🚨 [RAID DETECTED] High velocity join spike! Activating Temporal Raid Lockdown in ${guild.name}.`, "error");
-        await NukeDefense.lockdown(guild);
+        await ctx.getNukeDefense().lockdown(guild);
         await sendLiveAuditAlert(guild, {
           title: "🛡️ ANTI-RAID VELOCITY SHIELD",
           description: `⚠️ **Raid Detected!**\n\n` +
@@ -5638,7 +4946,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
 
       // 🛡️ ZERO-TRUST CUSTOM IP-BAN & BLACKLIST SYSTEM CHECK
       try {
-        const isBanned = IPBanSystem.isBanned(member.id);
+        const isBanned = ctx.getIPBanSystem().isBanned(member.id);
         if (isBanned) {
           addBotLog(`🚨 [IP-BAN MATCH] Blacklisted User ID '${member.user.tag}' (${member.id}) attempted to join. Executing auto-ban.`, "error");
           await member.ban({ deleteMessageSeconds: 604800, reason: `Zero-Trust Custom IP-Ban: Blacklisted ID` }).catch(() => {});
@@ -5676,7 +4984,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
         await guild.setVerificationLevel(4).catch(() => {});
         
         // Initiate Full Channel Lockdown
-        await NukeDefense.lockdown(guild).catch(() => {});
+        await NukeDefense.lockdown(guild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
         await sendLiveAuditAlert(guild, {
           title: "🚨 TIER 1: JOIN RAID SHIELD / VELOCITY LOCK ENGAGED",
@@ -5854,6 +5162,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
     client.on("inviteCreate", async (invite) => {
       const guild = invite.guild as Guild;
       if (!guild || !guild.ownerId) return;
+      const ctx = getOrCreateGuildContext(guild);
 
       const inviter = invite.inviter;
       if (!inviter) return;
@@ -5872,6 +5181,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
     client.on("inviteDelete", async (invite) => {
       const guild = invite.guild as Guild;
       if (!guild) return;
+      const ctx = getOrCreateGuildContext(guild);
       globalInvitesCache.get(guild.id)?.delete(invite.code);
     });
 
@@ -5907,6 +5217,7 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
     });
 
     const tokenToLogin = (TokenVault.retrieve() || process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN)?.trim();
+    console.log("[BOT-STARTUP] Token to login present:", !!tokenToLogin, "length:", tokenToLogin?.length);
     if (tokenToLogin && CanaryToken.check(tokenToLogin)) {
       addBotLog("🚨 [CANARY TRAP TRIGGERED] CRITICAL SECURITY BREACH! Decoy Canary Token was used to log in. Immediate Zero Trust memory wipe self-destruct activated.", "error");
       console.error("🚨 [CANARY BREACH DETECTED] Decoy Canary Token used in bot login.");
@@ -5921,10 +5232,38 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
       isStartingBot = false;
       return;
     }
-    console.log("LOGIN TOKEN ->" + tokenToLogin + "<-"); await client.login(tokenToLogin);
+    console.log("[BOT-STARTUP] Attempting Discord bot login...");
+    const loginTimeoutMs = 90000; // 90s timeout for Railway/CI environments
+    const loginPromise = client.login(tokenToLogin);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Login timeout: ready event did not fire within 90s")), loginTimeoutMs)
+    );
+    try {
+      await Promise.race([loginPromise, timeoutPromise]);
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      if (errMsg.includes("Login timeout")) {
+        addBotLog(`Discord bot login timed out after ${loginTimeoutMs/1000}s. This may be due to network latency from Railway to Discord Gateway. Retrying...`, "warning");
+        // Retry once after timeout
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        try {
+          const retryPromise = client.login(tokenToLogin);
+          const retryTimeout = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Login timeout: ready event did not fire within 90s on retry")), loginTimeoutMs)
+          );
+          await Promise.race([retryPromise, retryTimeout]);
+        } catch (retryErr: any) {
+          throw new Error(`Discord bot login failed after retry: ${retryErr?.message || retryErr}`);
+        }
+      } else {
+        throw err;
+      }
+    }
+    console.log("[BOT-STARTUP] client.login() resolved without throwing");
     isStartingBot = false;
   } catch (err: any) {
     const errMsg = err?.message || String(err);
+    console.error("[BOT-STARTUP] Caught error:", errMsg);
     if (errMsg.includes("TokenInvalid") || errMsg.includes("invalid token") || errMsg.includes("An invalid token was provided")) {
       addBotLog(`Discord Bot offline: Invalid token provided. Please configure a valid Discord Bot Token.`, "warning");
     } else {
@@ -5937,32 +5276,8 @@ Your Goal: Server 100% safe + Members active + Owner's income increased.`;
   }
 }
 
-// Function to simulate 100 Nukers Simultaneous Attack for Live Dashboard Testing
-// --- GLOBAL ERROR HANDLING & GRACEFUL SHUTDOWN (PREVENT CRASHES & CORRUPTION) ---
-let isShuttingDown = false;
-async function handleGracefulShutdown(signal: string) {
-  if (isShuttingDown) return;
-  isShuttingDown = true;
-  console.log(`\n🛑 [GRACEFUL SHUTDOWN] Received ${signal}. Cleaning up connections & state...`);
-  addBotLog(`🛑 [SHUTDOWN] Bot received ${signal}. Executing graceful termination...`, "warning");
-  botStatus = "offline";
-
-  if (presenceRotatorInterval) clearInterval(presenceRotatorInterval);
-
-  if (clientInstance) {
-    try {
-      await clientInstance.destroy();
-      console.log("✅ Discord client connection destroyed safely.");
-    } catch (err: any) {
-      console.error("Error destroying Discord client during shutdown:", err.message);
-    }
-    clientInstance = null;
-  }
-  process.exit(0);
-}
-
-process.on("SIGTERM", () => handleGracefulShutdown("SIGTERM"));
-process.on("SIGINT", () => handleGracefulShutdown("SIGINT"));
+// Note: Graceful shutdown is handled by server.ts to ensure admin sessions
+// are saved and the Discord bot is stopped cleanly.
 
 process.on("unhandledRejection", (reason, promise) => {
   console.error("🚨 [UNHANDLED REJECTION]:", reason);
@@ -5979,17 +5294,22 @@ process.on("uncaughtException", (err) => {
 export async function runNukeDefenseDrill() {
   const startTime = Date.now();
   addBotLog(`⚡ [RUNNING 100-NUKER STRESS TEST DRILL] Executing real microsecond security packet scan on 100 simulated attack vector signatures...`, "warning");
-  
+
   let passedCount = 0;
   let totalMicros = 0;
 
-  // Execute 100 real security scans via C++ Native Engine
+  const requests: Array<{ packetId: number; riskWeight: number }> = [];
   for (let i = 1; i <= 100; i++) {
-    const risk = 5.0 + Math.random() * 5.0; // High risk 5-10
-    const scan = CppNativeEngine.scanSecurityPacket(1000 + i, risk);
+    const risk = 5.0 + Math.random() * 5.0;
+    requests.push({ packetId: 1000 + i, riskWeight: risk });
+  }
+
+  const scans = await CppNativeEngine.batchScanPackets(requests);
+  for (let i = 0; i < scans.length; i++) {
+    const scan = scans[i];
     if (scan.passed) passedCount++;
     totalMicros += scan.latencyMicros;
-    BehaviorScoring.recordViolation(`simulated_drill_attacker_${i % 10}`);
+    BehaviorScoring.recordViolation(`simulated_drill_attacker_${(i + 1) % 10}`);
   }
 
   const avgLatency = (totalMicros / 100).toFixed(2);
@@ -6005,7 +5325,7 @@ export async function runNukeDefenseDrill() {
     }
   }
 
-  addBotLog(`🎉 [100-NUKER STRESS TEST COMPLETE] Processed 100 attack packets in ${durationMs}ms (Avg Scan Latency: ${avgLatency}μs). Neutralized 100/100 threats.`, "success");
+  addBotLog(`🎉 [100-NUKER STRESS TEST COMPLETE] Processed 100 attack packets in ${durationMs}ms (Avg Scan Latency: ${avgLatency}μs). Passed ${passedCount}/100 signatures.`, "success");
   
   const stats = getSecurityStats();
   return {
