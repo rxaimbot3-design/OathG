@@ -29,6 +29,11 @@ import { CppNativeEngine } from "./src/CppEngine.js";
 import { validateEnvironmentVariables } from "./src/EnvValidator.js";
 import { hashToken, scanForSecrets, validateInput, runBackupIntegrityTest } from "./src/security.js";
 
+// Monitoring imports
+import { discordMetrics, getMetrics, getContentType, httpMetricsMiddleware } from "./src/monitoring/metrics.js";
+import { log, createModuleLogger } from "./src/logging/logger.js";
+import { DIContainer } from "./src/di/container.js";
+
 // Modular route scaffolding (Phase 1 continued - routes are defined but not yet wired)
 // import { registerHealthRoutes } from "./src/server/routes/health.js";
 // import { registerDiscordRoutes } from "./src/server/routes/discord.js";
@@ -46,6 +51,8 @@ import { hashToken, scanForSecrets, validateInput, runBackupIntegrityTest } from
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
+
+const serverLogger = createModuleLogger("server");
 
 
 
