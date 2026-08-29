@@ -90,4 +90,25 @@ export class OwnerLock {
   getOwners(): string[] {
     return [...this.allowedOwners];
   }
+
+  // Static wrapper methods for backward compatibility
+  static isOwner(userId: string, guildOwnerId?: string): boolean {
+    return this.getInstance().isOwner(userId, guildOwnerId);
+  }
+
+  static enforce(userId: string, guildOwnerId?: string): boolean {
+    return this.getInstance().enforce(userId, guildOwnerId);
+  }
+
+  static enforceOrThrow(userId: string, guildOwnerId?: string, operation: string = "operation"): void {
+    return this.getInstance().enforceOrThrow(userId, guildOwnerId, operation);
+  }
+
+  static addOwner(userId: string): void {
+    return this.getInstance().addOwner(userId);
+  }
+
+  static removeOwner(userId: string): void {
+    return this.getInstance().removeOwner(userId);
+  }
 }

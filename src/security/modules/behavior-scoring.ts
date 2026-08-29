@@ -102,4 +102,41 @@ export class BehaviorScoring {
   clear(): void {
     this.userRiskScores.clear();
   }
+
+  // Static wrapper methods for backward compatibility
+  static getRisk(userId: string): UserRiskData {
+    return this.getInstance().getRisk(userId);
+  }
+
+  static getScore(userId: string): number {
+    return this.getInstance().getScore(userId);
+  }
+
+  static recordViolation(userId: string, reason = "Behavioral Violation"): number {
+    return this.getInstance().recordViolation(userId, reason);
+  }
+
+  static addRisk(userId: string, points: number, reason: string): number {
+    return this.getInstance().addRisk(userId, points, reason);
+  }
+
+  static reduceRisk(userId: string, points: number, reason = "Good behavior"): number {
+    return this.getInstance().reduceRisk(userId, points, reason);
+  }
+
+  static setRisk(userId: string, score: number, reason = "Manual override"): number {
+    return this.getInstance().setRisk(userId, score, reason);
+  }
+
+  static getAllHighRiskUsers(threshold = 50): Array<{ userId: string; score: number; reasons: string[] }> {
+    return this.getInstance().getAllHighRiskUsers(threshold);
+  }
+
+  static getStats() {
+    return this.getInstance().getStats();
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
 }

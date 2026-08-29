@@ -1,10 +1,10 @@
-import { GuildMember, Guild } from "discord.js";
+import { GuildMember, Guild, ColorResolvable } from "discord.js";
 import { withExponentialBackoff } from "../../bot/utils.js";
 import { BehaviorScoring } from "./behavior-scoring.js";
 
 export interface QuarantineConfig {
   roleName?: string;
-  roleColor?: string;
+  roleColor?: ColorResolvable;
   retryAttempts?: number;
   retryDelayMs?: number;
 }
@@ -94,5 +94,18 @@ export class Quarantine {
 
   isQuarantined(member: GuildMember): boolean {
     return member.roles.cache.some((r: any) => r.name === this.config.roleName);
+  }
+
+  // Static wrapper methods for backward compatibility
+  static async isolate(member: GuildMember): Promise<boolean> {
+    return this.getInstance().isolate(member);
+  }
+
+  static async release(member: GuildMember): Promise<boolean> {
+    return this.getInstance().release(member);
+  }
+
+  static isQuarantined(member: GuildMember): boolean {
+    return this.getInstance().isQuarantined(member);
   }
 }

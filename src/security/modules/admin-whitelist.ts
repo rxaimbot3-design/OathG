@@ -123,4 +123,37 @@ export class AdminWhitelistSystem {
   getAllRecords(): WhitelistRecord[] {
     return this.loadWhitelist();
   }
+
+  // Static wrapper methods for backward compatibility
+  static loadWhitelist(): WhitelistRecord[] {
+    return this.getInstance().loadWhitelist();
+  }
+
+  static saveWhitelist(records: WhitelistRecord[]): void {
+    return this.getInstance().saveWhitelist(records);
+  }
+
+  static isIpWhitelisted(rawIp: string): boolean {
+    return this.getInstance().isIpWhitelisted(rawIp);
+  }
+
+  static isUserWhitelisted(userId: string): boolean {
+    return this.getInstance().isUserWhitelisted(userId);
+  }
+
+  static isWhitelisted(ip: string, userId?: string): boolean {
+    return this.getInstance().isWhitelisted(ip, userId);
+  }
+
+  static addRecord(type: "ip" | "user", value: string, addedBy = "Admin", note = ""): WhitelistRecord {
+    return this.getInstance().addRecord(type, value, addedBy, note);
+  }
+
+  static removeRecord(idOrValue: string): boolean {
+    return this.getInstance().removeRecord(idOrValue);
+  }
+
+  static getAllRecords(): WhitelistRecord[] {
+    return this.getInstance().getAllRecords();
+  }
 }

@@ -157,4 +157,37 @@ export class InviteTrackerEngine {
     this.userInvites.clear();
     this.invitedByMap.clear();
   }
+
+  // Static wrapper methods for backward compatibility
+  static recordJoin(guildId: string, inviterId: string, joinedUserId: string, accountAgeDays: number): JoinResult {
+    return this.getInstance().recordJoin(guildId, inviterId, joinedUserId, accountAgeDays);
+  }
+
+  static recordLeave(guildId: string, leftUserId: string): LeaveResult | null {
+    return this.getInstance().recordLeave(guildId, leftUserId);
+  }
+
+  static addBonus(guildId: string, userId: string, amount: number): number {
+    return this.getInstance().addBonus(guildId, userId, amount);
+  }
+
+  static resetUser(guildId: string, userId: string): void {
+    return this.getInstance().resetUser(guildId, userId);
+  }
+
+  static resetGuild(guildId: string): void {
+    return this.getInstance().resetGuild(guildId);
+  }
+
+  static getLeaderboard(guildId: string, limit: number = 10): Array<{ userId: string; regular: number; leaves: number; fake: number; bonus: number; total: number }> {
+    return this.getInstance().getLeaderboard(guildId, limit);
+  }
+
+  static getUserStats(guildId: string, userId: string): UserInviteData | null {
+    return this.getInstance().getUserStats(guildId, userId);
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
 }

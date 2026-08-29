@@ -156,4 +156,29 @@ export class AIRaidPrediction {
     this.joinTimes = [];
     this.recentAccountAgesDays = [];
   }
+
+  // Static wrapper methods for backward compatibility
+  static recordJoin(createdTimestamp: number): void {
+    return this.getInstance().recordJoin(createdTimestamp);
+  }
+
+  static predict(): RaidPredictionResult {
+    return this.getInstance().predict();
+  }
+
+  static updateBaseline(newBaseline: Partial<HistoricalBaseline>): void {
+    return this.getInstance().updateBaseline(newBaseline);
+  }
+
+  static getBaseline(): HistoricalBaseline {
+    return this.getInstance().getBaseline();
+  }
+
+  static getCurrentStats() {
+    return this.getInstance().getCurrentStats();
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
 }

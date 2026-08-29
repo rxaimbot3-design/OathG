@@ -1,4 +1,4 @@
-import { MongoRedisEngine } from "../SecurityFeatures.js";
+import { MongoRedisEngine } from "../security/modules/mongo-redis-engine.js";
 
 const LOCAL_FALLBACK_MAX_ENTRIES = 10000;
 const LOCAL_FALLBACK_CLEANUP_MS = 5 * 60 * 1000;
@@ -50,7 +50,7 @@ export class RedisRateLimiter {
   static async check(key: string, windowMs: number, maxRequests: number): Promise<boolean> {
     if (this.redisAvailable) {
       try {
-        const client = MongoRedisEngine['redisClient'];
+        const client = await MongoRedisEngine.getClient();
         if (!client) {
           this.redisAvailable = false;
           return this.checkLocal(key, windowMs, maxRequests);

@@ -112,4 +112,17 @@ export class AutoBackupEngine {
     }
     return files.sort().reverse();
   }
+
+  // Static wrapper methods for backward compatibility
+  static async createBackup(guild: Guild): Promise<string | null> {
+    return this.getInstance().createBackup(guild);
+  }
+
+  static getBackupDir(): string {
+    return this.getInstance().getBackupDir();
+  }
+
+  static listBackups(guildId?: string): string[] {
+    return this.getInstance().listBackups(guildId);
+  }
 }

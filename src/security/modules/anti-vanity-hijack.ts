@@ -75,4 +75,25 @@ export class AntiVanityHijack {
     this.knownVanityCodes.clear();
     this.changedCodes.clear();
   }
+
+  // Static wrapper methods for backward compatibility
+  static trackVanityCode(code: string): void {
+    return this.getInstance().trackVanityCode(code);
+  }
+
+  static detectChange(oldCode: string | null, newCode: string | null): boolean {
+    return this.getInstance().detectChange(oldCode, newCode);
+  }
+
+  static getRecentChanges(limit = 20): VanityChangeRecord[] {
+    return this.getInstance().getRecentChanges(limit);
+  }
+
+  static getKnownCodes(): string[] {
+    return this.getInstance().getKnownCodes();
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
 }

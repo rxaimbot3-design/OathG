@@ -202,4 +202,45 @@ export class MongoRedisEngine {
   clear(): void {
     this.realCacheMap.clear();
   }
+
+  // Static wrapper methods for backward compatibility
+  static async initRedis(): Promise<void> {
+    return this.getInstance().initRedis();
+  }
+
+  static get isRedisConnected(): boolean {
+    return this.getInstance().isRedisConnected;
+  }
+
+  static get isMongoConnected(): boolean {
+    return this.getInstance().isMongoConnected;
+  }
+
+  static async set(key: string, val: any, ttlSec?: number): Promise<void> {
+    return this.getInstance().set(key, val, ttlSec);
+  }
+
+  static async get(key: string): Promise<any> {
+    return this.getInstance().get(key);
+  }
+
+  static async del(key: string): Promise<void> {
+    return this.getInstance().del(key);
+  }
+
+  static async performCacheBackup(): Promise<BackupResult> {
+    return this.getInstance().performCacheBackup();
+  }
+
+  static getRedisStats(): CacheStats {
+    return this.getInstance().getRedisStats();
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
+
+  static getClient(): any {
+    return this.getInstance().redisClient;
+  }
 }

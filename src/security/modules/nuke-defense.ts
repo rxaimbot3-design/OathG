@@ -105,4 +105,17 @@ export class NukeDefense {
   isDryRun(): boolean {
     return this.config.dryRun;
   }
+
+  // Static wrapper methods for backward compatibility
+  static async lockdown(guild: Guild): Promise<LockdownResult> {
+    return this.getInstance().lockdown(guild);
+  }
+
+  static setConfig(config: Partial<NukeDefenseConfig>): void {
+    return this.getInstance().setConfig(config);
+  }
+
+  static isDryRun(): boolean {
+    return this.getInstance().isDryRun();
+  }
 }

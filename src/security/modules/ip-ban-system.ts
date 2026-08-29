@@ -230,4 +230,57 @@ export class IPBanSystem {
   getAllVerified(): VerifiedIPRecord[] {
     return this.loadVerifiedIPs();
   }
+
+  // Static wrapper methods for backward compatibility
+  static loadIPBans(): IPBanRecord[] {
+    return this.getInstance().loadIPBans();
+  }
+
+  static saveIPBans(bans: IPBanRecord[]): void {
+    return this.getInstance().saveIPBans(bans);
+  }
+
+  static loadVerifiedIPs(): VerifiedIPRecord[] {
+    return this.getInstance().loadVerifiedIPs();
+  }
+
+  static saveVerifiedIPs(ips: VerifiedIPRecord[]): void {
+    return this.getInstance().saveVerifiedIPs(ips);
+  }
+
+  static recordIP(userId: string, username: string, ipAddress: string): void {
+    return this.getInstance().recordIP(userId, username, ipAddress);
+  }
+
+  static getIPsForUser(userId: string): string[] {
+    return this.getInstance().getIPsForUser(userId);
+  }
+
+  static getUsersForIP(ipAddress: string): string[] {
+    return this.getInstance().getUsersForIP(ipAddress);
+  }
+
+  static banUser(userId: string, reason: string): BanResult {
+    return this.getInstance().banUser(userId, reason);
+  }
+
+  static banIP(ipAddress: string, reason: string): IPBanResult {
+    return this.getInstance().banIP(ipAddress, reason);
+  }
+
+  static isBanned(userId?: string, ipAddress?: string): boolean {
+    return this.getInstance().isBanned(userId, ipAddress);
+  }
+
+  static unban(target: string): UnbanResult {
+    return this.getInstance().unban(target);
+  }
+
+  static getAllBans(): IPBanRecord[] {
+    return this.getInstance().getAllBans();
+  }
+
+  static getAllVerified(): VerifiedIPRecord[] {
+    return this.getInstance().getAllVerified();
+  }
 }

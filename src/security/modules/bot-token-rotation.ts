@@ -51,4 +51,17 @@ export class BotTokenRotationSystem {
   getLastRotationTime(): number {
     return this.lastRotationTime;
   }
+
+  // Static wrapper methods for backward compatibility
+  static setReconnectHandler(handler: (token: string) => Promise<void> | void): void {
+    return this.getInstance().setReconnectHandler(handler);
+  }
+
+  static async rotateTokenInMemory(newToken: string): Promise<boolean> {
+    return this.getInstance().rotateTokenInMemory(newToken);
+  }
+
+  static getLastRotationTime(): number {
+    return this.getInstance().getLastRotationTime();
+  }
 }

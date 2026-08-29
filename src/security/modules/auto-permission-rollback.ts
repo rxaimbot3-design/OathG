@@ -59,4 +59,21 @@ export class AutoPermissionRollback {
   clear(): void {
     this.rolePermissionCache.clear();
   }
+
+  // Static wrapper methods for backward compatibility
+  static cacheRole(roleId: string, permissionsBitfield: string): void {
+    return this.getInstance().cacheRole(roleId, permissionsBitfield);
+  }
+
+  static async inspectAndRollback(role: any, executorId: string, alertCallback: (msg: string) => void): Promise<void> {
+    return this.getInstance().inspectAndRollback(role, executorId, alertCallback);
+  }
+
+  static getCachedPermissions(roleId: string): string | undefined {
+    return this.getInstance().getCachedPermissions(roleId);
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
 }

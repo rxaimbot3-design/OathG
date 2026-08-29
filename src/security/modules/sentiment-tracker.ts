@@ -28,7 +28,7 @@ export class SentimentTracker {
 
   private constructor(config: SentimentTrackerConfig = {}) {
     this.config = {
-      apiKey: config.apiKey ?? process.env.GEMINI_API_KEY,
+      apiKey: config.apiKey ?? process.env.GEMINI_API_KEY ?? "",
       model: config.model ?? "gemini-1.5-flash",
       cooldownUserMs: config.cooldownUserMs ?? 15000,
       cooldownChannelMs: config.cooldownChannelMs ?? 10000,
@@ -226,5 +226,26 @@ Message: "${message.content}"`;
       clearTimeout(timeout);
     }
     this.lockedChannels.clear();
+  }
+
+  // Static wrapper methods for backward compatibility
+  static async analyzeMessage(message: Message, alertCallback: (msg: string) => void): Promise<void> {
+    return this.getInstance().analyzeMessage(message, alertCallback);
+  }
+
+  static getServerScore(guildId: string): number {
+    return this.getInstance().getServerScore(guildId);
+  }
+
+  static getAllScores(): Map<string, number> {
+    return this.getInstance().getAllScores();
+  }
+
+  static getLockedChannels(): string[] {
+    return this.getInstance().getLockedChannels();
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
   }
 }

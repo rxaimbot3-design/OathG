@@ -18,7 +18,7 @@ export class AIDeepScan {
 
   private constructor(config: AIDeepScanConfig = {}) {
     this.config = {
-      apiKey: config.apiKey ?? process.env.GEMINI_API_KEY,
+      apiKey: config.apiKey ?? process.env.GEMINI_API_KEY ?? "",
       model: config.model ?? "gemini-1.5-flash",
       cooldownUserMs: config.cooldownUserMs ?? 10000,
       cooldownChannelMs: config.cooldownChannelMs ?? 5000,
@@ -108,5 +108,18 @@ export class AIDeepScan {
 
   clear(): void {
     this.lastScanTimes.clear();
+  }
+
+  // Static wrapper methods for backward compatibility
+  static async analyzeMessage(messageContent: string, userId: string = "global", channelId: string = "global"): Promise<number> {
+    return this.getInstance().analyzeMessage(messageContent, userId, channelId);
+  }
+
+  static getStats() {
+    return this.getInstance().getStats();
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
   }
 }

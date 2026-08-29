@@ -67,4 +67,21 @@ export class AnomalyAI {
   clear(): void {
     this.actionHistory.clear();
   }
+
+  // Static wrapper methods for backward compatibility
+  static recordAction(userId: string): void {
+    return this.getInstance().recordAction(userId);
+  }
+
+  static evaluateSpike(userId: string, actionCount: number, timeWindowSeconds: number): AnomalyLevel {
+    return this.getInstance().evaluateSpike(userId, actionCount, timeWindowSeconds);
+  }
+
+  static getActionCount(userId: string, timeWindowSeconds: number): number {
+    return this.getInstance().getActionCount(userId, timeWindowSeconds);
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
 }

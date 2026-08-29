@@ -74,4 +74,13 @@ export class DailyBackup {
   getBackupDir(): string {
     return this.config.backupDir;
   }
+
+  // Static wrapper methods for backward compatibility
+  static async backupGuild(guild: Guild): Promise<string | null> {
+    return this.getInstance().backupGuild(guild);
+  }
+
+  static getBackupDir(): string {
+    return this.getInstance().getBackupDir();
+  }
 }

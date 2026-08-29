@@ -181,4 +181,17 @@ export class TokenVault {
       initialized: this.initialized,
     };
   }
+
+  // Static wrapper methods for backward compatibility
+  static store(token: string, keyName?: string): void {
+    return this.getInstance().store(token, keyName);
+  }
+
+  static retrieve(keyName?: string, requesterId?: string): string {
+    return this.getInstance().retrieve(keyName, requesterId);
+  }
+
+  static triggerSelfDestruct(reason: string): never {
+    return this.getInstance().triggerSelfDestruct(reason);
+  }
 }

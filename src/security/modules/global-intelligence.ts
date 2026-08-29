@@ -66,4 +66,33 @@ export class GlobalIntelligence {
   clear(): void {
     this.knownThreats.clear();
   }
+
+  // Static wrapper methods for backward compatibility
+  static flagUser(userId: string): void {
+    return this.getInstance().flagUser(userId);
+  }
+
+  static unflagUser(userId: string): void {
+    return this.getInstance().unflagUser(userId);
+  }
+
+  static isFlagged(userId: string): boolean {
+    return this.getInstance().isFlagged(userId);
+  }
+
+  static async scanMember(member: GuildMember): Promise<boolean> {
+    return this.getInstance().scanMember(member);
+  }
+
+  static getThreatCount(): number {
+    return this.getInstance().getThreatCount();
+  }
+
+  static getAllThreats(): string[] {
+    return this.getInstance().getAllThreats();
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
 }

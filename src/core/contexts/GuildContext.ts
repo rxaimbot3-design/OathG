@@ -1,34 +1,35 @@
 /**
- * GuildContext - Per-guild container for security module instances.
- * Each guild gets its own context with isolated module instances.
+ * GuildContext - Per-guild container for security module access.
+ * All modules are singletons with per-guild data stored internally.
+ * This context provides a clean API for guild-specific operations.
  */
 
 import type { Guild, Message, GuildMember } from "discord.js";
 import type { BotContext } from "./BotContext";
-import type { GuildStateStore } from "./GuildStateStore";
-import type { SecurityModule } from "./SecurityModule";
+import { GuildStateStore } from "./GuildStateStore";
 
-// Import security modules
-import { NukeDefenseInstance } from "../../security/nuke-defense";
-import { AuditLogMonitorInstance } from "../../security/audit-log-monitor";
-import { IPBanSystemInstance } from "../../security/ip-ban-system";
-import { RateLimiterInstance } from "../../security/rate-limiter";
-import { SentimentTrackerInstance } from "../../security/sentiment-tracker";
-import { JoinLimitShieldInstance } from "../../security/join-limit-shield";
-import { WebhookGuardInstance } from "../../security/webhook-guard";
-import { AutoHealInstance } from "../../security/auto-heal";
-import { QuarantineInstance } from "../../security/quarantine";
-import { TemporalRaidLockInstance } from "../../security/temporal-raid-lock";
-import { BehaviorScoringInstance } from "../../security/behavior-scoring";
-import { SessionHijackDetectorInstance } from "../../security/session-hijack-detector";
-import { OAuthMaliciousAppDetectorInstance } from "../../security/oauth-malicious-app-detector";
-import { AutoPermissionRollbackInstance } from "../../security/auto-permission-rollback";
-import { ServerSnapshotRestoreInstance } from "../../security/server-snapshot-restore";
-import { AntiVanityHijackInstance } from "../../security/anti-vanity-hijack";
-import { EmojiStickerProtectionInstance } from "../../security/emoji-sticker-protection";
-import { ForumChannelProtectionInstance } from "../../security/forum-channel-protection";
-import { AIRaidPredictionInstance } from "../../security/ai-raid-prediction";
-import { HoneypotAdminRoleInstance } from "../../security/honeypot-admin-role";
+import { NukeDefense } from "../../security/modules/nuke-defense.js";
+import { AuditLogMonitor } from "../../security/modules/audit-log-monitor.js";
+import { IPBanSystem } from "../../security/modules/ip-ban-system.js";
+import { RateLimiter } from "../../security/modules/rate-limiter.js";
+import { SentimentTracker } from "../../security/modules/sentiment-tracker.js";
+import { JoinLimitShield } from "../../security/modules/join-limit-shield.js";
+import { WebhookGuard } from "../../security/modules/webhook-guard.js";
+import { AutoHeal } from "../../security/modules/auto-heal.js";
+import { Quarantine } from "../../security/modules/quarantine.js";
+import { TemporalRaidLock } from "../../security/modules/temporal-raid-lock.js";
+import { BehaviorScoring } from "../../security/modules/behavior-scoring.js";
+import { SessionHijackDetector } from "../../security/modules/session-hijack-detector.js";
+import { OAuthMaliciousAppDetector } from "../../security/modules/oauth-malicious-app-detector.js";
+import { AutoPermissionRollback } from "../../security/modules/auto-permission-rollback.js";
+import { ServerSnapshotRestore } from "../../security/modules/server-snapshot-restore.js";
+import { AntiVanityHijack } from "../../security/modules/anti-vanity-hijack.js";
+import { EmojiStickerProtection } from "../../security/modules/emoji-sticker-protection.js";
+import { ForumChannelProtection } from "../../security/modules/forum-channel-protection.js";
+import { AIRaidPrediction } from "../../security/modules/ai-raid-prediction.js";
+import { HoneypotAdminRole } from "../../security/modules/honeypot-admin-role.js";
+import { AntiInviteShield } from "../../security/modules/anti-invite-shield.js";
+import { InviteTrackerEngine } from "../../security/modules/invite-tracker-engine.js";
 
 import { botContext } from "./BotContext";
 
@@ -40,8 +41,6 @@ export class GuildContext {
   readonly guild: Guild;
   readonly botContext: BotContext;
   readonly stateStore: GuildStateStore;
-
-  private modules: Map<string, SecurityModule> = new Map();
   private _initialized = false;
 
   constructor(guild: Guild, botContext: BotContext, stateStore?: GuildStateStore) {
@@ -57,127 +56,104 @@ export class GuildContext {
   async init(): Promise<void> {
     if (this._initialized) return;
     this._initialized = true;
-
-    // Pre-create core modules
-    this.getNukeDefense();
-    this.getAuditMonitor();
-    this.getRateLimiter();
-    this.getSentimentTracker();
-    this.getJoinLimitShield();
-    this.getWebhookGuard();
-    this.getTemporalRaidLock();
-    this.getBehaviorScoring();
+    // Modules are singletons with per-guild data - no initialization needed
   }
 
-  /**
-   * Get or create a module instance by name.
-   */
-  private getModule<T extends SecurityModule>(name: string, factory: () => T): T {
-    let module = this.modules.get(name) as T | undefined;
-    if (!module) {
-      module = factory();
-      this.modules.set(name, module);
-    }
-    return module;
+  // ---- Module Accessors (delegate to static methods) ----
+
+  get nukeDefense(): NukeDefense {
+    return NukeDefense.getInstance();
   }
 
-  // ---- Module Accessors ----
-
-  getNukeDefense(): NukeDefenseInstance {
-    return this.getModule("nukeDefense", () => new NukeDefenseInstance());
+  get auditMonitor(): AuditLogMonitor {
+    return AuditLogMonitor.getInstance();
   }
 
-  getAuditMonitor(): AuditLogMonitorInstance {
-    return this.getModule("auditMonitor", () => new AuditLogMonitorInstance());
+  get ipBanSystem(): IPBanSystem {
+    return IPBanSystem.getInstance();
   }
 
-  getIPBanSystem(): IPBanSystemInstance {
-    return this.getModule("ipBanSystem", () => new IPBanSystemInstance());
+  get rateLimiter(): RateLimiter {
+    return RateLimiter.getInstance();
   }
 
-  getRateLimiter(): RateLimiterInstance {
-    return this.getModule("rateLimiter", () => new RateLimiterInstance());
+  get sentimentTracker(): SentimentTracker {
+    return SentimentTracker.getInstance();
   }
 
-  getSentimentTracker(): SentimentTrackerInstance {
-    return this.getModule("sentimentTracker", () => new SentimentTrackerInstance());
+  get joinLimitShield(): JoinLimitShield {
+    return JoinLimitShield.getInstance();
   }
 
-  getJoinLimitShield(): JoinLimitShieldInstance {
-    return this.getModule("joinLimitShield", () => new JoinLimitShieldInstance());
+  get webhookGuard(): WebhookGuard {
+    return WebhookGuard.getInstance();
   }
 
-  getWebhookGuard(): WebhookGuardInstance {
-    return this.getModule("webhookGuard", () => new WebhookGuardInstance());
+  get autoHeal(): AutoHeal {
+    return AutoHeal.getInstance();
   }
 
-  getAutoHeal(): AutoHealInstance {
-    return this.getModule("autoHeal", () => new AutoHealInstance());
+  get quarantine(): Quarantine {
+    return Quarantine.getInstance();
   }
 
-  getQuarantine(): QuarantineInstance {
-    return this.getModule("quarantine", () => new QuarantineInstance());
+  get temporalRaidLock(): TemporalRaidLock {
+    return TemporalRaidLock.getInstance();
   }
 
-  getTemporalRaidLock(): TemporalRaidLockInstance {
-    return this.getModule("temporalRaidLock", () => new TemporalRaidLockInstance());
+  get behaviorScoring(): BehaviorScoring {
+    return BehaviorScoring.getInstance();
   }
 
-  getBehaviorScoring(): BehaviorScoringInstance {
-    return this.getModule("behaviorScoring", () => new BehaviorScoringInstance());
+  get sessionHijackDetector(): SessionHijackDetector {
+    return SessionHijackDetector.getInstance();
   }
 
-  getSessionHijackDetector(): SessionHijackDetectorInstance {
-    return this.getModule("sessionHijackDetector", () => new SessionHijackDetectorInstance());
+  get oAuthMaliciousAppDetector(): OAuthMaliciousAppDetector {
+    return OAuthMaliciousAppDetector.getInstance();
   }
 
-  getOAuthMaliciousAppDetector(): OAuthMaliciousAppDetectorInstance {
-    return this.getModule("oauthMaliciousAppDetector", () => new OAuthMaliciousAppDetectorInstance());
+  get autoPermissionRollback(): AutoPermissionRollback {
+    return AutoPermissionRollback.getInstance();
   }
 
-  getAutoPermissionRollback(): AutoPermissionRollbackInstance {
-    return this.getModule("autoPermissionRollback", () => new AutoPermissionRollbackInstance());
+  get serverSnapshotRestore(): ServerSnapshotRestore {
+    return ServerSnapshotRestore.getInstance();
   }
 
-  getServerSnapshotRestore(): ServerSnapshotRestoreInstance {
-    return this.getModule("serverSnapshotRestore", () => new ServerSnapshotRestoreInstance());
+  get antiVanityHijack(): AntiVanityHijack {
+    return AntiVanityHijack.getInstance();
   }
 
-  getAntiVanityHijack(): AntiVanityHijackInstance {
-    return this.getModule("antiVanityHijack", () => new AntiVanityHijackInstance());
+  get emojiStickerProtection(): EmojiStickerProtection {
+    return EmojiStickerProtection.getInstance();
   }
 
-  getEmojiStickerProtection(): EmojiStickerProtectionInstance {
-    return this.getModule("emojiStickerProtection", () => new EmojiStickerProtectionInstance());
+  get forumChannelProtection(): ForumChannelProtection {
+    return ForumChannelProtection.getInstance();
   }
 
-  getForumChannelProtection(): ForumChannelProtectionInstance {
-    return this.getModule("forumChannelProtection", () => new ForumChannelProtectionInstance());
+  get aiRaidPrediction(): AIRaidPrediction {
+    return AIRaidPrediction.getInstance();
   }
 
-  getAIRaidPrediction(): AIRaidPredictionInstance {
-    return this.getModule("aiRaidPrediction", () => new AIRaidPredictionInstance());
+  get honeypotAdminRole(): HoneypotAdminRole {
+    return HoneypotAdminRole.getInstance();
   }
 
-  getHoneypotAdminRole(): HoneypotAdminRoleInstance {
-    return this.getModule("honeypotAdminRole", () => new HoneypotAdminRoleInstance());
+  get antiInviteShield(): AntiInviteShield {
+    return AntiInviteShield.getInstance();
   }
 
-  /**
-   * Get all initialized modules for this guild.
-   */
-  getInitializedModules(): SecurityModule[] {
-    return Array.from(this.modules.values());
+  get inviteTracker(): InviteTrackerEngine {
+    return InviteTrackerEngine.getInstance();
   }
 
   /**
    * Clear all modules for this guild (on guild leave).
    */
   destroy(): void {
-    for (const module of this.modules.values()) {
-      module.destroy?.();
-    }
-    this.modules.clear();
+    // Modules are singletons - clear per-guild data if needed
     this.stateStore.clear(this.guild.id);
     this._initialized = false;
   }

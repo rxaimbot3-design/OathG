@@ -121,4 +121,45 @@ export class PremiumLicenseSystem {
     this.activeLicenseKey = key;
     this._isPremiumOverride = null;
   }
+
+  // Static wrapper methods for backward compatibility
+  static computeChecksum(keyBody: string): string {
+    return this.getInstance().computeChecksum(keyBody);
+  }
+
+  static generateSignedKey(): string {
+    return this.getInstance().generateSignedKey();
+  }
+
+  static getHardwareFingerprint(): string {
+    return this.getInstance().getHardwareFingerprint();
+  }
+
+  static validateLicense(key: string): boolean {
+    return this.getInstance().validateLicense(key);
+  }
+
+  static async validateLicenseRemote(key: string): Promise<boolean> {
+    return this.getInstance().validateLicenseRemote(key);
+  }
+
+  static get isPremium(): boolean {
+    return this.getInstance().isPremium;
+  }
+
+  static getLicenseExpiry(): string | null {
+    return this.getInstance().getLicenseExpiry();
+  }
+
+  static getMaxGuilds(): number | null {
+    return this.getInstance().getMaxGuilds();
+  }
+
+  static getActiveLicenseKey(): string {
+    return this.getInstance().getActiveLicenseKey();
+  }
+
+  static setLicenseKey(key: string): void {
+    return this.getInstance().setLicenseKey(key);
+  }
 }

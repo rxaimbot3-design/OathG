@@ -70,7 +70,7 @@ export class RateLimiter {
 
     if (redisReady) {
       try {
-        const client = MongoRedisEngine['redisClient'];
+        const client = MongoRedisEngine.getClient();
         if (client) {
           const key = `ratelimit:user:${userId}`;
           const ttlSec = Math.ceil(windowMs / 1000);
@@ -127,5 +127,14 @@ export class RateLimiter {
 
   clear(): void {
     this.userActions.clear();
+  }
+
+  // Static wrapper methods for backward compatibility
+  static async check(userId: string): Promise<RateLimitResult> {
+    return this.getInstance().check(userId);
+  }
+
+  static async isBlocked(userId: string): Promise<boolean> {
+    return this.getInstance().isBlocked(userId);
   }
 }

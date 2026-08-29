@@ -40,6 +40,19 @@ export class IPWhitelist {
   getIPs(): string[] {
     return [...this.whitelistedIPs];
   }
+
+  // Static wrapper methods for backward compatibility
+  static checkIP(ip: string): boolean {
+    return this.getInstance().checkIP(ip);
+  }
+
+  static addIP(ip: string): void {
+    return this.getInstance().addIP(ip);
+  }
+
+  static removeIP(ip: string): void {
+    return this.getInstance().removeIP(ip);
+  }
 }
 
 export interface DMFirewallConfig {
@@ -84,6 +97,19 @@ export class DMFirewall {
     }
     return false; // Passed
   }
+
+  // Static wrapper methods for backward compatibility
+  static handle(message: Message): boolean {
+    return this.getInstance().handle(message);
+  }
+
+  static setEnabled(status: boolean): void {
+    return this.getInstance().setEnabled(status);
+  }
+
+  static isEnabled(): boolean {
+    return this.getInstance().isEnabled();
+  }
 }
 
 export interface SlashOnlyConfig {
@@ -126,5 +152,18 @@ export class SlashOnly {
     }
     
     return true;
+  }
+
+  // Static wrapper methods for backward compatibility
+  static checkMessage(message: Message): boolean {
+    return this.getInstance().checkMessage(message);
+  }
+
+  static setEnabled(status: boolean): void {
+    return this.getInstance().setEnabled(status);
+  }
+
+  static isEnabled(): boolean {
+    return this.getInstance().isEnabled();
   }
 }

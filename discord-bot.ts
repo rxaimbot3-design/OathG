@@ -2144,7 +2144,7 @@ client.on("clientReady", async () => {
       try {
         addBotLog(`📤 Left server '${guild.name}' (${guild.id}). Cleaning up cached tracking and security data.`, "info");
         const ctx = getOrCreateGuildContext(guild);
-        ctx.getInviteTracker(); // Ensure tracker is initialized before reset
+        ctx.inviteTracker; // Ensure tracker is initialized before reset
         InviteTrackerEngine.resetGuild(guild.id);
       } catch (err: any) {
         addBotLog(`⚠️ Guild cleanup note for ${guild.name}: ${err.message}`, "warning");
@@ -2189,7 +2189,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
       // Sentiment & Toxicity Scanner
       if (message.content && ctx) {
-        await ctx.getSentimentTracker().analyzeMessage(message, (msg) => addBotLog(msg, "warning"));
+        await ctx.sentimentTracker.analyzeMessage(message, (msg) => addBotLog(msg, "warning"));
       }
     
       // 6. DM Firewall
@@ -2205,7 +2205,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       if (message.content.length > 10 && ctx) {
         const threatScore = await AIDeepScan.analyzeMessage(message.content, message.author.id, message.channel.id);
         if (threatScore > 80) {
-          if (message.member) await ctx.getQuarantine().isolate(message.member);
+          if (message.member) await ctx.quarantine.isolate(message.member);
           await message.delete().catch(() => {});
           console.log(`🚨 [AI DEEP SCAN] Blocked message from ${message.author.tag} (Score: ${threatScore})`);
         }
@@ -4055,7 +4055,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
            await emergencyQuarantine(targetGuild);
           
           // Initiate Full Channel Lockdown using GuildContext
-          await ctx.getNukeDefense().lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
+          await ctx.nukeDefense.lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
           if (executorId && executorId !== targetGuild.ownerId) {
             // If executed by any admin/whitelisted user who is not the owner -> BAN them!
@@ -4209,7 +4209,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
                 await punishRogueAdmin(targetGuild, executorId, "Mass Ban Nuke", `Banned ${bansByThisExecutor.length} members in 10s`).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
               } else {
                 // If owner, we lock down server
-                await ctx.getNukeDefense().lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
+                await ctx.nukeDefense.lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
               }
 
               await sendLiveAuditAlert(targetGuild, {
@@ -4486,7 +4486,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         await emergencyQuarantine(guild);
 
         // Initiate Full Channel Lockdown using GuildContext
-        await ctx.getNukeDefense().lockdown(guild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
+        await ctx.nukeDefense.lockdown(guild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
         // Fetch Audit Logs to find the Rogue Admin who is kicking
         try {
@@ -4607,7 +4607,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       const ctx = getOrCreateGuildContext(guild);
 
       // 16. Advanced Webhook Guard
-      await ctx.getWebhookGuard().verify(guild);
+      await ctx.webhookGuard.verify(guild);
 
       try {
         const entry = await fetchAuditLogWithRetry(guild, AuditLogEvent.WebhookCreate, undefined, 6, 300);
@@ -4797,7 +4797,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       const ctx = getOrCreateGuildContext(guild);
       
       // ALWAS scan for malicious apps immediately, regardless of who added them
-      await ctx.getOAuthMaliciousAppDetector().scanGuildIntegrations(guild, (msg) => {
+      await ctx.oAuthMaliciousAppDetector.scanGuildIntegrations(guild, (msg) => {
         addBotLog(msg, "error");
         sendLiveAuditAlert(guild, {
           title: "🚨 MALICIOUS OAUTH APP DETECTED & DELETED",
@@ -4883,14 +4883,14 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     client.on("messageCreate", async (message) => {
       if (!message.guild || message.author.bot) return;
       const ctx = getOrCreateGuildContext(message.guild);
-      if (!ctx.getAntiInviteShield().isEnabled()) return;
+      if (!ctx.antiInviteShield.isEnabled()) return;
 
       // Exempt Owner and Whitelist
       if (message.author.id === message.guild.ownerId || isOwnerOrWhitelisted(message.author.id, message.guild, false)) {
         return;
       }
 
-      const isLink = ctx.getAntiInviteShield().containsInvite(message.content) || 
+      const isLink = ctx.antiInviteShield.containsInvite(message.content) || 
                      /(https?:\/\/[^\s]+|discord\.gg\/[a-zA-Z0-9]+|discord\.com\/invite\/[a-zA-Z0-9]+|t\.me\/[a-zA-Z0-9_]+)/i.test(message.content);
 
       if (isLink) {
@@ -4930,10 +4930,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       const ctx = getOrCreateGuildContext(guild);
       
       // 🛡️ ANTI-RAID JOIN-LIMIT SHIELD
-      const isRaid = ctx.getJoinLimitShield().recordJoin(guild.id);
+      const isRaid = ctx.joinLimitShield.recordJoin(guild.id);
       if (isRaid) {
         addBotLog(`🚨 [RAID DETECTED] High velocity join spike! Activating Temporal Raid Lockdown in ${guild.name}.`, "error");
-        await ctx.getNukeDefense().lockdown(guild);
+        await ctx.nukeDefense.lockdown(guild);
         await sendLiveAuditAlert(guild, {
           title: "🛡️ ANTI-RAID VELOCITY SHIELD",
           description: `⚠️ **Raid Detected!**\n\n` +
@@ -4946,7 +4946,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
       // 🛡️ ZERO-TRUST CUSTOM IP-BAN & BLACKLIST SYSTEM CHECK
       try {
-        const isBanned = ctx.getIPBanSystem().isBanned(member.id);
+        const isBanned = ctx.ipBanSystem.isBanned(member.id);
         if (isBanned) {
           addBotLog(`🚨 [IP-BAN MATCH] Blacklisted User ID '${member.user.tag}' (${member.id}) attempted to join. Executing auto-ban.`, "error");
           await member.ban({ deleteMessageSeconds: 604800, reason: `Zero-Trust Custom IP-Ban: Blacklisted ID` }).catch(() => {});

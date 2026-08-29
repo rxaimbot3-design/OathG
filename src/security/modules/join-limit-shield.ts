@@ -85,4 +85,21 @@ export class JoinLimitShield {
     this.joinHistoryByGuild.clear();
     this.raidActiveByGuild.clear();
   }
+
+  // Static wrapper methods for backward compatibility
+  static recordJoin(guildId: string = "global"): boolean {
+    return this.getInstance().recordJoin(guildId);
+  }
+
+  static getStatus(guildId: string = "global"): JoinStatus {
+    return this.getInstance().getStatus(guildId);
+  }
+
+  static isRaidActive(guildId: string = "global"): boolean {
+    return this.getInstance().isRaidActive(guildId);
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
 }

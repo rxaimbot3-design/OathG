@@ -16,7 +16,7 @@ export class AICommandAssistant {
 
   private constructor(config: AICommandAssistantConfig = {}) {
     this.config = {
-      apiKey: config.apiKey ?? process.env.GEMINI_API_KEY,
+      apiKey: config.apiKey ?? process.env.GEMINI_API_KEY ?? "",
       model: config.model ?? "gemini-1.5-flash",
     };
   }

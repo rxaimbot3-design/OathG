@@ -116,4 +116,21 @@ export class CanaryToken {
   clearConsumed(): void {
     this.consumedTokens.clear();
   }
+
+  // Static wrapper methods for backward compatibility
+  static setup(): void {
+    return this.getInstance().setup();
+  }
+
+  static check(token: string): boolean {
+    return this.getInstance().check(token);
+  }
+
+  static generateSignedToken(guildId: string, trapName: string, userId?: string): string {
+    return this.getInstance().generateSignedToken(guildId, trapName, userId);
+  }
+
+  static verifySignedToken(tokenStr: string): VerifiedTokenResult {
+    return this.getInstance().verifySignedToken(tokenStr);
+  }
 }

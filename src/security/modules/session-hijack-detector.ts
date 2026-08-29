@@ -76,4 +76,17 @@ export class SessionHijackDetector {
   clear(): void {
     this.userSessions.clear();
   }
+
+  // Static wrapper methods for backward compatibility
+  static recordAccess(userId: string, ip: string, userAgent?: string): boolean {
+    return this.getInstance().recordAccess(userId, ip, userAgent);
+  }
+
+  static getSession(userId: string): SessionData | undefined {
+    return this.getInstance().getSession(userId);
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
 }

@@ -183,6 +183,10 @@ export class LruMap<K, V> {
     return this.map.size;
   }
 
+  get maxSize(): number {
+    return this.maxEntries;
+  }
+
   entries(): IterableIterator<[K, V]> {
     return this.map.entries();
   }

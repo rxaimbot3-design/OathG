@@ -57,4 +57,21 @@ export class AuditLogMonitor {
   getLogCount(): number {
     return this.logs.length;
   }
+
+  // Static wrapper methods for backward compatibility
+  static log(guildId: string, action: string, userId: string, details?: any): void {
+    return this.getInstance().log(guildId, action, userId, details);
+  }
+
+  static getLogs(guildId?: string, limit = 50): AuditLogEntry[] {
+    return this.getInstance().getLogs(guildId, limit);
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
+
+  static getLogCount(): number {
+    return this.getInstance().getLogCount();
+  }
 }

@@ -65,6 +65,23 @@ export class AntiPhishing {
   addPattern(pattern: RegExp): void {
     this.phishingPatterns.push(pattern);
   }
+
+  // Static wrapper methods for backward compatibility
+  static isPhishing(content: string): boolean {
+    return this.getInstance().isPhishing(content);
+  }
+
+  static async scanMessage(message: Message): Promise<boolean> {
+    return this.getInstance().scanMessage(message);
+  }
+
+  static addDomain(domain: string): void {
+    return this.getInstance().addDomain(domain);
+  }
+
+  static addPattern(pattern: RegExp): void {
+    return this.getInstance().addPattern(pattern);
+  }
 }
 
 export interface EnvScannerConfig {
@@ -108,5 +125,10 @@ export class EnvScanner {
     }
 
     return { valid, warnings };
+  }
+
+  // Static wrapper methods for backward compatibility
+  static scan(): { valid: boolean; warnings: string[] } {
+    return this.getInstance().scan();
   }
 }

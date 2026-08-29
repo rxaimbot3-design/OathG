@@ -7,11 +7,13 @@ export interface EmojiStickerProtectionConfig {
 }
 
 export interface EmojiData {
+  id: string;
   name: string;
   guildId: string;
 }
 
 export interface StickerData {
+  id: string;
   name: string;
   guildId: string;
 }
@@ -44,11 +46,11 @@ export class EmojiStickerProtection {
   }
 
   trackEmoji(emoji: any, guildId: string): void {
-    this.knownEmojis.set(emoji.id, { name: emoji.name, guildId });
+    this.knownEmojis.set(emoji.id, { id: emoji.id, name: emoji.name, guildId });
   }
 
   trackSticker(sticker: any, guildId: string): void {
-    this.knownStickers.set(sticker.id, { name: sticker.name, guildId });
+    this.knownStickers.set(sticker.id, { id: sticker.id, name: sticker.name, guildId });
   }
 
   detectMassDeletion(guildId: string, deletedIds: string[]): boolean {
@@ -60,11 +62,11 @@ export class EmojiStickerProtection {
   }
 
   getGuildEmojis(guildId: string): EmojiData[] {
-    return Array.from(this.knownEmojis.values()).filter(e => e.guildId === guildId);
+    return Array.from(this.knownEmojis.values()).filter((e): e is EmojiData => e.guildId === guildId);
   }
 
   getGuildStickers(guildId: string): StickerData[] {
-    return Array.from(this.knownStickers.values()).filter(s => s.guildId === guildId);
+    return Array.from(this.knownStickers.values()).filter((s): s is StickerData => s.guildId === guildId);
   }
 
   getEmojiCount(): number {
@@ -78,5 +80,38 @@ export class EmojiStickerProtection {
   clear(): void {
     this.knownEmojis.clear();
     this.knownStickers.clear();
+  }
+
+  // Static wrapper methods for backward compatibility
+  static trackEmoji(emoji: any, guildId: string): void {
+    return this.getInstance().trackEmoji(emoji, guildId);
+  }
+
+  static trackSticker(sticker: any, guildId: string): void {
+    return this.getInstance().trackSticker(sticker, guildId);
+  }
+
+  static detectMassDeletion(guildId: string, deletedIds: string[]): boolean {
+    return this.getInstance().detectMassDeletion(guildId, deletedIds);
+  }
+
+  static getGuildEmojis(guildId: string): EmojiData[] {
+    return this.getInstance().getGuildEmojis(guildId);
+  }
+
+  static getGuildStickers(guildId: string): StickerData[] {
+    return this.getInstance().getGuildStickers(guildId);
+  }
+
+  static getEmojiCount(): number {
+    return this.getInstance().getEmojiCount();
+  }
+
+  static getStickerCount(): number {
+    return this.getInstance().getStickerCount();
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
   }
 }

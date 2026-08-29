@@ -40,4 +40,21 @@ export class AntiInviteShield {
   setCustomRegex(regex: RegExp): void {
     this.inviteRegex = regex;
   }
+
+  // Static wrapper methods for backward compatibility
+  static setEnabled(status: boolean): void {
+    return this.getInstance().setEnabled(status);
+  }
+
+  static isEnabled(): boolean {
+    return this.getInstance().isEnabled();
+  }
+
+  static containsInvite(content: string): boolean {
+    return this.getInstance().containsInvite(content);
+  }
+
+  static setCustomRegex(regex: RegExp): void {
+    return this.getInstance().setCustomRegex(regex);
+  }
 }

@@ -50,7 +50,7 @@ export class WebhookGuard {
       for (const [_, webhook] of webhooks) {
         const isBot = webhook.owner?.id === guild.client.user?.id;
         const isOwner = webhook.owner?.id === guild.ownerId || 
-          (webhook.owner?.id && OwnerLock.isOwner(webhook.owner.id, guild.ownerId));
+          (webhook.owner?.id && OwnerLock.getInstance().isOwner(webhook.owner.id, guild.ownerId));
         
         if (!this.whitelist.has(webhook.id) && !isBot && !isOwner) {
           await webhook.delete("Strict Owner-Only Webhook Policy: Non-Owner Webhook Removed").catch(() => {});
@@ -70,7 +70,7 @@ export class WebhookGuard {
         for (const [id, webhook] of webhooks) {
           const isBot = webhook.owner?.id === client.user?.id;
           const isOwner = webhook.owner?.id === guild.ownerId || 
-            (webhook.owner?.id && OwnerLock.isOwner(webhook.owner.id, guild.ownerId));
+            (webhook.owner?.id && OwnerLock.getInstance().isOwner(webhook.owner.id, guild.ownerId));
           
           if (!this.whitelist.has(id) && !isBot && !isOwner) {
             await webhook.delete("Strict Owner-Only Webhook Policy: Non-Owner Webhook Removed").catch(() => {});
@@ -93,5 +93,34 @@ export class WebhookGuard {
 
   clearWhitelist(): void {
     this.whitelist.clear();
+  }
+
+  // Static wrapper methods for backward compatibility
+  static async verify(guild: Guild): Promise<number> {
+    return this.getInstance().verify(guild);
+  }
+
+  static async scanAll(client: Client): Promise<number> {
+    return this.getInstance().scanAll(client);
+  }
+
+  static addToWhitelist(webhookId: string): void {
+    return this.getInstance().addToWhitelist(webhookId);
+  }
+
+  static removeFromWhitelist(webhookId: string): void {
+    return this.getInstance().removeFromWhitelist(webhookId);
+  }
+
+  static isWhitelisted(webhookId: string): boolean {
+    return this.getInstance().isWhitelisted(webhookId);
+  }
+
+  static getWhitelistSize(): number {
+    return this.getInstance().getWhitelistSize();
+  }
+
+  static clearWhitelist(): void {
+    return this.getInstance().clearWhitelist();
   }
 }

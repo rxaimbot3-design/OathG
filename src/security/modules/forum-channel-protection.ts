@@ -60,4 +60,25 @@ export class ForumChannelProtection {
   clear(): void {
     this.protectedTags.clear();
   }
+
+  // Static wrapper methods for backward compatibility
+  static trackForumTag(forumId: string, tagId: string, guildId: string): void {
+    return this.getInstance().trackForumTag(forumId, tagId, guildId);
+  }
+
+  static detectTagDeletion(tagId: string): boolean {
+    return this.getInstance().detectTagDeletion(tagId);
+  }
+
+  static detectMassTagChange(guildId: string, changeCount: number): boolean {
+    return this.getInstance().detectMassTagChange(guildId, changeCount);
+  }
+
+  static getTagCount(): number {
+    return this.getInstance().getTagCount();
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
 }

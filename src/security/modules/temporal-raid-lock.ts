@@ -99,4 +99,33 @@ export class TemporalRaidLock {
     this.lockedGuilds.clear();
     this.joinHistory.clear();
   }
+
+  // Static wrapper methods for backward compatibility
+  static lock(guildId: string, durationMs?: number): void {
+    return this.getInstance().lock(guildId, durationMs);
+  }
+
+  static unlock(guildId: string): void {
+    return this.getInstance().unlock(guildId);
+  }
+
+  static isLocked(guildId: string): boolean {
+    return this.getInstance().isLocked(guildId);
+  }
+
+  static getStatus(guildId: string): LockStatus {
+    return this.getInstance().getStatus(guildId);
+  }
+
+  static recordJoin(guildId: string): boolean {
+    return this.getInstance().recordJoin(guildId);
+  }
+
+  static getJoinHistory(guildId: string): number[] {
+    return this.getInstance().getJoinHistory(guildId);
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
 }

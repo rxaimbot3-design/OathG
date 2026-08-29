@@ -69,4 +69,17 @@ export class OAuthMaliciousAppDetector {
   getPatterns(): string[] {
     return [...this.suspiciousPatterns];
   }
+
+  // Static wrapper methods for backward compatibility
+  static async scanGuildIntegrations(guild: Guild, alertCallback: (msg: string) => void): Promise<ScanResult> {
+    return this.getInstance().scanGuildIntegrations(guild, alertCallback);
+  }
+
+  static addSuspiciousPattern(pattern: string): void {
+    return this.getInstance().addSuspiciousPattern(pattern);
+  }
+
+  static getPatterns(): string[] {
+    return this.getInstance().getPatterns();
+  }
 }

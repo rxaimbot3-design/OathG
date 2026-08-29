@@ -348,4 +348,29 @@ export class ServerSnapshotRestore {
   clear(): void {
     this.snapshotStore.clear();
   }
+
+  // Static wrapper methods for backward compatibility
+  static async createSnapshot(guild: Guild): Promise<ServerSnapshotData> {
+    return this.getInstance().createSnapshot(guild);
+  }
+
+  static getSnapshots(guildId: string): ServerSnapshotData[] {
+    return this.getInstance().getSnapshots(guildId);
+  }
+
+  static async restoreSnapshot(guild: Guild, snapshotId: string, alertCallback: (msg: string) => void): Promise<boolean> {
+    return this.getInstance().restoreSnapshot(guild, snapshotId, alertCallback);
+  }
+
+  static setDryRun(dryRun: boolean): void {
+    return this.getInstance().setDryRun(dryRun);
+  }
+
+  static isDryRun(): boolean {
+    return this.getInstance().isDryRun();
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
 }

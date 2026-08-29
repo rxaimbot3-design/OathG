@@ -110,4 +110,25 @@ export class AutoHeal {
   clear(): void {
     this.healedChannels.clear();
   }
+
+  // Static wrapper methods for backward compatibility
+  static async restoreChannel(guild: Guild, channelData: ChannelData): Promise<any | null> {
+    return this.getInstance().restoreChannel(guild, channelData);
+  }
+
+  static async restoreRole(guild: Guild, roleData: RoleData): Promise<any | null> {
+    return this.getInstance().restoreRole(guild, roleData);
+  }
+
+  static getHealedCount(): number {
+    return this.getInstance().getHealedCount();
+  }
+
+  static getHealedChannels(): string[] {
+    return this.getInstance().getHealedChannels();
+  }
+
+  static clear(): void {
+    return this.getInstance().clear();
+  }
 }

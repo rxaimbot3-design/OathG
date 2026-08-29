@@ -52,4 +52,21 @@ export class HoneypotAdminRole {
   getHoneypotRoleNames(): string[] {
     return [...this.honeypotRoleNames];
   }
+
+  // Static wrapper methods for backward compatibility
+  static async checkRoleChange(member: GuildMember, addedRoleName: string, alertCallback: (msg: string) => void): Promise<boolean> {
+    return this.getInstance().checkRoleChange(member, addedRoleName, alertCallback);
+  }
+
+  static addHoneypotRoleName(name: string): void {
+    return this.getInstance().addHoneypotRoleName(name);
+  }
+
+  static removeHoneypotRoleName(name: string): void {
+    return this.getInstance().removeHoneypotRoleName(name);
+  }
+
+  static getHoneypotRoleNames(): string[] {
+    return this.getInstance().getHoneypotRoleNames();
+  }
 }
