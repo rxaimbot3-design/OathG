@@ -521,7 +521,7 @@ export function getDiscordBotStatus() {
     logs: botLogs,
     latency,
     activeTickets,
-    securityStats: getSecurityStats(), sentimentScores: Object.fromEntries(SentimentTracker.serverScores)
+    securityStats: getSecurityStats(), sentimentScores: Object.fromEntries(SentimentTracker.getInstance().getAllScores())
   };
 }
 
@@ -2094,7 +2094,7 @@ client.on("clientReady", async () => {
         await client.application?.commands.set(commands).catch(e => addBotLog(`Global command sync note: ${e.message}`, "warning"));
 
         // 2. Direct REST deployment if application client ID exists
-        const botToken = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || TokenVault.retrieve("DISCORD_TOKEN"))?.trim();
+        const botToken = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || TokenVault.retrieveSync("DISCORD_TOKEN"))?.trim();
         if (client.user?.id && botToken) {
           try {
             const rest = new REST({ version: "10" }).setToken(botToken);
@@ -2145,7 +2145,7 @@ client.on("clientReady", async () => {
         addBotLog(`📤 Left server '${guild.name}' (${guild.id}). Cleaning up cached tracking and security data.`, "info");
         const ctx = getOrCreateGuildContext(guild);
         ctx.inviteTracker; // Ensure tracker is initialized before reset
-        InviteTrackerEngine.resetGuild(guild.id);
+        InviteTrackerEngine.resetGuildSync(guild.id);
       } catch (err: any) {
         addBotLog(`⚠️ Guild cleanup note for ${guild.name}: ${err.message}`, "warning");
       }
@@ -2428,7 +2428,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
             await message.guild.commands.set([]);
 
             // 2. Refresh global REST commands
-            const botToken = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || TokenVault.retrieve("DISCORD_TOKEN"))?.trim();
+            const botToken = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || TokenVault.retrieveSync("DISCORD_TOKEN"))?.trim();
             if (client.user?.id && botToken) {
               const rest = new REST({ version: "10" }).setToken(botToken);
               await rest.put(Routes.applicationCommands(client.user.id), { body: globalSlashCommands });
@@ -2598,7 +2598,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
         if (pCmd === "invites") {
           const targetUser = message.mentions.users.first() || message.author;
-          const data = InviteTrackerEngine.getUserData(message.guild.id, targetUser.id);
+          const data = InviteTrackerEngine.getUserStatsSync()!;
           const total = Math.max(0, (data.regular + data.bonus) - data.leaves - data.fake);
 
           const embed = new EmbedBuilder()
@@ -2618,7 +2618,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         }
 
         if (pCmd === "invite-leaderboard") {
-          const leaderboard = InviteTrackerEngine.getLeaderboard(message.guild.id, 10);
+          const leaderboard = InviteTrackerEngine.getLeaderboardSync(message.guild.id, 10);
           let desc = "🏆 **TOP 10 SERVER INVITERS**\n\n";
           if (leaderboard.length === 0) {
             desc += "*No invite records found yet in this server.*";
@@ -3129,7 +3129,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       if (commandName === "invites") {
         const targetUser = interaction.options.getUser("user") || interaction.user;
         const guildId = guild.id;
-        const data = InviteTrackerEngine.getUserData(guildId, targetUser.id);
+        const data = InviteTrackerEngine.getUserStatsSync()!;
         const total = Math.max(0, (data.regular + data.bonus) - data.leaves - data.fake);
 
         const embed = new EmbedBuilder()
@@ -3149,7 +3149,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       }
 
       if (commandName === "invite-leaderboard") {
-        const leaderboard = InviteTrackerEngine.getLeaderboard(guild.id, 10);
+        const leaderboard = InviteTrackerEngine.getLeaderboardSync(guild.id, 10);
         
         let desc = "🏆 **TOP 10 SERVER INVITERS**\n\n";
         if (leaderboard.length === 0) {
@@ -3179,7 +3179,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         const targetUser = interaction.options.getUser("user", true);
         const amount = interaction.options.getInteger("amount", true);
 
-        const newTotal = InviteTrackerEngine.addBonus(guild.id, targetUser.id, amount);
+        const newTotal = InviteTrackerEngine.addBonusSync(guild.id, targetUser.id, amount);
 
         await interaction.reply({
           embeds: [{
@@ -3199,10 +3199,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         const targetUser = interaction.options.getUser("user");
 
         if (targetUser) {
-          InviteTrackerEngine.resetUser(guild.id, targetUser.id);
+          InviteTrackerEngine.resetUserSync(guild.id, targetUser.id);
           await interaction.reply({ content: "🔄 **Reset invites for <@" + targetUser.id + ">.**", ephemeral: true });
         } else {
-          InviteTrackerEngine.resetGuild(guild.id);
+          InviteTrackerEngine.resetGuildSync(guild.id);
           await interaction.reply({ content: "🔄 **Reset all invite data for " + guild.name + ".**", ephemeral: true });
         }
         return;
@@ -4454,7 +4454,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       const startTime = Date.now();
 
       // Record Leave in Invite Tracker Engine
-      const leaveResult = InviteTrackerEngine.recordLeave(guild.id, member.id);
+      const leaveResult = InviteTrackerEngine.recordLeaveSync(guild.id, member.id);
       if (leaveResult) {
         addBotLog("📤 [INVITE TRACKER] Member " + member.user.tag + " left the server. Inviter <@" + leaveResult.inviterId + "> now has " + leaveResult.total + " invites (-1 leave).", "info");
         await sendInviteLogAlert(guild, {
@@ -5015,7 +5015,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           if (usedInvite && usedInvite.inviterId) {
             const inviterId = usedInvite.inviterId;
             const accountAgeDays = (Date.now() - member.user.createdTimestamp) / (1000 * 60 * 60 * 24);
-            const trackResult = InviteTrackerEngine.recordJoin(guild.id, inviterId, member.id, accountAgeDays);
+            const trackResult = InviteTrackerEngine.recordJoinSync(guild.id, inviterId, member.id, accountAgeDays);
 
             addBotLog("📩 [INVITE TRACKER] Member " + member.user.tag + " joined using invite code 'discord.gg/" + usedInvite.code + "' created by <@" + inviterId + ">. Inviter Total: " + trackResult.total + " invites.", "info");
 
@@ -5216,7 +5216,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       botStatus = "offline";
     });
 
-    const tokenToLogin = (TokenVault.retrieve() || process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN)?.trim();
+    const tokenToLogin = (TokenVault.retrieveSync() || process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN)?.trim();
     console.log("[BOT-STARTUP] Token to login present:", !!tokenToLogin, "length:", tokenToLogin?.length);
     if (tokenToLogin && CanaryToken.check(tokenToLogin)) {
       addBotLog("🚨 [CANARY TRAP TRIGGERED] CRITICAL SECURITY BREACH! Decoy Canary Token was used to log in. Immediate Zero Trust memory wipe self-destruct activated.", "error");

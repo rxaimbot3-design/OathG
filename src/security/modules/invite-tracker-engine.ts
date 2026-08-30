@@ -304,4 +304,94 @@ export class InviteTrackerEngine {
   static async clear(): Promise<void> {
     return this.getInstance().clear();
   }
+
+  // Synchronous static methods for backward compatibility (access in-memory data directly)
+  static getLeaderboardSync(guildId: string, limit: number = 10): Array<{ userId: string; regular: number; leaves: number; fake: number; bonus: number; total: number }> {
+    const instance = this.getInstance();
+    const guildMap = instance.userInvites.get(guildId);
+    if (!guildMap) return [];
+
+    const list: Array<{ userId: string; regular: number; leaves: number; fake: number; bonus: number; total: number }> = [];
+
+    for (const [uId, data] of guildMap.entries()) {
+      const total = (data.regular + data.bonus) - data.leaves - data.fake;
+      list.push({
+        userId: uId,
+        regular: data.regular,
+        leaves: data.leaves,
+        fake: data.fake,
+        bonus: data.bonus,
+        total
+      });
+    }
+
+    list.sort((a, b) => b.total - a.total);
+    return list.slice(0, limit);
+  }
+
+  static getUserStatsSync(guildId: string, userId: string): UserInviteData | null {
+    const instance = this.getInstance();
+    const guildMap = instance.userInvites.get(guildId);
+    if (!guildMap) return null;
+    return guildMap.get(userId) ?? null;
+  }
+
+  static recordJoinSync(guildId: string, inviterId: string, joinedUserId: string, accountAgeDays: number): JoinResult {
+    const instance = this.getInstance();
+    const data = instance.getUserData(guildId, inviterId);
+    data.invitedUsers.push(joinedUserId);
+
+    if (!instance.invitedByMap.has(guildId)) {
+      instance.invitedByMap.set(guildId, new Map());
+    }
+    instance.invitedByMap.get(guildId)!.set(joinedUserId, inviterId);
+
+    let isFake = false;
+    if (accountAgeDays < instance.config.fakeAccountThresholdDays) {
+      data.fake++;
+      isFake = true;
+    } else {
+      data.regular++;
+    }
+
+    const total = (data.regular + data.bonus) - data.leaves - data.fake;
+    return { regular: !isFake, fake: isFake, total: Math.max(0, total) };
+  }
+
+  static recordLeaveSync(guildId: string, leftUserId: string): LeaveResult | null {
+    const instance = this.getInstance();
+    const guildMap = instance.invitedByMap.get(guildId);
+    if (!guildMap) return null;
+    const inviterId = guildMap.get(leftUserId);
+    if (!inviterId) return null;
+
+    const data = instance.getUserData(guildId, inviterId);
+    data.leaves++;
+    const total = (data.regular + data.bonus) - data.leaves - data.fake;
+    
+    guildMap.delete(leftUserId);
+    
+    return { inviterId, total: Math.max(0, total) };
+  }
+
+  static addBonusSync(guildId: string, userId: string, amount: number): number {
+    const instance = this.getInstance();
+    const data = instance.getUserData(guildId, userId);
+    data.bonus += amount;
+    return (data.regular + data.bonus) - data.leaves - data.fake;
+  }
+
+  static resetUserSync(guildId: string, userId: string): void {
+    const instance = this.getInstance();
+    const guildMap = instance.userInvites.get(guildId);
+    if (guildMap) {
+      guildMap.delete(userId);
+    }
+  }
+
+  static resetGuildSync(guildId: string): void {
+    const instance = this.getInstance();
+    instance.userInvites.delete(guildId);
+    instance.invitedByMap.delete(guildId);
+  }
 }

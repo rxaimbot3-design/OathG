@@ -36,7 +36,7 @@
     "@types/supertest": "^6.0.3",
     "@vitest/coverage-v8": "^3.0.0",
     "supertest": "^6.3.4",
-    "vitest": "^3.0.0"
+    "vitest": "^3.2.7"
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.2",

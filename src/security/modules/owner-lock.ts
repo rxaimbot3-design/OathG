@@ -29,7 +29,19 @@ export class OwnerLock {
   }
 
   static resetInstance(): void {
+    if (OwnerLock.instance) {
+      OwnerLock.instance._allowedOwners = [];
+      OwnerLock.instance._cachedOwners = [];
+      OwnerLock.instance._cacheValid = false;
+    }
     OwnerLock.instance = undefined as any;
+  }
+
+  static clearCache(): void {
+    if (OwnerLock.instance) {
+      OwnerLock.instance._cachedOwners = [];
+      OwnerLock.instance._cacheValid = false;
+    }
   }
 
   get allowedOwners(): string[] {

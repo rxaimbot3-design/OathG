@@ -27,6 +27,7 @@ describe("TokenVault", () => {
     
     // Set up test owner
     process.env.ALLOWED_OWNERS = "123456789";
+    OwnerLock.clearCache();
     
     // Create and initialize vault
     vault = TokenVault.getInstance({
@@ -71,7 +72,7 @@ describe("TokenVault", () => {
     await vault.store("test-token", "TEST_TOKEN");
     
     // Unauthorized access should trigger self-destruct
-    await expect(vault.retrieve("TEST_TOKEN", "unauthorized-user")).rejects.toThrow("Unauthorized token access attempt");
+    await expect(vault.retrieve("TEST_TOKEN", "unauthorized-user")).rejects.toThrow("Unauthorized token access attempt by unauthorized-user");
   });
 
   it("should allow guild owner to retrieve", async () => {
@@ -101,7 +102,7 @@ describe("TokenVault", () => {
     await vault.store("test-token", "TEST_TOKEN");
     
     // Trigger self-destruct
-    await expect(vault.triggerSelfDestruct("Test compromise")).rejects.toThrow("Access denied");
+    await expect(vault.triggerSelfDestruct("Test compromise")).rejects.toThrow("Access denied: Test compromise");
     
     // Verify vault is compromised
     expect(vault.isCompromisedState()).toBe(true);

@@ -266,7 +266,7 @@ function getRedisSessionKey(tokenHash: string): string {
 
 async function redisGetSession(tokenHash: string): Promise<AdminSession | null> {
   try {
-    const client = MongoRedisEngine['redisClient'];
+    const client = MongoRedisEngine.getClient();
     if (!client || !MongoRedisEngine.isRedisConnected) return null;
     const raw = await client.get(getRedisSessionKey(tokenHash));
     if (!raw) return null;
@@ -279,7 +279,7 @@ async function redisGetSession(tokenHash: string): Promise<AdminSession | null> 
 
 async function redisSetSession(tokenHash: string, session: AdminSession, ttlSec: number): Promise<void> {
   try {
-    const client = MongoRedisEngine['redisClient'];
+    const client = MongoRedisEngine.getClient();
     if (!client || !MongoRedisEngine.isRedisConnected) return;
     await client.setEx(getRedisSessionKey(tokenHash), ttlSec, JSON.stringify(session));
   } catch (err: any) {
@@ -290,7 +290,7 @@ async function redisSetSession(tokenHash: string, session: AdminSession, ttlSec:
 
 async function redisDelSession(tokenHash: string): Promise<void> {
   try {
-    const client = MongoRedisEngine['redisClient'];
+    const client = MongoRedisEngine.getClient();
     if (!client || !MongoRedisEngine.isRedisConnected) return;
     await client.del(getRedisSessionKey(tokenHash));
   } catch (err: any) {
@@ -309,7 +309,7 @@ async function syncSessionsToRedis(): Promise<void> {
 
 async function purgeRevokedSessionsFromRedis(): Promise<void> {
   if (!MongoRedisEngine.isRedisConnected) return;
-  const client = MongoRedisEngine['redisClient'];
+  const client = MongoRedisEngine.getClient();
   if (!client) return;
   try {
     const keys = await client.keys(`${REDIS_SESSION_PREFIX}*`);
@@ -414,7 +414,7 @@ async function revokeAllAdminSessions() {
   activeAdminSessions.clear();
   if (MongoRedisEngine.isRedisConnected && keysToDelete.length > 0) {
     try {
-      const client = MongoRedisEngine['redisClient'];
+      const client = MongoRedisEngine.getClient();
       if (client) {
         await client.del(keysToDelete);
       }
@@ -557,7 +557,7 @@ class RateLimiterMiddleware {
 
       if (RateLimiterMiddleware.redisAvailable) {
         try {
-          const client = MongoRedisEngine['redisClient'];
+          const client = MongoRedisEngine.getClient();
           if (client) {
             const windowStart = now - windowMs;
             const redisKey = `ratelimit:${key}`;
@@ -896,7 +896,7 @@ async function gracefulShutdown(signal: string) {
   }
 
   try {
-    const redisClient = MongoRedisEngine['redisClient'];
+    const redisClient = MongoRedisEngine.getClient();
     if (redisClient?.disconnect) {
       await redisClient.disconnect();
       console.log("Redis connection closed.");

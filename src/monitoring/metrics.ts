@@ -49,6 +49,14 @@ class MetricsManager {
     MetricsManager.instance = undefined as any;
   }
 
+  static async getMetrics(): Promise<string> {
+    return this.getInstance().getRegistry().metrics();
+  }
+
+  static getContentType(): string {
+    return this.getInstance().getRegistry().contentType;
+  }
+
   getRegistry(): Registry {
     return this.registry;
   }
@@ -275,3 +283,7 @@ export function httpMetricsMiddleware() {
     next();
   };
 }
+
+// Export static methods for server.ts
+export const getMetrics = () => MetricsManager.getMetrics();
+export const getContentType = () => MetricsManager.getContentType();
