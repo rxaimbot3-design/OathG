@@ -65,7 +65,7 @@ import { CppNativeEngine } from "./src/CppEngine.js";
  * Check if the bot has sufficient permissions for a specific operation.
  * Returns true if the bot has the required permissions, false otherwise.
  */
-function hasBotPermission(guild: Guild, requiredPerms: PermissionFlagsBits[]): boolean {
+function hasBotPermission(guild: Guild, requiredPerms: bigint[]): boolean {
   const me = guild.members.me;
   if (!me) return false;
   
@@ -81,7 +81,7 @@ function hasBotPermission(guild: Guild, requiredPerms: PermissionFlagsBits[]): b
  * Check if a user has admin-level permissions (without requiring full Administrator).
  * This allows users with specific management permissions to be treated as admins.
  */
-function hasEffectiveAdminPermission(member: GuildMember | null): boolean {
+function hasEffectiveAdminPermission(member: GuildMember | null | undefined): boolean {
   if (!member) return false;
   return member.permissions.has(PermissionFlagsBits.Administrator) ||
          member.permissions.has(PermissionFlagsBits.ManageGuild) ||
@@ -521,7 +521,7 @@ export function getDiscordBotStatus() {
     logs: botLogs,
     latency,
     activeTickets,
-    securityStats: getSecurityStats(), sentimentScores: Object.fromEntries(SentimentTracker.serverScores)
+    securityStats: getSecurityStats(), sentimentScores: Object.fromEntries(SentimentTracker.getInstance().getAllScores())
   };
 }
 
@@ -1598,7 +1598,7 @@ client.on("clientReady", async () => {
           }
 
           // 3. Scan Webhooks (WebhookGuard)
-          await WebhookGuard.scanAll(client, (msg) => addBotLog(msg, "warning"));
+          await WebhookGuard.getInstance().scanAll(client);
           
           // 4. Scan for Unauthorized Admin Roles given to normal users during Admin Freeze
           if (strictAdminFreeze && members) {
@@ -2094,7 +2094,7 @@ client.on("clientReady", async () => {
         await client.application?.commands.set(commands).catch(e => addBotLog(`Global command sync note: ${e.message}`, "warning"));
 
         // 2. Direct REST deployment if application client ID exists
-        const botToken = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || TokenVault.retrieve("DISCORD_TOKEN"))?.trim();
+        const botToken = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || TokenVault.retrieveSync("DISCORD_TOKEN"))?.trim();
         if (client.user?.id && botToken) {
           try {
             const rest = new REST({ version: "10" }).setToken(botToken);
@@ -2144,8 +2144,8 @@ client.on("clientReady", async () => {
       try {
         addBotLog(`📤 Left server '${guild.name}' (${guild.id}). Cleaning up cached tracking and security data.`, "info");
         const ctx = getOrCreateGuildContext(guild);
-        ctx.getInviteTracker(); // Ensure tracker is initialized before reset
-        InviteTrackerEngine.resetGuild(guild.id);
+        ctx.inviteTracker; // Ensure tracker is initialized before reset
+        InviteTrackerEngine.resetGuildSync(guild.id);
       } catch (err: any) {
         addBotLog(`⚠️ Guild cleanup note for ${guild.name}: ${err.message}`, "warning");
       }
@@ -2189,7 +2189,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
       // Sentiment & Toxicity Scanner
       if (message.content && ctx) {
-        await ctx.getSentimentTracker().analyzeMessage(message, (msg) => addBotLog(msg, "warning"));
+        await ctx.sentimentTracker.analyzeMessage(message, (msg) => addBotLog(msg, "warning"));
       }
     
       // 6. DM Firewall
@@ -2205,7 +2205,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       if (message.content.length > 10 && ctx) {
         const threatScore = await AIDeepScan.analyzeMessage(message.content, message.author.id, message.channel.id);
         if (threatScore > 80) {
-          if (message.member) await ctx.getQuarantine().isolate(message.member);
+          if (message.member) await ctx.quarantine.isolate(message.member);
           await message.delete().catch(() => {});
           console.log(`🚨 [AI DEEP SCAN] Blocked message from ${message.author.tag} (Score: ${threatScore})`);
         }
@@ -2428,7 +2428,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
             await message.guild.commands.set([]);
 
             // 2. Refresh global REST commands
-            const botToken = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || TokenVault.retrieve("DISCORD_TOKEN"))?.trim();
+            const botToken = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || TokenVault.retrieveSync("DISCORD_TOKEN"))?.trim();
             if (client.user?.id && botToken) {
               const rest = new REST({ version: "10" }).setToken(botToken);
               await rest.put(Routes.applicationCommands(client.user.id), { body: globalSlashCommands });
@@ -2598,7 +2598,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
         if (pCmd === "invites") {
           const targetUser = message.mentions.users.first() || message.author;
-          const data = InviteTrackerEngine.getUserData(message.guild.id, targetUser.id);
+          const data = InviteTrackerEngine.getUserStatsSync(message.guild!.id, targetUser.id)!;
           const total = Math.max(0, (data.regular + data.bonus) - data.leaves - data.fake);
 
           const embed = new EmbedBuilder()
@@ -2618,7 +2618,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         }
 
         if (pCmd === "invite-leaderboard") {
-          const leaderboard = InviteTrackerEngine.getLeaderboard(message.guild.id, 10);
+          const leaderboard = InviteTrackerEngine.getLeaderboardSync(message.guild.id, 10);
           let desc = "🏆 **TOP 10 SERVER INVITERS**\n\n";
           if (leaderboard.length === 0) {
             desc += "*No invite records found yet in this server.*";
@@ -2869,7 +2869,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       // 5. Handle User Context Menu Commands
       if (interaction.isUserContextMenuCommand()) {
         const member = interaction.member;
-        if (!hasEffectiveAdminPermission(member) && interaction.user.id !== interaction.guild?.ownerId && !(interaction.guild ? isOwnerOrWhitelisted(interaction.user.id, interaction.guild) : false)) {
+        // Check if member is a GuildMember with permissions
+        const isGuildMember = member && 'permissions' in member;
+        const guildMember = isGuildMember ? (member as GuildMember) : null;
+        if (!guildMember || (!hasEffectiveAdminPermission(guildMember) && interaction.user.id !== interaction.guild?.ownerId && !(interaction.guild ? isOwnerOrWhitelisted(interaction.user.id, interaction.guild) : false))) {
           await interaction.reply({ content: "❌ **Access Denied!** Requires Administrator, Manage Server, or moderation permissions.", ephemeral: true });
           return;
         }
@@ -3129,7 +3132,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       if (commandName === "invites") {
         const targetUser = interaction.options.getUser("user") || interaction.user;
         const guildId = guild.id;
-        const data = InviteTrackerEngine.getUserData(guildId, targetUser.id);
+        const data = InviteTrackerEngine.getUserStatsSync(guildId, targetUser.id)!;
         const total = Math.max(0, (data.regular + data.bonus) - data.leaves - data.fake);
 
         const embed = new EmbedBuilder()
@@ -3149,7 +3152,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       }
 
       if (commandName === "invite-leaderboard") {
-        const leaderboard = InviteTrackerEngine.getLeaderboard(guild.id, 10);
+        const leaderboard = InviteTrackerEngine.getLeaderboardSync(guild.id, 10);
         
         let desc = "🏆 **TOP 10 SERVER INVITERS**\n\n";
         if (leaderboard.length === 0) {
@@ -3179,7 +3182,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         const targetUser = interaction.options.getUser("user", true);
         const amount = interaction.options.getInteger("amount", true);
 
-        const newTotal = InviteTrackerEngine.addBonus(guild.id, targetUser.id, amount);
+        const newTotal = InviteTrackerEngine.addBonusSync(guild.id, targetUser.id, amount);
 
         await interaction.reply({
           embeds: [{
@@ -3199,10 +3202,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         const targetUser = interaction.options.getUser("user");
 
         if (targetUser) {
-          InviteTrackerEngine.resetUser(guild.id, targetUser.id);
+          InviteTrackerEngine.resetUserSync(guild.id, targetUser.id);
           await interaction.reply({ content: "🔄 **Reset invites for <@" + targetUser.id + ">.**", ephemeral: true });
         } else {
-          InviteTrackerEngine.resetGuild(guild.id);
+          InviteTrackerEngine.resetGuildSync(guild.id);
           await interaction.reply({ content: "🔄 **Reset all invite data for " + guild.name + ".**", ephemeral: true });
         }
         return;
@@ -4055,7 +4058,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
            await emergencyQuarantine(targetGuild);
           
           // Initiate Full Channel Lockdown using GuildContext
-          await ctx.getNukeDefense().lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
+          await ctx.nukeDefense.lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
           if (executorId && executorId !== targetGuild.ownerId) {
             // If executed by any admin/whitelisted user who is not the owner -> BAN them!
@@ -4209,7 +4212,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
                 await punishRogueAdmin(targetGuild, executorId, "Mass Ban Nuke", `Banned ${bansByThisExecutor.length} members in 10s`).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
               } else {
                 // If owner, we lock down server
-                await ctx.getNukeDefense().lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
+                await ctx.nukeDefense.lockdown(targetGuild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
               }
 
               await sendLiveAuditAlert(targetGuild, {
@@ -4454,7 +4457,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       const startTime = Date.now();
 
       // Record Leave in Invite Tracker Engine
-      const leaveResult = InviteTrackerEngine.recordLeave(guild.id, member.id);
+      const leaveResult = InviteTrackerEngine.recordLeaveSync(guild.id, member.id);
       if (leaveResult) {
         addBotLog("📤 [INVITE TRACKER] Member " + member.user.tag + " left the server. Inviter <@" + leaveResult.inviterId + "> now has " + leaveResult.total + " invites (-1 leave).", "info");
         await sendInviteLogAlert(guild, {
@@ -4486,7 +4489,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         await emergencyQuarantine(guild);
 
         // Initiate Full Channel Lockdown using GuildContext
-        await ctx.getNukeDefense().lockdown(guild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
+        await ctx.nukeDefense.lockdown(guild).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
 
         // Fetch Audit Logs to find the Rogue Admin who is kicking
         try {
@@ -4607,7 +4610,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       const ctx = getOrCreateGuildContext(guild);
 
       // 16. Advanced Webhook Guard
-      await ctx.getWebhookGuard().verify(guild);
+      await ctx.webhookGuard.verify(guild);
 
       try {
         const entry = await fetchAuditLogWithRetry(guild, AuditLogEvent.WebhookCreate, undefined, 6, 300);
@@ -4797,7 +4800,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       const ctx = getOrCreateGuildContext(guild);
       
       // ALWAS scan for malicious apps immediately, regardless of who added them
-      await ctx.getOAuthMaliciousAppDetector().scanGuildIntegrations(guild, (msg) => {
+      await ctx.oAuthMaliciousAppDetector.scanGuildIntegrations(guild, (msg) => {
         addBotLog(msg, "error");
         sendLiveAuditAlert(guild, {
           title: "🚨 MALICIOUS OAUTH APP DETECTED & DELETED",
@@ -4883,14 +4886,14 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     client.on("messageCreate", async (message) => {
       if (!message.guild || message.author.bot) return;
       const ctx = getOrCreateGuildContext(message.guild);
-      if (!ctx.getAntiInviteShield().isEnabled()) return;
+      if (!ctx.antiInviteShield.isEnabled()) return;
 
       // Exempt Owner and Whitelist
       if (message.author.id === message.guild.ownerId || isOwnerOrWhitelisted(message.author.id, message.guild, false)) {
         return;
       }
 
-      const isLink = ctx.getAntiInviteShield().containsInvite(message.content) || 
+      const isLink = ctx.antiInviteShield.containsInvite(message.content) || 
                      /(https?:\/\/[^\s]+|discord\.gg\/[a-zA-Z0-9]+|discord\.com\/invite\/[a-zA-Z0-9]+|t\.me\/[a-zA-Z0-9_]+)/i.test(message.content);
 
       if (isLink) {
@@ -4930,10 +4933,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       const ctx = getOrCreateGuildContext(guild);
       
       // 🛡️ ANTI-RAID JOIN-LIMIT SHIELD
-      const isRaid = ctx.getJoinLimitShield().recordJoin(guild.id);
+      const isRaid = ctx.joinLimitShield.recordJoin(guild.id);
       if (isRaid) {
         addBotLog(`🚨 [RAID DETECTED] High velocity join spike! Activating Temporal Raid Lockdown in ${guild.name}.`, "error");
-        await ctx.getNukeDefense().lockdown(guild);
+        await ctx.nukeDefense.lockdown(guild);
         await sendLiveAuditAlert(guild, {
           title: "🛡️ ANTI-RAID VELOCITY SHIELD",
           description: `⚠️ **Raid Detected!**\n\n` +
@@ -4946,7 +4949,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
       // 🛡️ ZERO-TRUST CUSTOM IP-BAN & BLACKLIST SYSTEM CHECK
       try {
-        const isBanned = ctx.getIPBanSystem().isBanned(member.id);
+        const isBanned = ctx.ipBanSystem.isBanned(member.id);
         if (isBanned) {
           addBotLog(`🚨 [IP-BAN MATCH] Blacklisted User ID '${member.user.tag}' (${member.id}) attempted to join. Executing auto-ban.`, "error");
           await member.ban({ deleteMessageSeconds: 604800, reason: `Zero-Trust Custom IP-Ban: Blacklisted ID` }).catch(() => {});
@@ -5015,7 +5018,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           if (usedInvite && usedInvite.inviterId) {
             const inviterId = usedInvite.inviterId;
             const accountAgeDays = (Date.now() - member.user.createdTimestamp) / (1000 * 60 * 60 * 24);
-            const trackResult = InviteTrackerEngine.recordJoin(guild.id, inviterId, member.id, accountAgeDays);
+            const trackResult = InviteTrackerEngine.recordJoinSync(guild.id, inviterId, member.id, accountAgeDays);
 
             addBotLog("📩 [INVITE TRACKER] Member " + member.user.tag + " joined using invite code 'discord.gg/" + usedInvite.code + "' created by <@" + inviterId + ">. Inviter Total: " + trackResult.total + " invites.", "info");
 
@@ -5216,7 +5219,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       botStatus = "offline";
     });
 
-    const tokenToLogin = (TokenVault.retrieve() || process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN)?.trim();
+    const tokenToLogin = (TokenVault.retrieveSync() || process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN)?.trim();
     console.log("[BOT-STARTUP] Token to login present:", !!tokenToLogin, "length:", tokenToLogin?.length);
     if (tokenToLogin && CanaryToken.check(tokenToLogin)) {
       addBotLog("🚨 [CANARY TRAP TRIGGERED] CRITICAL SECURITY BREACH! Decoy Canary Token was used to log in. Immediate Zero Trust memory wipe self-destruct activated.", "error");

@@ -29,6 +29,11 @@ import { CppNativeEngine } from "./src/CppEngine.js";
 import { validateEnvironmentVariables } from "./src/EnvValidator.js";
 import { hashToken, scanForSecrets, validateInput, runBackupIntegrityTest } from "./src/security.js";
 
+// Monitoring imports
+import { discordMetrics, getMetrics, getContentType, httpMetricsMiddleware } from "./src/monitoring/metrics.js";
+import { log, createModuleLogger } from "./src/logging/logger.js";
+import { DIContainer } from "./src/di/container.js";
+
 // Modular route scaffolding (Phase 1 continued - routes are defined but not yet wired)
 // import { registerHealthRoutes } from "./src/server/routes/health.js";
 // import { registerDiscordRoutes } from "./src/server/routes/discord.js";
@@ -47,11 +52,13 @@ import { hashToken, scanForSecrets, validateInput, runBackupIntegrityTest } from
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
+const serverLogger = createModuleLogger("server");
+
 
 
 try {
   if (fs.existsSync("./discord_config.json")) {
-    const dcfg = readEncryptedConfig("./discord_config.json");
+    const dcfg = readEncryptedConfig<{ token?: string; clientId?: string }>("./discord_config.json");
     if (dcfg?.token) {
       process.env.DISCORD_BOT_TOKEN = dcfg.token;
     }
@@ -259,7 +266,7 @@ function getRedisSessionKey(tokenHash: string): string {
 
 async function redisGetSession(tokenHash: string): Promise<AdminSession | null> {
   try {
-    const client = MongoRedisEngine['redisClient'];
+    const client = MongoRedisEngine.getClient();
     if (!client || !MongoRedisEngine.isRedisConnected) return null;
     const raw = await client.get(getRedisSessionKey(tokenHash));
     if (!raw) return null;
@@ -272,7 +279,7 @@ async function redisGetSession(tokenHash: string): Promise<AdminSession | null> 
 
 async function redisSetSession(tokenHash: string, session: AdminSession, ttlSec: number): Promise<void> {
   try {
-    const client = MongoRedisEngine['redisClient'];
+    const client = MongoRedisEngine.getClient();
     if (!client || !MongoRedisEngine.isRedisConnected) return;
     await client.setEx(getRedisSessionKey(tokenHash), ttlSec, JSON.stringify(session));
   } catch (err: any) {
@@ -283,7 +290,7 @@ async function redisSetSession(tokenHash: string, session: AdminSession, ttlSec:
 
 async function redisDelSession(tokenHash: string): Promise<void> {
   try {
-    const client = MongoRedisEngine['redisClient'];
+    const client = MongoRedisEngine.getClient();
     if (!client || !MongoRedisEngine.isRedisConnected) return;
     await client.del(getRedisSessionKey(tokenHash));
   } catch (err: any) {
@@ -302,7 +309,7 @@ async function syncSessionsToRedis(): Promise<void> {
 
 async function purgeRevokedSessionsFromRedis(): Promise<void> {
   if (!MongoRedisEngine.isRedisConnected) return;
-  const client = MongoRedisEngine['redisClient'];
+  const client = MongoRedisEngine.getClient();
   if (!client) return;
   try {
     const keys = await client.keys(`${REDIS_SESSION_PREFIX}*`);
@@ -407,7 +414,7 @@ async function revokeAllAdminSessions() {
   activeAdminSessions.clear();
   if (MongoRedisEngine.isRedisConnected && keysToDelete.length > 0) {
     try {
-      const client = MongoRedisEngine['redisClient'];
+      const client = MongoRedisEngine.getClient();
       if (client) {
         await client.del(keysToDelete);
       }
@@ -550,7 +557,7 @@ class RateLimiterMiddleware {
 
       if (RateLimiterMiddleware.redisAvailable) {
         try {
-          const client = MongoRedisEngine['redisClient'];
+          const client = MongoRedisEngine.getClient();
           if (client) {
             const windowStart = now - windowMs;
             const redisKey = `ratelimit:${key}`;
@@ -889,7 +896,7 @@ async function gracefulShutdown(signal: string) {
   }
 
   try {
-    const redisClient = MongoRedisEngine['redisClient'];
+    const redisClient = MongoRedisEngine.getClient();
     if (redisClient?.disconnect) {
       await redisClient.disconnect();
       console.log("Redis connection closed.");
@@ -1260,7 +1267,7 @@ app.get("/api/health/detailed", requireAdminAuth, (req, res) => {
     gateway: {
       latency: gatewayLatency,
       heartbeat,
-      sessionId: client?.ws?.sessionId
+      sessionId: (client?.ws as any)?.sessionId
     },
     events: {
       ratePerSecond: cppMetrics.throughputPerSecond || 0,
@@ -2055,20 +2062,20 @@ app.all(["/api/honeypot-trap", "/trap", "/trap/:guildId", "/trap/:guildId/:userI
   }
 });
 
-app.get("/api/security/ultra-stats", requireAdminAuth, (req, res) => {
+app.get("/api/security/ultra-stats", requireAdminAuth, async (req, res) => {
   let highRiskUsers: any[] = [];
   let tokenRotationLastTime = 0;
   let hardwareFingerprint = "N/A";
   let isPremiumActive = false;
 
   try {
-    highRiskUsers = BehaviorScoring.getAllHighRiskUsers();
+    highRiskUsers = await BehaviorScoring.getAllHighRiskUsers();
   } catch (err) {
     console.error("Error fetching high risk users:", err);
   }
 
   try {
-    tokenRotationLastTime = BotTokenRotationSystem.lastRotationTime;
+    tokenRotationLastTime = BotTokenRotationSystem.getLastRotationTime();
   } catch (err) {
     console.error("Error fetching token rotation time:", err);
   }
@@ -2350,7 +2357,7 @@ app.post("/api/enterprise/cache-backup", requireAdminAuth, heavyOpRateLimit, asy
 app.get("/api/premium/info", requireAdminAuth, (req, res) => {
   res.json({
     isPremium: PremiumLicenseSystem.isPremium,
-    licenseKey: PremiumLicenseSystem.activeLicenseKey ? "PREMIUM-****-****" : null,
+    licenseKey: PremiumLicenseSystem.getActiveLicenseKey() ? "PREMIUM-****-****" : null,
     hardwareFingerprint: PremiumLicenseSystem.getHardwareFingerprint(),
     expiresAt: PremiumLicenseSystem.getLicenseExpiry ? PremiumLicenseSystem.getLicenseExpiry() : null,
     maxGuilds: PremiumLicenseSystem.getMaxGuilds ? PremiumLicenseSystem.getMaxGuilds() : null,
@@ -2396,7 +2403,7 @@ let linkedRepo = "rxaimbot3-design/ultimate-discord-ai-bot";
 
 try {
   if (fs.existsSync("./github_config.json")) {
-    const ghcfg = readEncryptedConfig("./github_config.json");
+    const ghcfg = readEncryptedConfig<{ token?: string; repo?: string }>("./github_config.json");
     if (ghcfg?.token) {
       await setGitHubToken(ghcfg.token);
     }
