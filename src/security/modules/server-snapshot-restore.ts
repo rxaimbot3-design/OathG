@@ -87,7 +87,7 @@ export class ServerSnapshotRestore {
       await guild.roles.fetch().catch(() => {});
     }
 
-    const channels = guild.channels.cache.map((c: any) => ({
+    const channels = Array.from(guild.channels.cache.values()).map((c: any) => ({
       id: c.id,
       name: c.name,
       type: c.type,
@@ -97,7 +97,7 @@ export class ServerSnapshotRestore {
       topic: c.topic,
       nsfw: c.nsfw,
       rateLimitPerUser: c.rateLimitPerUser,
-      permissionOverwrites: c.permissionOverwrites.cache.map((po: any) => ({
+      permissionOverwrites: Array.from(c.permissionOverwrites.cache.values()).map((po: any) => ({
         id: po.id,
         allow: po.allow.bitfield.toString(),
         deny: po.deny.bitfield.toString(),
@@ -105,7 +105,7 @@ export class ServerSnapshotRestore {
       }))
     }));
 
-    const roles = guild.roles.cache
+    const roles = Array.from(guild.roles.cache.values())
       .filter((r: any) => r.id !== guild.id) // Exclude @everyone role
       .map((r: any) => ({
         id: r.id,

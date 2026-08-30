@@ -128,7 +128,7 @@ export class BehaviorScoring {
     return this.getRisk(userId).score;
   }
 
-  recordViolation(userId: string, reason = "Behavioral Violation"): number {
+  recordViolation(userId: string, reason = "Behavioral Violation"): Promise<number> {
     return this.addRisk(userId, 15, reason);
   }
 
@@ -186,10 +186,11 @@ export class BehaviorScoring {
     return all.sort((a, b) => b.score - a.score);
   }
 
-  getStats() {
+  async getStats() {
+    const highRiskUsers = await this.getAllHighRiskUsers();
     return {
       totalUsers: this.userRiskScores.size,
-      highRiskCount: this.getAllHighRiskUsers().length,
+      highRiskCount: highRiskUsers.length,
       maxEntries: this.config.maxEntries,
       redisConnected: this.persistence.getConnectionStatus().connected,
     };
@@ -240,7 +241,7 @@ export class BehaviorScoring {
     return this.getInstance().getAllHighRiskUsers(threshold);
   }
 
-  static getStats() {
+  static async getStats() {
     return this.getInstance().getStats();
   }
 

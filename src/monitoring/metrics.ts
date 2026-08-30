@@ -33,7 +33,6 @@ class MetricsManager {
       collectDefaultMetrics({
         register: this.registry,
         prefix: this.config.prefix,
-        interval: this.config.defaultMetricsInterval,
       });
     }
   }

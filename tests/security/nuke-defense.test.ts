@@ -60,6 +60,13 @@ const createMockGuild = (name: string = "Test Guild") => {
   } as unknown as Guild;
 };
 
+// Type-safe getters for test channels
+const getTextChannel = (guild: Guild, id: string) => 
+  guild.channels.cache.get(id) as TextChannel | undefined;
+
+const getVoiceChannel = (guild: Guild, id: string) => 
+  guild.channels.cache.get(id) as { permissionOverwrites: { edit: ReturnType<typeof vi.fn> } } | undefined;
+
 describe("NukeDefense", () => {
   let mockGuild: Guild;
   let alertCallback: ReturnType<typeof vi.fn>;
@@ -116,8 +123,8 @@ describe("NukeDefense", () => {
     expect(result.errors).toHaveLength(0);
 
     // Verify channels were NOT actually modified
-    const generalChannel = mockGuild.channels.cache.get("channel1");
-    expect(generalChannel.permissionOverwrites.edit).not.toHaveBeenCalled();
+    const generalChannel = getTextChannel(mockGuild, "channel1");
+    expect(generalChannel?.permissionOverwrites.edit).not.toHaveBeenCalled();
 
     // Verify invites were NOT actually deleted
     const invites = await mockGuild.invites.fetch();
@@ -136,10 +143,10 @@ describe("NukeDefense", () => {
 
     await nuke.lockdown(mockGuild);
 
-    const generalChannel = mockGuild.channels.cache.get("channel1");
-    const voiceChannel = mockGuild.channels.cache.get("voice1");
+    const generalChannel = getTextChannel(mockGuild, "channel1");
+    const voiceChannel = getVoiceChannel(mockGuild, "voice1");
 
-    expect(generalChannel.permissionOverwrites.edit).toHaveBeenCalledWith(
+    expect(generalChannel?.permissionOverwrites.edit).toHaveBeenCalledWith(
       mockGuild.roles.everyone,
       expect.objectContaining({
         SendMessages: false,
@@ -148,7 +155,7 @@ describe("NukeDefense", () => {
     );
 
     // Voice channel should not have permissionOverwrites.edit called
-    expect(voiceChannel.permissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(voiceChannel?.permissionOverwrites.edit).not.toHaveBeenCalled();
   });
 
   it("should handle invite fetch failures gracefully", async () => {
@@ -172,8 +179,10 @@ describe("NukeDefense", () => {
   });
 
   it("should handle channel permission failures gracefully", async () => {
-    const failingChannel = mockGuild.channels.cache.get("channel1");
-    failingChannel.permissionOverwrites.edit = vi.fn().mockRejectedValue(new Error("Missing permissions"));
+    const failingChannel = getTextChannel(mockGuild, "channel1");
+    if (failingChannel) {
+      failingChannel.permissionOverwrites.edit = vi.fn().mockRejectedValue(new Error("Missing permissions"));
+    }
 
     const nuke = NukeDefense.getInstance({
       dryRun: false,

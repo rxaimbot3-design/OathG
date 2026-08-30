@@ -237,7 +237,7 @@ Message: "${message.content}"`;
       if (isSuspicious) {
         alertCallback(`⚠️ AI Sentiment analysis unavailable. Suspicious message detected by heuristic.`);
       }
-      aiServiceMonitor.recordCall(false, error?.message || String(error));
+      aiServiceMonitor.recordCall(false, err?.message || String(err));
     }
   }
 

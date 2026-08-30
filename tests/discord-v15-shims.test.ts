@@ -7,12 +7,12 @@ describe("discord-v15-shims", () => {
   });
 
   it("hasPermission returns false for non-existent member", () => {
-    expect(hasPermission(null, 1)).toBe(false);
+    expect(hasPermission(null, PermissionFlags.CreateInstantInvite)).toBe(false);
   });
 
   it("hasPermission returns member permission status", () => {
     const member = { permissions: { has: vi.fn(() => true) } };
-    expect(hasPermission(member as any, 1)).toBe(true);
+    expect(hasPermission(member as any, PermissionFlags.CreateInstantInvite)).toBe(true);
   });
 
   it("isEffectiveAdmin returns false for null member", () => {

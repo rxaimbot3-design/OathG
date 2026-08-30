@@ -3,26 +3,34 @@ import { TokenVault } from "../src/SecurityFeatures.js";
 import { SecurityPipeline } from "../src/security/Pipeline.js";
 
 describe("SecurityFeatures: TokenVault", () => {
-  it("encrypts and decrypts tokens", () => {
-    TokenVault.store("my_secret_token", "TEST_TOKEN");
-    const decrypted = TokenVault.retrieve("TEST_TOKEN");
+  beforeEach(() => {
+    TokenVault.resetInstance();
+  });
+
+  it("encrypts and decrypts tokens", async () => {
+    const vault = TokenVault.getInstance({ redisEnabled: false, masterSecret: "test-secret" });
+    await vault.store("my_secret_token", "TEST_TOKEN");
+    const decrypted = await vault.retrieve("TEST_TOKEN");
     expect(decrypted).toBe("my_secret_token");
   });
 
-  it("throws for missing token", () => {
-    expect(() => TokenVault.retrieve("NONEXISTENT_TOKEN")).toThrow(/Token Vault entry/);
+  it("throws for missing token", async () => {
+    const vault = TokenVault.getInstance({ redisEnabled: false, masterSecret: "test-secret" });
+    await expect(vault.retrieve("NONEXISTENT_TOKEN")).rejects.toThrow(/Token Vault entry/);
   });
 
-  it("throws on missing encryption key", () => {
+  it("throws on missing encryption key", async () => {
     // TokenVault derives key from ADMIN_SECRET, so with env set it should work
-    TokenVault.store("test", "KEY1");
-    expect(TokenVault.retrieve("KEY1")).toBe("test");
+    const vault = TokenVault.getInstance({ redisEnabled: false, masterSecret: "test-secret" });
+    await vault.store("test", "KEY1");
+    expect(await vault.retrieve("KEY1")).toBe("test");
   });
 
-  it("destroys vault and clears memory", () => {
-    TokenVault.store("secret", "DESTROY_TEST");
+  it("destroys vault and clears memory", async () => {
+    const vault = TokenVault.getInstance({ redisEnabled: false, masterSecret: "test-secret" });
+    await vault.store("secret", "DESTROY_TEST");
     // Self-destruct clears files then throws
-    expect(() => TokenVault.triggerSelfDestruct("test")).toThrow(/Access denied/);
+    await expect(vault.triggerSelfDestruct("test")).rejects.toThrow(/Access denied/);
   });
 });
 
