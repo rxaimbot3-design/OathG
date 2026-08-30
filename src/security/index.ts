@@ -5,13 +5,10 @@
  */
 
 // Core interfaces and contexts
-export {
-  BotContext,
-  DefaultBotContext,
-  botContext,
-  GuildStateStore,
-  GuildContext,
-} from "../core";
+export type { BotContext, DefaultBotContext } from "../core";
+export { botContext } from "../core";
+export { GuildStateStore } from "../core";
+export { GuildContext } from "../core";
 
 export { type SecurityModule, type BotContext as IBotContext, type GuildContext as IGuildContext, type GuildStateStore as IGuildStateStore, type NukeDefenseModule, type AuditMonitorModule, type IPBanModule, type RateLimiterModule, type SentimentTrackerModule, type JoinLimitShieldModule, type InviteTrackerModule, type WebhookGuardModule, type AutoHealModule, type QuarantineModule, type TemporalRaidLockModule, type BehaviorScoringModule, type SessionHijackModule, type OAuthMaliciousAppModule, type AutoPermissionRollbackModule, type ServerSnapshotRestoreModule, type AntiVanityHijackModule, type EmojiStickerProtectionModule, type ForumChannelProtectionModule, type AIRaidPredictionModule, type HoneypotAdminRoleModule } from "../core";
 

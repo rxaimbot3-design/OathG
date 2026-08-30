@@ -75,4 +75,13 @@ export class AICommandAssistant {
       ]
     };
   }
+
+  // Static wrapper methods for backward compatibility
+  static async processNaturalLanguageCommand(userPrompt: string): Promise<string> {
+    return this.getInstance().processNaturalLanguageCommand(userPrompt);
+  }
+
+  static async optimizeConfig(): Promise<ConfigOptimizationResult> {
+    return this.getInstance().optimizeConfig();
+  }
 }

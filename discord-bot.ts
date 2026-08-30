@@ -65,7 +65,7 @@ import { CppNativeEngine } from "./src/CppEngine.js";
  * Check if the bot has sufficient permissions for a specific operation.
  * Returns true if the bot has the required permissions, false otherwise.
  */
-function hasBotPermission(guild: Guild, requiredPerms: PermissionFlagsBits[]): boolean {
+function hasBotPermission(guild: Guild, requiredPerms: bigint[]): boolean {
   const me = guild.members.me;
   if (!me) return false;
   
@@ -81,7 +81,7 @@ function hasBotPermission(guild: Guild, requiredPerms: PermissionFlagsBits[]): b
  * Check if a user has admin-level permissions (without requiring full Administrator).
  * This allows users with specific management permissions to be treated as admins.
  */
-function hasEffectiveAdminPermission(member: GuildMember | null): boolean {
+function hasEffectiveAdminPermission(member: GuildMember | null | undefined): boolean {
   if (!member) return false;
   return member.permissions.has(PermissionFlagsBits.Administrator) ||
          member.permissions.has(PermissionFlagsBits.ManageGuild) ||
@@ -1598,7 +1598,7 @@ client.on("clientReady", async () => {
           }
 
           // 3. Scan Webhooks (WebhookGuard)
-          await WebhookGuard.scanAll(client, (msg) => addBotLog(msg, "warning"));
+          await WebhookGuard.getInstance().scanAll(client);
           
           // 4. Scan for Unauthorized Admin Roles given to normal users during Admin Freeze
           if (strictAdminFreeze && members) {
@@ -2598,7 +2598,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
         if (pCmd === "invites") {
           const targetUser = message.mentions.users.first() || message.author;
-          const data = InviteTrackerEngine.getUserStatsSync()!;
+          const data = InviteTrackerEngine.getUserStatsSync(message.guild!.id, targetUser.id)!;
           const total = Math.max(0, (data.regular + data.bonus) - data.leaves - data.fake);
 
           const embed = new EmbedBuilder()
@@ -2869,7 +2869,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       // 5. Handle User Context Menu Commands
       if (interaction.isUserContextMenuCommand()) {
         const member = interaction.member;
-        if (!hasEffectiveAdminPermission(member) && interaction.user.id !== interaction.guild?.ownerId && !(interaction.guild ? isOwnerOrWhitelisted(interaction.user.id, interaction.guild) : false)) {
+        // Check if member is a GuildMember with permissions
+        const isGuildMember = member && 'permissions' in member;
+        const guildMember = isGuildMember ? (member as GuildMember) : null;
+        if (!guildMember || (!hasEffectiveAdminPermission(guildMember) && interaction.user.id !== interaction.guild?.ownerId && !(interaction.guild ? isOwnerOrWhitelisted(interaction.user.id, interaction.guild) : false))) {
           await interaction.reply({ content: "❌ **Access Denied!** Requires Administrator, Manage Server, or moderation permissions.", ephemeral: true });
           return;
         }
@@ -3129,7 +3132,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       if (commandName === "invites") {
         const targetUser = interaction.options.getUser("user") || interaction.user;
         const guildId = guild.id;
-        const data = InviteTrackerEngine.getUserStatsSync()!;
+        const data = InviteTrackerEngine.getUserStatsSync(guildId, targetUser.id)!;
         const total = Math.max(0, (data.regular + data.bonus) - data.leaves - data.fake);
 
         const embed = new EmbedBuilder()

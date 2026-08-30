@@ -53,4 +53,9 @@ Include 1 proactive recommendation for server admins. Keep it scannable and auth
       return "📊 **Daily AI Security Report**\n- AI report generation failed. Deterministic security rules remain active.\n- Check GEMINI_API_KEY configuration and API quota.";
     }
   }
+
+  // Static wrapper for backward compatibility
+  static async generateReport(): Promise<string> {
+    return this.getInstance().generateReport();
+  }
 }

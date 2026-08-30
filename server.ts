@@ -58,7 +58,7 @@ const serverLogger = createModuleLogger("server");
 
 try {
   if (fs.existsSync("./discord_config.json")) {
-    const dcfg = readEncryptedConfig("./discord_config.json");
+    const dcfg = readEncryptedConfig<{ token?: string; clientId?: string }>("./discord_config.json");
     if (dcfg?.token) {
       process.env.DISCORD_BOT_TOKEN = dcfg.token;
     }
@@ -1267,7 +1267,7 @@ app.get("/api/health/detailed", requireAdminAuth, (req, res) => {
     gateway: {
       latency: gatewayLatency,
       heartbeat,
-      sessionId: client?.ws?.sessionId
+      sessionId: (client?.ws as any)?.sessionId
     },
     events: {
       ratePerSecond: cppMetrics.throughputPerSecond || 0,
@@ -2062,20 +2062,20 @@ app.all(["/api/honeypot-trap", "/trap", "/trap/:guildId", "/trap/:guildId/:userI
   }
 });
 
-app.get("/api/security/ultra-stats", requireAdminAuth, (req, res) => {
+app.get("/api/security/ultra-stats", requireAdminAuth, async (req, res) => {
   let highRiskUsers: any[] = [];
   let tokenRotationLastTime = 0;
   let hardwareFingerprint = "N/A";
   let isPremiumActive = false;
 
   try {
-    highRiskUsers = BehaviorScoring.getAllHighRiskUsers();
+    highRiskUsers = await BehaviorScoring.getAllHighRiskUsers();
   } catch (err) {
     console.error("Error fetching high risk users:", err);
   }
 
   try {
-    tokenRotationLastTime = BotTokenRotationSystem.lastRotationTime;
+    tokenRotationLastTime = BotTokenRotationSystem.getLastRotationTime();
   } catch (err) {
     console.error("Error fetching token rotation time:", err);
   }
@@ -2357,7 +2357,7 @@ app.post("/api/enterprise/cache-backup", requireAdminAuth, heavyOpRateLimit, asy
 app.get("/api/premium/info", requireAdminAuth, (req, res) => {
   res.json({
     isPremium: PremiumLicenseSystem.isPremium,
-    licenseKey: PremiumLicenseSystem.activeLicenseKey ? "PREMIUM-****-****" : null,
+    licenseKey: PremiumLicenseSystem.getActiveLicenseKey() ? "PREMIUM-****-****" : null,
     hardwareFingerprint: PremiumLicenseSystem.getHardwareFingerprint(),
     expiresAt: PremiumLicenseSystem.getLicenseExpiry ? PremiumLicenseSystem.getLicenseExpiry() : null,
     maxGuilds: PremiumLicenseSystem.getMaxGuilds ? PremiumLicenseSystem.getMaxGuilds() : null,
@@ -2403,7 +2403,7 @@ let linkedRepo = "rxaimbot3-design/ultimate-discord-ai-bot";
 
 try {
   if (fs.existsSync("./github_config.json")) {
-    const ghcfg = readEncryptedConfig("./github_config.json");
+    const ghcfg = readEncryptedConfig<{ token?: string; repo?: string }>("./github_config.json");
     if (ghcfg?.token) {
       await setGitHubToken(ghcfg.token);
     }
