@@ -62,11 +62,25 @@ export class EmojiStickerProtection {
   }
 
   getGuildEmojis(guildId: string): EmojiData[] {
-    return Array.from(this.knownEmojis.values()).filter((e): e is EmojiData => e.guildId === guildId) as EmojiData[];
+    const result: EmojiData[] = [];
+    const values = Array.from(this.knownEmojis.values());
+    for (const e of values) {
+      if (e.guildId === guildId) {
+        result.push(e);
+      }
+    }
+    return result;
   }
 
   getGuildStickers(guildId: string): StickerData[] {
-    return Array.from(this.knownStickers.values()).filter((s): s is StickerData => s.guildId === guildId) as StickerData[];
+    const result: StickerData[] = [];
+    const values = Array.from(this.knownStickers.values());
+    for (const s of values) {
+      if (s.guildId === guildId) {
+        result.push(s);
+      }
+    }
+    return result;
   }
 
   getEmojiCount(): number {

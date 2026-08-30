@@ -50,7 +50,7 @@ export interface VaultStats {
 export class TokenVault {
   private static instance: TokenVault;
   private encryptedTokens = new Map<string, EncryptedTokenData>();
-  private masterSecret!: string;
+  private masterSecret: string = "";
   private isCompromised = false;
   private initialized = false;
   private config: Required<TokenVaultConfig>;

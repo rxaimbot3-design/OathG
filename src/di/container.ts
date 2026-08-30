@@ -124,232 +124,169 @@ export class DIContainer {
   private bindCoreServices(): void {
     // Redis Persistence - foundation for all state
     this.container.bind<RedisPersistence>(TYPES.RedisPersistence)
-      .to(RedisPersistence)
-      .inSingletonScope();
+      .toConstantValue(RedisPersistence.getInstance());
 
-    // TokenVault - depends on RedisPersistence and OwnerLock
+    // TokenVault
     this.container.bind<TokenVault>(TYPES.TokenVault)
-      .toDynamicValue(async (context: interfaces.Context) => {
-        const persistence = await context.container.getAsync<TYPES.RedisPersistence>(TYPES.RedisPersistence);
-        const ownerLock = await context.container.getAsync<OwnerLock>(TYPES.OwnerLock);
-        const vault = TokenVault.getInstance();
-        // The singleton already handles persistence internally
-        return vault;
-      })
-      .inSingletonScope();
+      .toConstantValue(TokenVault.getInstance());
 
-    // OwnerLock - no dependencies
+    // OwnerLock
     this.container.bind<OwnerLock>(TYPES.OwnerLock)
-      .toDynamicValue(() => OwnerLock.getInstance())
-      .inSingletonScope();
+      .toConstantValue(OwnerLock.getInstance());
   }
 
   private bindSecurityModules(): void {
     // RateLimiter
     this.container.bind<RateLimiter>(TYPES.RateLimiter)
-      .toDynamicValue(async (context: interfaces.Context) => {
-        const limiter = RateLimiter.getInstance();
-        await limiter.initialize();
-        return limiter;
-      })
-      .inSingletonScope();
+      .toConstantValue(RateLimiter.getInstance());
 
     // BehaviorScoring
     this.container.bind<BehaviorScoring>(TYPES.BehaviorScoring)
-      .toDynamicValue(async (context: interfaces.Context) => {
-        const scoring = BehaviorScoring.getInstance();
-        await scoring.initialize();
-        return scoring;
-      })
-      .inSingletonScope();
+      .toConstantValue(BehaviorScoring.getInstance());
 
     // SentimentTracker
     this.container.bind<SentimentTracker>(TYPES.SentimentTracker)
-      .toDynamicValue(async (context: interfaces.Context) => {
-        const tracker = SentimentTracker.getInstance();
-        await tracker.initialize();
-        return tracker;
-      })
-      .inSingletonScope();
+      .toConstantValue(SentimentTracker.getInstance());
 
     // NukeDefense
     this.container.bind<NukeDefense>(TYPES.NukeDefense)
-      .toDynamicValue(() => NukeDefense.getInstance())
-      .inSingletonScope();
+      .toConstantValue(NukeDefense.getInstance());
 
     // WebhookGuard
     this.container.bind<WebhookGuard>(TYPES.WebhookGuard)
-      .toDynamicValue(() => WebhookGuard.getInstance())
-      .inSingletonScope();
+      .toConstantValue(WebhookGuard.getInstance());
 
     // Quarantine
     this.container.bind<Quarantine>(TYPES.Quarantine)
-      .toDynamicValue(() => Quarantine.getInstance())
-      .inSingletonScope();
+      .toConstantValue(Quarantine.getInstance());
 
     // TemporalRaidLock
     this.container.bind<TemporalRaidLock>(TYPES.TemporalRaidLock)
-      .toDynamicValue(() => TemporalRaidLock.getInstance())
-      .inSingletonScope();
+      .toConstantValue(TemporalRaidLock.getInstance());
 
     // InviteTrackerEngine
     this.container.bind<InviteTrackerEngine>(TYPES.InviteTrackerEngine)
-      .toDynamicValue(async (context: interfaces.Context) => {
-        const tracker = InviteTrackerEngine.getInstance();
-        await tracker.initialize();
-        return tracker;
-      })
-      .inSingletonScope();
+      .toConstantValue(InviteTrackerEngine.getInstance());
 
     // ServerSnapshotRestore
     this.container.bind<ServerSnapshotRestore>(TYPES.ServerSnapshotRestore)
-      .toDynamicValue(() => ServerSnapshotRestore.getInstance())
-      .inSingletonScope();
+      .toConstantValue(ServerSnapshotRestore.getInstance());
 
     // IPBanSystem
     this.container.bind<IPBanSystem>(TYPES.IPBanSystem)
-      .toDynamicValue(() => IPBanSystem.getInstance())
-      .inSingletonScope();
+      .toConstantValue(IPBanSystem.getInstance());
 
     // AdminWhitelistSystem
     this.container.bind<AdminWhitelistSystem>(TYPES.AdminWhitelistSystem)
-      .toDynamicValue(() => AdminWhitelistSystem.getInstance())
-      .inSingletonScope();
+      .toConstantValue(AdminWhitelistSystem.getInstance());
 
     // AntiPhishing
     this.container.bind<AntiPhishing>(TYPES.AntiPhishing)
-      .toDynamicValue(() => AntiPhishing.getInstance())
-      .inSingletonScope();
+      .toConstantValue(AntiPhishing.getInstance());
 
     // CanaryToken
     this.container.bind<CanaryToken>(TYPES.CanaryToken)
-      .toDynamicValue(() => CanaryToken.getInstance())
-      .inSingletonScope();
+      .toConstantValue(CanaryToken.getInstance());
 
     // GlobalIntelligence
     this.container.bind<GlobalIntelligence>(TYPES.GlobalIntelligence)
-      .toDynamicValue(() => GlobalIntelligence.getInstance())
-      .inSingletonScope();
+      .toConstantValue(GlobalIntelligence.getInstance());
 
     // AIDeepScan
     this.container.bind<AIDeepScan>(TYPES.AIDeepScan)
-      .toDynamicValue(() => AIDeepScan.getInstance())
-      .inSingletonScope();
+      .toConstantValue(AIDeepScan.getInstance());
 
     // HoneypotAdminRole
     this.container.bind<HoneypotAdminRole>(TYPES.HoneypotAdminRole)
-      .toDynamicValue(() => HoneypotAdminRole.getInstance())
-      .inSingletonScope();
+      .toConstantValue(HoneypotAdminRole.getInstance());
 
     // SessionHijackDetector
     this.container.bind<SessionHijackDetector>(TYPES.SessionHijackDetector)
-      .toDynamicValue(() => SessionHijackDetector.getInstance())
-      .inSingletonScope();
+      .toConstantValue(SessionHijackDetector.getInstance());
 
     // OAuthMaliciousAppDetector
     this.container.bind<OAuthMaliciousAppDetector>(TYPES.OAuthMaliciousAppDetector)
-      .toDynamicValue(() => OAuthMaliciousAppDetector.getInstance())
-      .inSingletonScope();
+      .toConstantValue(OAuthMaliciousAppDetector.getInstance());
 
     // AutoPermissionRollback
     this.container.bind<AutoPermissionRollback>(TYPES.AutoPermissionRollback)
-      .toDynamicValue(() => AutoPermissionRollback.getInstance())
-      .inSingletonScope();
+      .toConstantValue(AutoPermissionRollback.getInstance());
 
     // AutoHeal
     this.container.bind<AutoHeal>(TYPES.AutoHeal)
-      .toDynamicValue(() => AutoHeal.getInstance())
-      .inSingletonScope();
+      .toConstantValue(AutoHeal.getInstance());
 
     // AntiVanityHijack
     this.container.bind<AntiVanityHijack>(TYPES.AntiVanityHijack)
-      .toDynamicValue(() => AntiVanityHijack.getInstance())
-      .inSingletonScope();
+      .toConstantValue(AntiVanityHijack.getInstance());
 
     // EmojiStickerProtection
     this.container.bind<EmojiStickerProtection>(TYPES.EmojiStickerProtection)
-      .toDynamicValue(() => EmojiStickerProtection.getInstance())
-      .inSingletonScope();
+      .toConstantValue(EmojiStickerProtection.getInstance());
 
     // ForumChannelProtection
     this.container.bind<ForumChannelProtection>(TYPES.ForumChannelProtection)
-      .toDynamicValue(() => ForumChannelProtection.getInstance())
-      .inSingletonScope();
+      .toConstantValue(ForumChannelProtection.getInstance());
 
     // AIRaidPrediction
     this.container.bind<AIRaidPrediction>(TYPES.AIRaidPrediction)
-      .toDynamicValue(() => AIRaidPrediction.getInstance())
-      .inSingletonScope();
+      .toConstantValue(AIRaidPrediction.getInstance());
 
     // AISecurityReport
     this.container.bind<AISecurityReport>(TYPES.AISecurityReport)
-      .toDynamicValue(() => AISecurityReport.getInstance())
-      .inSingletonScope();
+      .toConstantValue(AISecurityReport.getInstance());
 
     // AICommandAssistant
     this.container.bind<AICommandAssistant>(TYPES.AICommandAssistant)
-      .toDynamicValue(() => AICommandAssistant.getInstance())
-      .inSingletonScope();
+      .toConstantValue(AICommandAssistant.getInstance());
 
     // BotTokenRotationSystem
     this.container.bind<BotTokenRotationSystem>(TYPES.BotTokenRotationSystem)
-      .toDynamicValue(() => BotTokenRotationSystem.getInstance())
-      .inSingletonScope();
+      .toConstantValue(BotTokenRotationSystem.getInstance());
 
     // AutoBackupEngine
     this.container.bind<AutoBackupEngine>(TYPES.AutoBackupEngine)
-      .toDynamicValue(() => AutoBackupEngine.getInstance())
-      .inSingletonScope();
+      .toConstantValue(AutoBackupEngine.getInstance());
 
     // DailyBackup
     this.container.bind<DailyBackup>(TYPES.DailyBackup)
-      .toDynamicValue(() => DailyBackup.getInstance())
-      .inSingletonScope();
+      .toConstantValue(DailyBackup.getInstance());
 
     // MongoRedisEngine
     this.container.bind<MongoRedisEngine>(TYPES.MongoRedisEngine)
-      .toDynamicValue(() => MongoRedisEngine.getInstance())
-      .inSingletonScope();
+      .toConstantValue(MongoRedisEngine.getInstance());
 
     // PremiumLicenseSystem
     this.container.bind<PremiumLicenseSystem>(TYPES.PremiumLicenseSystem)
-      .toDynamicValue(() => PremiumLicenseSystem.getInstance())
-      .inSingletonScope();
+      .toConstantValue(PremiumLicenseSystem.getInstance());
 
     // IPWhitelist
     this.container.bind<IPWhitelist>(TYPES.IPWhitelist)
-      .toDynamicValue(() => IPWhitelist.getInstance())
-      .inSingletonScope();
+      .toConstantValue(IPWhitelist.getInstance());
 
     // DMFirewall
     this.container.bind<DMFirewall>(TYPES.DMFirewall)
-      .toDynamicValue(() => DMFirewall.getInstance())
-      .inSingletonScope();
+      .toConstantValue(DMFirewall.getInstance());
 
     // SlashOnly
     this.container.bind<SlashOnly>(TYPES.SlashOnly)
-      .toDynamicValue(() => SlashOnly.getInstance())
-      .inSingletonScope();
+      .toConstantValue(SlashOnly.getInstance());
 
     // AuditLogMonitor
     this.container.bind<AuditLogMonitor>(TYPES.AuditLogMonitor)
-      .toDynamicValue(() => AuditLogMonitor.getInstance())
-      .inSingletonScope();
+      .toConstantValue(AuditLogMonitor.getInstance());
 
     // AnomalyAI
     this.container.bind<AnomalyAI>(TYPES.AnomalyAI)
-      .toDynamicValue(() => AnomalyAI.getInstance())
-      .inSingletonScope();
+      .toConstantValue(AnomalyAI.getInstance());
 
     // JoinLimitShield
     this.container.bind<JoinLimitShield>(TYPES.JoinLimitShield)
-      .toDynamicValue(() => JoinLimitShield.getInstance())
-      .inSingletonScope();
+      .toConstantValue(JoinLimitShield.getInstance());
 
     // AntiInviteShield
     this.container.bind<AntiInviteShield>(TYPES.AntiInviteShield)
-      .toDynamicValue(() => AntiInviteShield.getInstance())
-      .inSingletonScope();
+      .toConstantValue(AntiInviteShield.getInstance());
   }
 
   async initializeAll(): Promise<void> {
@@ -379,7 +316,6 @@ export class DIContainer {
     console.log("[DIContainer] All services initialized");
   }
 
-  // Helper to get services with proper typing
   get<T>(type: symbol): T {
     return this.container.get<T>(type);
   }
@@ -390,7 +326,7 @@ export class DIContainer {
 
   // For testing - create child container with overrides
   createChildContainer(): Container {
-    return this.container.createChild();
+    return new Container();
   }
 
   // Rebind a service (useful for testing)

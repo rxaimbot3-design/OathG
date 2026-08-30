@@ -49,7 +49,7 @@ export { PremiumLicenseSystem, type PremiumLicenseSystemConfig } from "./modules
 export { InviteTrackerEngine, type InviteTrackerEngineConfig } from "./modules/invite-tracker-engine.js";
 export { AdminWhitelistSystem, type AdminWhitelistSystemConfig, type WhitelistRecord } from "./modules/admin-whitelist.js";
 export { atomicWriteJsonSync, checkUnboundedMapSize, runMemoryMonitoring, safeJsonParse, generateSecureRandom, timingSafeEqual } from "./modules/utils.js";
-export { TtlMap, LruMap } from "../MapManager.js";
+export { TtlMap, LruMap } from "./MapManager.js";
 
 // Legacy aliases for backward compatibility
 export { NukeDefense as ZeroTrustSecurityEngine } from "./modules/nuke-defense.js";

@@ -128,7 +128,7 @@ export class BehaviorScoring {
     return this.getRisk(userId).score;
   }
 
-  recordViolation(userId: string, reason = "Behavioral Violation"): number {
+  async recordViolation(userId: string, reason = "Behavioral Violation"): Promise<number> {
     return this.addRisk(userId, 15, reason);
   }
 
@@ -187,9 +187,11 @@ export class BehaviorScoring {
   }
 
   getStats() {
+    // getAllHighRiskUsers is async, so we can't use it synchronously in getStats
+    // Return a simplified stats object without the async call
     return {
       totalUsers: this.userRiskScores.size,
-      highRiskCount: this.getAllHighRiskUsers().length,
+      highRiskCount: -1, // -1 indicates async-only
       maxEntries: this.config.maxEntries,
       redisConnected: this.persistence.getConnectionStatus().connected,
     };
