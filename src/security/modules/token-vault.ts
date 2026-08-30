@@ -308,7 +308,7 @@ export class TokenVault {
     console.log(`[TokenVault] Key rotation complete. New version: ${this.keyVersion}`);
   }
 
-  triggerSelfDestruct(reason: string): never {
+  async triggerSelfDestruct(reason: string): Promise<never> {
     console.error(`\n🚨 [SELF-DESTRUCT PROTOCOL ACTIVATED] 🚨\nReason: ${reason}`);
     console.error("Wiping memory to prevent token leak...");
     
@@ -362,7 +362,7 @@ export class TokenVault {
     return this.getInstance().retrieve(keyName, requesterId, guildOwnerId);
   }
 
-  static triggerSelfDestruct(reason: string): never {
+  static async triggerSelfDestruct(reason: string): Promise<never> {
     return this.getInstance().triggerSelfDestruct(reason);
   }
 
