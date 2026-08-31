@@ -1,7 +1,9 @@
 
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { GoogleGenAI } from "@google/genai";
+import { SECURITY_THRESHOLDS } from "./src/bot/constants.js";
 import { 
   Client, 
   GatewayIntentBits, 
@@ -58,6 +60,7 @@ import { botContext } from "./src/core/contexts/BotContext.js";
 import { GuildContext, getGuildContext } from "./src/core/contexts/GuildContext.js";
 import { validateEnvironmentVariables } from "./src/EnvValidator.js";
 import { CppNativeEngine } from "./src/CppEngine.js";
+import { registerTrackerReferences, startMemoryCleanupInterval, stopMemoryCleanupInterval, performMemoryCleanup } from "./src/bot/memory-cleanup.js";
 
 // ==================== PERMISSION HELPERS ====================
 
@@ -102,6 +105,7 @@ function getOrCreateGuildContext(guild: Guild): GuildContext {
 export const userSpamTracker = new Map<string, number[]>();
 export const userViolations = new Map<string, { count: number, timestamp: number }>();
 export let presenceRotatorInterval: NodeJS.Timeout | null = null;
+let eventHandlersRegistered = false; // Prevent re-registration on reconnect
 
 async function withRetry<T>(op: () => Promise<T>, label: string): Promise<T | undefined> {
   try {
@@ -149,6 +153,9 @@ const ai = {
 // Whitelist & Owner Compromise Action Tracking
 
 const whitelistActionTimestamps = new Map<string, number[]>();
+
+// Raid Action Counter (module-level for handleRaidDetection)
+export const raidActionCounter = new Map<string, number>();
 
 // Whitelist Compromise Prevention Engine
 async function rollbackWhitelistedAdminActions(executorId: string, guild: Guild) {
@@ -1141,6 +1148,29 @@ function trackGuildActionAndCheckPanic(guildId: string): boolean {
 // 🛡️ Sequential Kick/Ban Velocity Tracker (2-3 kicks or bans in 15s -> Instant IP BAN & Maximum Threat Penalty)
 const sequentialKickBanTracker = new Map<string, number[]>();
 
+// Register all trackers for memory cleanup
+registerTrackerReferences({
+  userSpamTracker,
+  userViolations,
+  userActionTimestamps,
+  guildBurstActions,
+  guildPanicBurstActions,
+  globalBanActions,
+  globalJoinHistory,
+  globalLeaveHistory,
+  recentWhitelistedActions,
+  whitelistActionTimestamps,
+  botCreatedChannelIds,
+  botDeletedChannelIds,
+  botCreatedRoleIds,
+  botDeletedRoleIds,
+  botCreatingChannelNames,
+  botCreatingRoleNames,
+  recentProcessedKicks,
+  sequentialKickBanTracker,
+  raidActionCounter,
+});
+
 export function recordAndCheckSequentialKickBan(executorId: string, guild: Guild, actionType: string): boolean {
   if (!executorId || executorId === guild.client.user?.id) return false;
   if (executorId === guild.ownerId || ownerWhitelist.includes(executorId) || approvedBots.includes(executorId)) return false;
@@ -1273,6 +1303,8 @@ export async function stopDiscordBot() {
     clearInterval(presenceRotatorInterval);
     presenceRotatorInterval = null;
   }
+  // Stop memory cleanup interval
+  stopMemoryCleanupInterval();
   userSpamTracker.clear();
   userViolations.clear();
   userActionTimestamps.clear();
@@ -1414,7 +1446,7 @@ export async function startDiscordBot() {
   }
 
   const token = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN)?.trim();
-  console.log("[BOT-STARTUP] Token present:", !!token, "length:", token?.length);
+  console.log("[BOT-STARTUP] Token present:", !!token);
   if (token) TokenVault.store(token, "DISCORD_TOKEN");
   const geminiKey = process.env.GEMINI_API_KEY;
   if (geminiKey) TokenVault.store(geminiKey, "GEMINI_API_KEY");
@@ -1542,6 +1574,32 @@ function startPresenceRotator(client: Client) {
 
 client.on("clientReady", async () => {
     console.log("[BOT-READY] ready event fired");
+    
+    // Prevent re-registering event handlers on reconnect
+    if (eventHandlersRegistered) {
+      console.log("[BOT-READY] Event handlers already registered, skipping re-registration");
+      // Still need to do initialization on reconnect
+      activeIntervals.forEach(clearInterval);
+      activeIntervals = [];
+      if (presenceRotatorInterval) {
+        clearInterval(presenceRotatorInterval);
+        presenceRotatorInterval = null;
+      }
+      startPresenceRotator(client);
+      addBotLog(`🤖 Bot reconnected as ${client.user?.tag}! Re-initializing protection systems across ${client.guilds.cache.size} server(s)...`, "success");
+      // Re-initialize invite cache for all guilds
+      for (const guild of client.guilds.cache.values()) {
+        try {
+          const invites = await guild.invites.fetch();
+          const codeUses = new Map<string, number>();
+          invites.forEach(inv => codeUses.set(inv.code, inv.uses || 0));
+          globalInvitesCache.set(guild.id, codeUses);
+        } catch (err) {}
+      }
+      return;
+    }
+    eventHandlersRegistered = true;
+    
     // Clear any previous running intervals to prevent leaks on reconnect
     activeIntervals.forEach(clearInterval);
     activeIntervals = [];
@@ -1674,7 +1732,10 @@ client.on("clientReady", async () => {
         
     }, 5 * 60 * 1000); // Run every 5 minutes
 
-      botStatus = "online";
+    // Start centralized memory cleanup utility
+    startMemoryCleanupInterval();
+
+    botStatus = "online";
       console.log("[BOT-READY] botStatus set to online");
       const user = client.user;
       if (user) {
@@ -2149,14 +2210,13 @@ client.on("clientReady", async () => {
       } catch (err: any) {
         addBotLog(`⚠️ Guild cleanup note for ${guild.name}: ${err.message}`, "warning");
       }
-    });
+});
 
     // Handle Interactions (Button Clicks & Slash Commands)
     // Advanced Anti-Spam & Anti-Link tracking uses module-level maps userSpamTracker and userViolations
     
 // Premium Feature Globals
 const serverBackups = new Map<string, any[]>();
-let raidActionCounter = new Map<string, number>();
 
 // Helper: Backup Server
 async function createServerBackup(guild: Guild) {
@@ -2175,20 +2235,23 @@ async function createServerBackup(guild: Guild) {
 
 // Clear raid counters every 10 seconds (Moved inside 'ready' handler to prevent reconnect interval clearing issues)
 
-const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)|(discord\.com\/invite\/[a-zA-Z0-9]+)/i;
-    const nsfwScamRegex = /(porn|nudes?|sex|onlyfans|free\s*nitro|steam\s*gift|discord\s*nitro\s*free|hack|token\s*grabber|ip\s*logger|xxx)/i;
-
+// 🔒 STRICT ANTI-DM PROTECTION: Ignore & Block direct message commands
     client.on("messageCreate", async (message) => {
       if (!message || message.author?.bot) return;
 
-      // Use GuildContext for security modules (Phase 2 migration)
-      let ctx: GuildContext | undefined;
-      if (message.guild) {
-        ctx = getOrCreateGuildContext(message.guild);
+      // DM Protection - return early for DMs
+      if (!message.guild || message.channel.type === ChannelType.DM) {
+        try {
+          await message.reply("⛔ **Direct Messages Disabled**: For Zero Trust Anti-Nuke Security reasons, DM commands and interactions are disabled for this bot. Please use commands directly inside your Discord server.").catch(() => {});
+        } catch (e) {}
+        return;
       }
 
+      // Use GuildContext for security modules (Phase 2 migration)
+      const ctx = getOrCreateGuildContext(message.guild);
+
       // Sentiment & Toxicity Scanner
-      if (message.content && ctx) {
+      if (message.content) {
         await ctx.sentimentTracker.analyzeMessage(message, (msg) => addBotLog(msg, "warning"));
       }
     
@@ -2202,7 +2265,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       await AntiPhishing.scanMessage(message);
 
       // 18. AI Deep Scan
-      if (message.content.length > 10 && ctx) {
+      if (message.content.length > 10) {
         const threatScore = await AIDeepScan.analyzeMessage(message.content, message.author.id, message.channel.id);
         if (threatScore > 80) {
           if (message.member) await ctx.quarantine.isolate(message.member);
@@ -2211,434 +2274,47 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         }
       }
 
-      if (!message.guild || message.author.bot) return;
+      // 16. Anti-Invite Link Monitor (Shield)
+      if (ctx.antiInviteShield.isEnabled()) {
+        // Exempt Owner and Whitelist
+        if (message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild, false)) {
+          const isLink = ctx.antiInviteShield.containsInvite(message.content) || 
+                         /(https?:\/\/[^\s]+|discord\.gg\/[a-zA-Z0-9]+|discord\.com\/invite\/[a-zA-Z0-9]+|t\.me\/[a-zA-Z0-9_]+)/i.test(message.content);
+
+          if (isLink) {
+            try {
+              const violatorId = message.author.id;
+              const violatorTag = message.author.tag;
+              
+              addBotLog(`🚨 [LINK & SPAM SHIELD] User ${violatorTag} (${violatorId}) sent an unauthorized link/invite. Executing 1-hour TIMEOUT.`, "warning");
+              
+              // Delete violation message
+              await message.delete().catch(() => {});
+
+              // Execute 1-Hour Timeout ONLY (No Ban!)
+              if (message.member && message.member.moderatable) {
+                await message.member.timeout(60 * 60 * 1000, "Zero Trust Shield: Unauthorized link detected (Timeout policy enforced)").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
+              }
+
+              // Audit Alert
+              await sendLiveAuditAlert(message.guild, {
+                title: "🤐 LINK & SPAM PROTECTION: TIMEOUT APPLIED (1 HOUR)",
+                description: `🚨 **User placed on 1-Hour Timeout for sending a link!**\n\n` +
+                             `• **User:** <@${violatorId}> (${violatorTag})\n` +
+                             `• **User ID:** \`${violatorId}\`\n` +
+                             `• **Action Taken:** Message deleted and user placed on **1-Hour Timeout** (Muted).\n\n` +
+                             `*Note: As per system configuration, link & spam violations result ONLY in a timeout.*`,
+                color: 0xF59E0B
+              });
+            } catch (err: any) {
+              console.error("Error executing Anti-Link timeout:", err.message);
+            }
+          }
+        }
+      }
 
       const member = message.member;
       if (!member) return;
-
-
-      // Prefix Command Fallback Handler (!analyze, !dashboard, !status, !help, etc)
-      const rawContent = message.content.trim();
-      if (rawContent.startsWith("!") || rawContent.startsWith("/")) {
-        const parts = rawContent.slice(1).trim().split(/ +/);
-        const pCmd = parts[0].toLowerCase();
-
-        if (pCmd === "deploy-defense" || pCmd === "6-layers" || pCmd === "security") {
-          if (message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild)) {
-            await message.reply("❌ **Access Denied!** Requires Whitelisted Admin or Owner clearance.").catch(() => {});
-            return;
-          }
-
-          addBotLog(`🚀 [!${pCmd}] Triggered by ${message.author.tag} in '${message.guild.name}'! Enforcing all 6 Zero Trust Defense Layers...`, "info");
-          const auditRes = await auditAndApplyVerifiedRolePermissions(message.guild, "");
-          const stats = getSecurityStats();
-
-          await sendLiveAuditAlert(message.guild, {
-            title: "🛡️ ALL 6 ZERO TRUST DEFENSE LAYERS ACTIVE & ENFORCED",
-            description: `**Triggered By:** <@${message.author.id}> (${message.author.tag})\n` +
-                          `**Security Score:** 🟢 MAXIMUM SHIELD\n` +
-                         `**Audit Channel:** <#${message.guild.channels.cache.find(c => c.name === "security-logs")?.id || ""}>\n` +
-                         `**6 Defense Layers:** All Armed & Operational`,
-            color: 0x10B981
-          });
-
-          const embed = new EmbedBuilder()
-             .setTitle("🛡️ ASHTRON 6-LAYER ZERO TRUST SECURITY SHIELD")
-            .setColor(0x10B981)
-            .setDescription(
-              `⚡ **1-COMMAND DEPLOYMENT EXECUTED PERFECTLY IN \`${message.guild.name}\`**\n\n` +
-              `**Layer 1: Real-Time Audit Log & Atomic Shield (Sub-17ms Anti-Nuke)**\n` +
-              `• Intercepts raw Audit Logs in <17ms\n` +
-              `• Auto-bans rogue admins/bots attempting mass kicks, bans, or deletes\n\n` +
-              `**Layer 2: Owner-Only Zero Trust Hierarchy & Whitelist Vault**\n` +
-              `• No Admin role bypasses Anti-Nuke without explicit Whitelist\n` +
-              `• Neutralizes compromised owner/admin token hijacks\n\n` +
-              `**Layer 3: Self-Healing Channel/Role Auto-Recovery Engine**\n` +
-              `• Instant sub-17ms auto-recreation of deleted channels, roles, and permissions\n\n` +
-              `**Layer 4: Anti-Raid & Mass-Join Limit Shield (Honeypot + Bot Trap)**\n` +
-              `• Tracks join spikes (5+ joins/3s), traps bot accounts & auto-bans raid tokens\n\n` +
-              `**Layer 5: Webhook & Integration Guard**\n` +
-              `• Automatically purges unauthorized webhooks & revokes compromised tokens\n\n` +
-              `**Layer 6: Panic Lockdown & Emergency Isolation Engine**\n` +
-              `• Instant 1-click server-wide channel lockdown & VC freeze (\`/panic-lockdown\`)\n\n` +
-              `📌 **Verified Role Matrix Enforced:**\n` +
-              `• 🔒 Locked VCs Preserved: \`${auditRes.lockedVCs}\` Voice Channels\n` +
-              `• 🔓 Unlocked Channels: \`${auditRes.unlockedChannels}\` Channels\n` +
-              `• 🙈 Hidden Staff Channels: \`${auditRes.hiddenChannels}\` Channels\n\n` +
-              `✅ **Status:** All 6 Layers Active • Total Attacks Blocked: \`${stats.blockedAttacksCount}\``
-            )
-             .setFooter({ text: "ASHTRON Zero Trust Security Suite" })
-            .setTimestamp();
-
-          await message.reply({ embeds: [embed] }).catch(() => {});
-          return;
-        }
-
-        if (pCmd === "analyze" || pCmd === "security-status" || pCmd === "status") {
-          if (!hasEffectiveAdminPermission(message.member) && message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild)) {
-            await message.reply("❌ **Access Denied!** Requires Administrator, Manage Server, or moderation permissions.").catch(() => {});
-            return;
-          }
-          const stats = getSecurityStats();
-          const botRole = message.guild.members.me?.roles.highest;
-          const ping = client.ws.ping;
-          const auditRes = await auditAndApplyVerifiedRolePermissions(message.guild, "");
-
-          await message.reply(
-            `🔍 **FULL SERVER & SECURITY AI ANALYSIS REPORT**\n\n` +
-            `📌 **Server Overview:**\n` +
-            `• **Server Name:** \`${message.guild.name}\` (\`${message.guild.id}\`)\n` +
-            `• **Members:** \`${message.guild.memberCount}\` | **Channels:** \`${message.guild.channels.cache.size}\` | **Roles:** \`${message.guild.roles.cache.size}\`\n` +
-            `• **Bot Gateway Latency:** \`${ping}ms\`\n\n` +
-            `🛡️ **Zero Trust Anti-Nuke Defense Rating:**\n` +
-            `• **Security Score:** \`${stats.securityScore} / 100\` (MAXIMUM SHIELD ACTIVE)\n` +
-            `• **Bot Role Position:** \`${botRole?.name || "Bot Role"}\` (Position \`${botRole?.position || 0}\`)\n` +
-            `• **Anti-Nuke Protection Modules:** \`${stats.activeAntiNukeModules}\` Modules Online\n` +
-            `• **Panic Lockdown Mode:** \`${stats.panicLockdownActive ? "ACTIVE 🚨" : "STANDBY 🟢"}\` \n` +
-            `• **Verified Role Permissions:** \`Locked VCs: ${auditRes.lockedVCs} | Unlocked: ${auditRes.unlockedChannels} | Hidden: ${auditRes.hiddenChannels}\` \n` +
-            `• **Total Blocked Attacks:** \`${stats.blockedAttacksCount}\` Threats Mitigated\n\n` +
-              `✅ **System Status:** Defense modules operational`
-          ).catch(() => {});
-          return;
-        }
-
-        if (pCmd === "dashboard" || pCmd === "panel" || pCmd === "control") {
-          const dashboardUrl = getAppBaseUrl();
-          const link = `${dashboardUrl}?guild_id=${message.guild.id}`;
-          
-          const embed = new EmbedBuilder()
-            .setTitle("🌐 ASHTRON Ultimate Web Control Panel & Dashboard")
-            .setDescription(
-              "Welcome to the **ASHTRON Enterprise Zero Trust Web Portal**.\n\n" +
-              "• 🛡️ **Zero Trust Security:** Configure 6 Defense Layers, Anti-Nuke & Admin Freeze\n" +
-               "• 📊 **Live Logs & Audits:** Monitor real-time HTTP polling events & threat streams\n" +
-              "• 🤖 **AI Neural Core:** Custom prompts, Gemini 2.5 Flash setup & bot status\n" +
-              `👉 **Click the button below or URL to open the Web Dashboard:**\n\`${link}\``
-            )
-            .setColor(0x3B82F6)
-            .setThumbnail(clientInstance?.user?.displayAvatarURL() || null)
-            .setFooter({ text: "ASHTRON Zero Trust Security Suite • Live Web Control", iconURL: clientInstance?.user?.displayAvatarURL() });
-
-          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-              .setLabel("🚀 Open Live Web Dashboard")
-              .setStyle(ButtonStyle.Link)
-              .setURL(link)
-          );
-
-          await message.reply({ embeds: [embed], components: [row] }).catch(() => {});
-          return;
-        }
-
-        if (pCmd === "help" || pCmd === "commands") {
-          await message.reply(
-            `🤖 **ASHTRON ZERO TRUST BOT COMMANDS** (Works with both \`!\` and \`/\`)\n\n` +
-            `• \`!deploy-defense\` / \`/deploy-defense\` - Deploy all 6 Zero Trust Anti-Nuke Layers\n` +
-            `• \`!recover\` / \`/recover\` - 1-Click Server Restoration from backup\n` +
-             `• \`!panic-lockdown\` / \`/panic-lockdown\` - Server-wide channel lockdown\n` +
-             `• \`!analyze\` / \`/analyze\` - AI Security & Server Health Report\n` +
-             `• \`!dashboard\` / \`/dashboard\` - Web Control Panel link\n` +
-             `• \`!setup-honeypot\` / \`/setup-honeypot\` - Generate decoy Honeypot Trap link (Auto-bans IP & Discord)\n` +
-             `• \`!setup-invite-tracker\` - Deploy real-time invite tracker\n` +
-             `• \`!invites\` / \`/invites\` - Check invite statistics\n` +
-             `• \`!all\` / \`/all\` - View all bot features and capabilities\n` +
-             `• \`!sync\` - Force re-sync Slash Commands (\`/\`) directly to this server`
-          ).catch(() => {});
-          return;
-        }
-
-        if (pCmd === "all" || pCmd === "features" || pCmd === "all-features") {
-          const features = [
-            "🛡️ **Zero Trust Anti-Nuke Engine** - Real-time audit log interception",
-            "🔒 **Owner-Only Zero Trust Hierarchy** - Admin bypass protection",
-            "💊 **Self-Healing Auto-Recovery** - Auto-recreate deleted channels/roles",
-            "🚨 **Anti-Raid & Mass-Join Shield** - Join spike detection & lockdown",
-            "🎣 **Webhook & Integration Guard** - Unauthorized webhook deletion",
-            "🔴 **Panic Lockdown** - Emergency server-wide lockdown",
-            "🚫 **Zero-Trust IP-Ban System** - Persistent IP/user banlist",
-            "📩 **Real-Time Invite Tracker** - Track invite usage & fake accounts",
-            "🔗 **Anti-Invite Link Shield** - Block unauthorized Discord invites",
-            "🔍 **OAuth Malicious App Detector** - Remove malicious integrations",
-            "🔄 **Bot Token Rotation** - Auto-rotate on compromise",
-            "🎯 **Canary Token Alerts** - Decoy token monitoring",
-            "🍯 **Honeypot Admin Role Trap** - Trap & ban malicious users",
-            "🖥️ **Session Hijack Detector** - Suspicious session detection",
-            "💬 **Sentiment Tracker** - Raid coordination detection",
-            "📊 **Behavior Scoring Engine** - Coordinated attack detection",
-            "⏱️ **Join Limit Shield** - Per-guild velocity monitoring",
-            "🔑 **Auto Permission Rollback** - Revert dangerous permission changes",
-            "📸 **1-Click Server Snapshot & Restore** - Full server backup/restore",
-            "💾 **Auto Backup Engine** - Scheduled role/channel backups",
-            "🔗 **Anti-Vanity URL Hijack** - Detect unauthorized vanity changes",
-            "😀 **Emoji/Sticker Delete Protection** - Revert unauthorized deletions",
-            "💬 **Forum Channel Protection** - Monitor forum settings",
-            "🤖 **AI Raid Prediction Engine** - Statistical raid prediction",
-            "📑 **AI Security Report** - AI-powered security reports",
-            "🧠 **AI Command Assistant** - Natural language processing",
-            "🛡️ **GDPR Privacy Engine** - Data export & deletion compliance",
-            "⚡ **C++ Native Security Engine** - N-API accelerated scanning"
-          ];
-
-          const featureList = features.map((f, i) => 
-            `**${i + 1}.** ${f}`
-          ).join("\n");
-
-          await message.reply(
-            `📋 **ALL BOT FEATURES & CAPABILITIES**\n\n` +
-            featureList +
-            `\n\n**Total Active Features:** ${features.length}\n**Security Level:** MAXIMUM`
-          ).catch(() => {});
-          return;
-        }
-
-        if (pCmd === "setup-honeypot" || pCmd === "honeypot-link" || pCmd === "trap-link" || pCmd === "honeypot") {
-          if (message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild)) {
-            await message.reply("❌ **Access Denied!** Requires Whitelisted Admin or Owner clearance.").catch(() => {});
-            return;
-          }
-          const appHost = getAppBaseUrl();
-          const trapLink = `${appHost}/api/honeypot-trap?guildId=${message.guild.id}&userId=${message.author.id}&trap=admin-passwords`;
-
-          await message.reply({
-            embeds: [{
-              title: "🍯 ASHTRON HONEYPOT CANARY TRAP LINK GENERATED!",
-              description: 
-                `Anyone in your server can see or copy this link safely, but **IF ANYONE CLICKS/ENTERS IT, THEIR IP & DISCORD ACCOUNT ARE INSTANTLY AUTO-BANNED!**\n\n` +
-                `🔗 **Decoy Trap URL:**\n\`${trapLink}\`\n\n` +
-                `📋 **How to Use:**\n` +
-                `1. Copy this link and place it in channel topics, \`#admin-secret-leaks\`, or suspicious DM conversations as bait.\n` +
-                `2. Anyone can copy the link text without triggering anything.\n` +
-                `3. As soon as a rogue admin, nuker, or intruder **clicks or opens** the link in a browser:\n` +
-                 `   - 🛑 Their **IP Address is blocked** in Zero Trust IP Shield.\n` +
-                `   - 🔨 Their **Discord Account is auto-banned** from the server.\n` +
-                `   - 🚨 A red alert with attacker IP details is sent to \`#security-logs\`!`,
-              color: 0xF59E0B
-            }]
-          }).catch(() => {});
-          return;
-        }
-
-        if (pCmd === "sync" || pCmd === "resync" || pCmd === "register") {
-          if (message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild)) {
-            await message.reply("❌ **Access Denied!** Requires Whitelisted Admin or Server Owner clearance.").catch(() => {});
-            return;
-          }
-          try {
-            // 1. Clear per-guild duplicate commands
-            await message.guild.commands.set([]);
-
-            // 2. Refresh global REST commands
-            const botToken = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || TokenVault.retrieveSync("DISCORD_TOKEN"))?.trim();
-            if (client.user?.id && botToken) {
-              const rest = new REST({ version: "10" }).setToken(botToken);
-              await rest.put(Routes.applicationCommands(client.user.id), { body: globalSlashCommands });
-            }
-
-            await message.reply(
-              `⚡ **ASHTRON Duplicate Commands Cleaned & Synced Successfully!**\n\n` +
-              `• **Fix Applied:** Cleared per-guild duplicate entries and refreshed Global Slash Commands.\n` +
-              `• **Status:** \`${globalSlashCommands.length}\` Global Slash Commands active.\n\n` +
-              `📱 **To see single clean commands in your Discord UI:**\n` +
-              `1. Force close / Swipe away the Discord app on your phone and reopen it to refresh Discord's UI cache.\n` +
-              `2. All commands will now appear **ONCE** (no duplicates)!`
-            ).catch(() => {});
-          } catch (syncErr: any) {
-            await message.reply(`❌ **Sync Error:** ${syncErr.message}`).catch(() => {});
-          }
-          return;
-        }
-
-        if (pCmd === "recover") {
-          if (message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild)) {
-            await message.reply("❌ **Access Denied!** Requires Whitelisted Admin or Owner clearance.").catch(() => {});
-            return;
-          }
-          const backups = serverBackups.get(message.guild.id) || [];
-          if (backups.length === 0) {
-            await message.reply("❌ No backups found for this server yet.").catch(() => {});
-            return;
-          }
-          const latest = backups[backups.length - 1];
-          let rolesRestoredCount = 0;
-          let channelsRestoredCount = 0;
-
-          try {
-            for (const r of latest.roles) {
-              if (!message.guild.roles.cache.find(gr => gr.name === r.name)) {
-                await message.guild.roles.create({ name: r.name, color: r.color, permissions: BigInt(r.permissions.bitfield), reason: "1-Click Recovery" }).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
-                rolesRestoredCount++;
-              }
-            }
-             const categories = latest.channels.filter((c: any) => c.type === ChannelType.GuildCategory);
-             const otherChannels = latest.channels.filter((c: any) => c.type !== ChannelType.GuildCategory);
-             const createdCategories = new Map<string, string>();
-             for (const cat of categories) {
-               let existingCat = message.guild.channels.cache.find(gc => gc.name.toLowerCase() === cat.name.toLowerCase() && gc.type === ChannelType.GuildCategory);
-              if (!existingCat) {
-                const newCat = await message.guild.channels.create({ name: cat.name, type: ChannelType.GuildCategory, reason: "1-Click Recovery" }).catch(() => null);
-                if (newCat) createdCategories.set(cat.id, newCat.id);
-              } else {
-                createdCategories.set(cat.id, existingCat.id);
-              }
-            }
-            for (const c of otherChannels) {
-              const exists = message.guild.channels.cache.find(gc => gc.name.toLowerCase() === c.name.toLowerCase() && gc.type === c.type);
-              if (!exists) {
-                const mappedParentId = c.parentId ? createdCategories.get(c.parentId) : null;
-                await message.guild.channels.create({ name: c.name, type: c.type, parent: mappedParentId || undefined, reason: "1-Click Recovery" }).catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
-                channelsRestoredCount++;
-              }
-            }
-            setPanicLockdown(false);
-            await message.reply(
-              `🔄 **1-CLICK SERVER RECOVERY SUCCESSFUL!**\n\n` +
-              `• **Roles Restored:** \`${rolesRestoredCount}\` Roles\n` +
-              `• **Channels Restored:** \`${channelsRestoredCount}\` Channels\n` +
-               `• **Status:** 🟢 Secured & Online`
-            ).catch(() => {});
-          } catch (err: any) {
-            await message.reply(`❌ **Recovery Error:** ${err.message}`).catch(() => {});
-          }
-          return;
-        }
-
-        if (pCmd === "panic-lockdown" || pCmd === "lockdown") {
-          if (message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild)) {
-            await message.reply("❌ **Access Denied!** Requires Whitelisted Admin or Owner clearance.").catch(() => {});
-            return;
-          }
-          setPanicLockdown(!panicLockdownActive);
-          const channels = message.guild.channels.cache;
-          for (const [id, ch] of channels) {
-            if (ch && 'permissionOverwrites' in ch) {
-              await ch.permissionOverwrites.edit(message.guild.roles.everyone, {
-                SendMessages: !panicLockdownActive,
-                Connect: !panicLockdownActive
-              }).catch(() => {});
-            }
-          }
-          await message.reply(
-            panicLockdownActive 
-              ? `🚨 **EMERGENCY PANIC LOCKDOWN ACTIVATED!**\nAll channels locked. Sending permissions revoked server-wide.`
-              : `🟢 **Emergency Panic Lockdown Deactivated.** Channel permissions restored to normal.`
-          ).catch(() => {});
-          return;
-        }
-
-        if (pCmd === "setup-invite-tracker") {
-          if (message.author.id !== message.guild.ownerId && !isOwnerOrWhitelisted(message.author.id, message.guild)) {
-            await message.reply("❌ **Access Denied!** Requires Whitelisted Admin or Owner clearance.").catch(() => {});
-            return;
-          }
-          let logChannel = message.guild.channels.cache.find(c => 
-            c.type === ChannelType.GuildText && 
-            (c.name === "invite-logs" || c.name === "invites" || c.name === "invite-tracker")
-          ) as TextChannel | undefined;
-
-          if (!logChannel) {
-            logChannel = await message.guild.channels.create({
-              name: "invite-logs",
-              type: ChannelType.GuildText,
-              topic: "📩 Real-Time Invite Tracker & Member Join/Leave Feed",
-              reason: "Auto-Setup Invite Tracker System",
-              permissionOverwrites: [
-                {
-                  id: message.guild.roles.everyone.id,
-                  allow: [PermissionFlagsBits.ViewChannel],
-                  deny: [PermissionFlagsBits.SendMessages]
-                }
-              ]
-            }).catch(() => undefined) as TextChannel | undefined;
-          }
-
-          if (logChannel) {
-            inviteLogChannels.set(message.guild.id, logChannel.id);
-          }
-
-          const invites = await message.guild.invites.fetch().catch(() => null);
-          const codeUses = new Map<string, number>();
-          if (invites) {
-            invites.forEach(inv => codeUses.set(inv.code, inv.uses || 0));
-          }
-          globalInvitesCache.set(message.guild.id, codeUses);
-
-          if (logChannel) {
-            const setupEmbed = new EmbedBuilder()
-              .setTitle("📩 REAL-TIME INVITE TRACKER ENGINE ONLINE")
-              .setColor(0x3B82F6)
-              .setDescription(
-                "🎉 **Invite Tracker Setup Complete!**\n\n" +
-                "All member joins and leaves are now tracked live in this channel.\n\n" +
-                "📌 **System Features:**\n" +
-                "• **Live Feed:** Instant join & leave logging with inviter details\n" +
-                "• **Fake Protection:** Accounts under 3 days old flagged automatically\n" +
-                "• **Leave Tracking:** -1 deduction when invited members leave\n" +
-                "• **Bonus System:** Admins can grant bonus invites\n\n" +
-                "🛠️ **Available Commands:**\n" +
-                "• `/invites [user]` — Check total invites & statistics\n" +
-                "• `/invite-leaderboard` — View top server inviters\n" +
-                "• `/add-bonus-invites` — Award bonus invites to a user\n" +
-                "• `/reset-invites` — Reset invite count for user/server"
-              )
-              .setFooter({ text: "ASHTRON Zero-Trust Invite Engine" })
-              .setTimestamp();
-
-            await logChannel.send({ embeds: [setupEmbed] }).catch(() => {});
-          }
-
-          await message.reply(
-            "✅ **INVITE TRACKER AUTO-SETUP COMPLETE!**\n\n" +
-            "• **Tracker Channel:** " + (logChannel ? "<#" + logChannel.id + ">" : "`#invite-logs`") + "\n" +
-            "• **Cached Invites:** `" + codeUses.size + "` active invite links indexed\n" +
-            "• **Real-Time Logging:** Enabled & Live in " + (logChannel ? "<#" + logChannel.id + ">" : "`#invite-logs`")
-          ).catch(() => {});
-          return;
-        }
-
-
-        if (pCmd === "invites") {
-          const targetUser = message.mentions.users.first() || message.author;
-          const data = InviteTrackerEngine.getUserStatsSync(message.guild!.id, targetUser.id)!;
-          const total = Math.max(0, (data.regular + data.bonus) - data.leaves - data.fake);
-
-          const embed = new EmbedBuilder()
-            .setTitle("✉️ INVITE TRACKER STATS: " + targetUser.username)
-            .setThumbnail(targetUser.displayAvatarURL())
-            .setColor(0x3B82F6)
-            .setDescription("📊 **Total Invites:** `" + total + "`\n\n" +
-                         "• **Regular:** `" + data.regular + "`\n" +
-                         "• **Leaves:** `" + data.leaves + "`\n" +
-                         "• **Fake (Accounts <3d):** `" + data.fake + "`\n" +
-                         "• **Bonus:** `" + data.bonus + "`\n\n" +
-                         "*Tracked in real-time by ASHTRON Zero-Trust Engine.*")
-            .setTimestamp();
-
-          await message.reply({ embeds: [embed] }).catch(() => {});
-          return;
-        }
-
-        if (pCmd === "invite-leaderboard") {
-          const leaderboard = InviteTrackerEngine.getLeaderboardSync(message.guild.id, 10);
-          let desc = "🏆 **TOP 10 SERVER INVITERS**\n\n";
-          if (leaderboard.length === 0) {
-            desc += "*No invite records found yet in this server.*";
-          } else {
-            leaderboard.forEach((item, index) => {
-              const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "#" + (index + 1);
-              desc += medal + " <@" + item.userId + "> — **" + item.total + " Invites** (" + item.regular + " reg, " + item.bonus + " bonus, -" + item.leaves + " leaves, -" + item.fake + " fake)\n";
-            });
-          }
-
-          const embed = new EmbedBuilder()
-            .setTitle("🏆 INVITE LEADERBOARD - " + message.guild.name)
-            .setColor(0xF59E0B)
-            .setDescription(desc)
-            .setTimestamp();
-
-          await message.reply({ embeds: [embed] }).catch(() => {});
-          return;
-        }
-      }
 
       handleRaidDetection(message.guild);
 
@@ -2650,13 +2326,13 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       
       // -- SPAM CHECK --
       const spamRecords = userSpamTracker.get(member.id) || [];
-      const recentSpam = spamRecords.filter(time => now - time < 6000);
+      const recentSpam = spamRecords.filter(time => now - time < SECURITY_THRESHOLDS.SPAM_WINDOW_MS);
       recentSpam.push(now);
       userSpamTracker.set(member.id, recentSpam);
 
-      if (recentSpam.length >= 4) {
+      if (recentSpam.length >= SECURITY_THRESHOLDS.SPAM_MAX_MESSAGES) {
         try {
-          await member.timeout(60 * 60 * 1000, "Anti-Spam System: 4+ messages in 6 seconds"); // 1 hour timeout
+          await member.timeout(SECURITY_THRESHOLDS.SPAM_TIMEOUT_MS, "Anti-Spam System: 4+ messages in 6 seconds");
           await sendLiveAuditAlert(message.guild, {
              title: "🚨 SPAM DETECTED & USER TIMED OUT",
              description: `**User:** ${message.author.tag} (<@${member.id}>)\n**Reason:** Spamming (4+ messages in 6s)\n**Duration:** 1 Hour\n**Channel:** <#${message.channel.id}>`,
@@ -2706,7 +2382,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         const now = Date.now();
         const record = userViolations.get(member.id);
         let count = 1;
-        if (record && now - record.timestamp < 10 * 60 * 1000) {
+        if (record && now - record.timestamp < SECURITY_THRESHOLDS.VIOLATION_WINDOW_MS) {
           record.count++;
           record.timestamp = now;
           count = record.count;
@@ -2725,10 +2401,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           color: 0xEF4444
         });
 
-        if (count >= 3) {
+        if (count >= SECURITY_THRESHOLDS.VIOLATION_MAX_COUNT) {
           // Timeout the user for 1 hour
           try {
-             await member.timeout(60 * 60 * 1000, "Anti-Link/NSFW System: Exceeded violation limit.");
+             await member.timeout(SECURITY_THRESHOLDS.VIOLATION_TIMEOUT_MS, "Anti-Link/NSFW System: Exceeded violation limit.");
              await sendLiveAuditAlert(message.guild, {
                 title: "🔨 USER TIMED OUT",
                 description: `**User:** ${message.author.tag} (<@${member.id}>)\n**Reason:** Repeated ${isNSFW ? "NSFW/Scam" : "Link"} Violations (3+ in 10 mins)\n**Duration:** 1 Hour`,
@@ -2741,8 +2417,6 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         }
       }
     });
-
-    client.on("messageUpdate", async (oldMessage, newMessage) => {
       if (newMessage.partial) {
         try {
           await newMessage.fetch();
@@ -4881,52 +4555,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         addBotLog(`Error handling guildBanAdd event: ${err.message}`, "error");
       }
     });
-
-    // 16. Anti-Invite Link Monitor (Shield)
-    client.on("messageCreate", async (message) => {
-      if (!message.guild || message.author.bot) return;
-      const ctx = getOrCreateGuildContext(message.guild);
-      if (!ctx.antiInviteShield.isEnabled()) return;
-
-      // Exempt Owner and Whitelist
-      if (message.author.id === message.guild.ownerId || isOwnerOrWhitelisted(message.author.id, message.guild, false)) {
-        return;
-      }
-
-      const isLink = ctx.antiInviteShield.containsInvite(message.content) || 
-                     /(https?:\/\/[^\s]+|discord\.gg\/[a-zA-Z0-9]+|discord\.com\/invite\/[a-zA-Z0-9]+|t\.me\/[a-zA-Z0-9_]+)/i.test(message.content);
-
-      if (isLink) {
-        try {
-          const violatorId = message.author.id;
-          const violatorTag = message.author.tag;
-          
-          addBotLog(`🚨 [LINK & SPAM SHIELD] User ${violatorTag} (${violatorId}) sent an unauthorized link/invite. Executing 1-hour TIMEOUT.`, "warning");
-          
-          // Delete violation message
-          await message.delete().catch(() => {});
-
-          // Execute 1-Hour Timeout ONLY (No Ban!)
-          if (message.member && message.member.moderatable) {
-            await message.member.timeout(60 * 60 * 1000, "Zero Trust Shield: Unauthorized link detected (Timeout policy enforced)").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
-          }
-
-          // Audit Alert
-          await sendLiveAuditAlert(message.guild, {
-            title: "🤐 LINK & SPAM PROTECTION: TIMEOUT APPLIED (1 HOUR)",
-            description: `🚨 **User placed on 1-Hour Timeout for sending a link!**\n\n` +
-                         `• **User:** <@${violatorId}> (${violatorTag})\n` +
-                         `• **User ID:** \`${violatorId}\`\n` +
-                         `• **Action Taken:** Message deleted and user placed on **1-Hour Timeout** (Muted).\n\n` +
-                         `*Note: As per system configuration, link & spam violations result ONLY in a timeout.*`,
-            color: 0xF59E0B
-          });
-        } catch (err: any) {
-          console.error("Error executing Anti-Link timeout:", err.message);
-        }
-      }
-    });
-
+    
     // 17. Final Verification
     client.on("guildMemberAdd", async (member) => {
       const guild = member.guild;
@@ -5186,17 +4815,6 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       if (!guild) return;
       const ctx = getOrCreateGuildContext(guild);
       globalInvitesCache.get(guild.id)?.delete(invite.code);
-    });
-
-    // 🔒 STRICT ANTI-DM PROTECTION: Ignore & Block direct message commands
-    client.on("messageCreate", async (message) => {
-      if (message.author.bot) return;
-      if (!message.guild || message.channel.type === ChannelType.DM) {
-        try {
-          await message.reply("⛔ **Direct Messages Disabled**: For Zero Trust Anti-Nuke Security reasons, DM commands and interactions are disabled for this bot. Please use commands directly inside your Discord server.").catch(() => {});
-        } catch (e) {}
-        return;
-      }
     });
 
     client.on("error", (err) => {
