@@ -25,6 +25,11 @@ export class MongoRedisEngine {
   private redisClient: any = null;
   private redisAvailable = false;
   private redisInitPromise: Promise<void> | null = null;
+  private connectionFailures = 0;
+  private circuitBreakerOpen = false;
+  private circuitBreakerThreshold = 5;
+  private circuitBreakerResetMs = 30000;
+  private lastCircuitOpenTime = 0;
 
   private constructor() {
     this.realCacheMap = new TtlMap<string, { val: any; exp?: number }>({
@@ -67,6 +72,19 @@ export class MongoRedisEngine {
     if (this.redisInitPromise) return this.redisInitPromise;
     if (this.redisClient) return Promise.resolve();
 
+    // Circuit breaker check
+    if (this.circuitBreakerOpen) {
+      const timeSinceOpen = Date.now() - this.lastCircuitOpenTime;
+      if (timeSinceOpen > this.circuitBreakerResetMs) {
+        console.log("[REDIS] Circuit breaker reset attempt");
+        this.circuitBreakerOpen = false;
+        this.connectionFailures = 0;
+      } else {
+        console.log("[REDIS] Circuit breaker open, skipping connection attempt");
+        return;
+      }
+    }
+
     this.redisInitPromise = (async () => {
       try {
         await this.retryWithBackoff(async () => {
@@ -93,6 +111,13 @@ export class MongoRedisEngine {
           this.redisClient.on("connect", () => {
             console.log("[REDIS] Connected to external Redis server.");
             this.redisAvailable = true;
+            this.connectionFailures = 0;
+            this.circuitBreakerOpen = false;
+          });
+          this.redisClient.on("disconnect", () => {
+            console.warn("[REDIS] Disconnected from Redis");
+            this.redisAvailable = false;
+            this.recordFailure();
           });
 
           await this.redisClient.connect();
@@ -100,10 +125,20 @@ export class MongoRedisEngine {
       } catch (err: any) {
         console.warn("[REDIS] Init failed after retries:", err.message);
         this.redisClient = null;
+        this.recordFailure();
       }
     })();
 
     return this.redisInitPromise;
+  }
+
+  private recordFailure(): void {
+    this.connectionFailures++;
+    if (this.connectionFailures >= this.circuitBreakerThreshold) {
+      this.circuitBreakerOpen = true;
+      this.lastCircuitOpenTime = Date.now();
+      console.error(`[REDIS] Circuit breaker OPENED after ${this.connectionFailures} failures`);
+    }
   }
 
   get isRedisConnected(): boolean {
@@ -115,6 +150,11 @@ export class MongoRedisEngine {
   }
 
   async set(key: string, val: any, ttlSec?: number): Promise<void> {
+    if (this.circuitBreakerOpen) {
+      this.realCacheMap.set(key, { val });
+      return;
+    }
+
     if (this.redisAvailable && this.redisClient) {
       try {
         await this.retryWithBackoff(async () => {
@@ -127,12 +167,19 @@ export class MongoRedisEngine {
         return;
       } catch {
         this.redisAvailable = false;
+        this.recordFailure();
       }
     }
     this.realCacheMap.set(key, { val });
   }
 
   async get(key: string): Promise<any> {
+    if (this.circuitBreakerOpen) {
+      const entry = this.realCacheMap.get(key);
+      if (!entry) return null;
+      return entry.val;
+    }
+
     if (this.redisAvailable && this.redisClient) {
       try {
         const raw = await this.retryWithBackoff(async () => {
@@ -141,6 +188,7 @@ export class MongoRedisEngine {
         if (raw) return JSON.parse(raw);
       } catch {
         this.redisAvailable = false;
+        this.recordFailure();
       }
     }
     const entry = this.realCacheMap.get(key);
@@ -149,6 +197,11 @@ export class MongoRedisEngine {
   }
 
   async del(key: string): Promise<void> {
+    if (this.circuitBreakerOpen) {
+      this.realCacheMap.delete(key);
+      return;
+    }
+
     if (this.redisAvailable && this.redisClient) {
       try {
         await this.retryWithBackoff(async () => {
@@ -157,6 +210,7 @@ export class MongoRedisEngine {
         return;
       } catch {
         this.redisAvailable = false;
+        this.recordFailure();
       }
     }
     this.realCacheMap.delete(key);

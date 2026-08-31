@@ -896,7 +896,8 @@ async function gracefulShutdown(signal: string) {
   }
 
   try {
-    const redisClient = MongoRedisEngine.getClient();
+    const mongoRedis = (await import("./src/security/modules/mongo-redis-engine.js")).MongoRedisEngine;
+    const redisClient = mongoRedis.getClient?.();
     if (redisClient?.disconnect) {
       await redisClient.disconnect();
       console.log("Redis connection closed.");
@@ -934,7 +935,7 @@ async function gracefulShutdown(signal: string) {
   }
 
   try {
-    const { SecurityPipeline } = require('./src/security/Pipeline.js');
+    const { SecurityPipeline } = await import('./src/security/Pipeline.js');
     SecurityPipeline.reset();
     console.log("Security pipeline state cleared.");
   } catch {

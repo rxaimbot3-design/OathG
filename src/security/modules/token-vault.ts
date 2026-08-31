@@ -395,32 +395,6 @@ export class TokenVault {
     return this.getInstance().getStats();
   }
 
-  // Synchronous static methods for backward compatibility
-  static retrieveSync(keyName: string = "DISCORD_TOKEN", requesterId?: string, guildOwnerId?: string): string {
-    const instance = this.getInstance();
-    if (instance.isCompromised) {
-      throw new Error("[TOKEN VAULT DENIED] Access denied: Attempted access after compromise lockdown.");
-    }
-    if (requesterId && !OwnerLock.getInstance().isOwner(requesterId, guildOwnerId)) {
-      throw new Error(`[TOKEN VAULT DENIED] Access denied: Unauthorized token access attempt by ${requesterId}`);
-    }
-
-    const tokenData = instance.encryptedTokens.get(keyName);
-    if (!tokenData) {
-      throw new Error(`Token Vault entry '${keyName}' is empty!`);
-    }
-
-    // Synchronous decryption (simplified - uses current key version)
-    const key = crypto.pbkdf2Sync(instance.masterSecret, instance.getSaltSync(), 100000, 32, "sha256");
-    const ivBuffer = Buffer.from(tokenData.iv, "hex");
-    const authTagBuffer = Buffer.from(tokenData.authTag, "hex");
-    const decipher = crypto.createDecipheriv("aes-256-gcm", key, ivBuffer);
-    decipher.setAuthTag(authTagBuffer);
-    let decrypted = decipher.update(tokenData.encrypted, "hex", "utf8");
-    decrypted += decipher.final("utf8");
-    return decrypted;
-  }
-
   private cleanup(): void {
     this.encryptedTokens.clear();
   }
