@@ -1415,9 +1415,14 @@ export async function startDiscordBot() {
 
   const token = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN)?.trim();
   console.log("[BOT-STARTUP] Token present:", !!token, "length:", token?.length);
-  if (token) TokenVault.store(token, "DISCORD_TOKEN");
+  if (token) {
+    // Store in vault for persistence across restarts (async, don't await - fire and forget)
+    TokenVault.store(token, "DISCORD_TOKEN").catch((e: any) => console.warn("[BOT-STARTUP] Failed to store token in vault:", e.message));
+  }
   const geminiKey = process.env.GEMINI_API_KEY;
-  if (geminiKey) TokenVault.store(geminiKey, "GEMINI_API_KEY");
+  if (geminiKey) {
+    TokenVault.store(geminiKey, "GEMINI_API_KEY").catch((e: any) => console.warn("[BOT-STARTUP] Failed to store Gemini key in vault:", e.message));
+  }
 
   EnvScanner.scan();
   CanaryToken.setup();
@@ -2094,7 +2099,7 @@ client.on("clientReady", async () => {
         await client.application?.commands.set(commands).catch(e => addBotLog(`Global command sync note: ${e.message}`, "warning"));
 
         // 2. Direct REST deployment if application client ID exists
-        const botToken = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || TokenVault.retrieveSync("DISCORD_TOKEN"))?.trim();
+        const botToken = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN)?.trim();
         if (client.user?.id && botToken) {
           try {
             const rest = new REST({ version: "10" }).setToken(botToken);
@@ -2428,7 +2433,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
             await message.guild.commands.set([]);
 
             // 2. Refresh global REST commands
-            const botToken = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN || TokenVault.retrieveSync("DISCORD_TOKEN"))?.trim();
+            const botToken = (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN)?.trim();
             if (client.user?.id && botToken) {
               const rest = new REST({ version: "10" }).setToken(botToken);
               await rest.put(Routes.applicationCommands(client.user.id), { body: globalSlashCommands });
@@ -5219,7 +5224,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       botStatus = "offline";
     });
 
-    const tokenToLogin = (TokenVault.retrieveSync() || process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN)?.trim();
+    const tokenToLogin = token?.trim() || (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN)?.trim();
     console.log("[BOT-STARTUP] Token to login present:", !!tokenToLogin, "length:", tokenToLogin?.length);
     if (tokenToLogin && CanaryToken.check(tokenToLogin)) {
       addBotLog("🚨 [CANARY TRAP TRIGGERED] CRITICAL SECURITY BREACH! Decoy Canary Token was used to log in. Immediate Zero Trust memory wipe self-destruct activated.", "error");
