@@ -146,8 +146,11 @@ class LogManager {
 
   // Flush logs (useful for graceful shutdown)
   async flush(): Promise<void> {
-    return new Promise((resolve) => {
-      this.logger.flush(resolve);
+    return new Promise((resolve, reject) => {
+      this.logger.flush((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
     });
   }
 }

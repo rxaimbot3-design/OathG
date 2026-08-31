@@ -7,14 +7,12 @@ import { OwnerLock } from "../../src/security/modules/owner-lock.js";
 
 describe("TokenVault", () => {
   const testVaultDir = "/tmp/tokenvault-test";
-  const testVaultFile = path.join(testVaultDir, "vault_tokens.json");
   const testSaltFile = path.join(testVaultDir, "vault_salt.txt");
 
   let vault: TokenVault;
 
   beforeEach(async () => {
     // Clean up any existing test files
-    if (fs.existsSync(testVaultFile)) fs.unlinkSync(testVaultFile);
     if (fs.existsSync(testSaltFile)) fs.unlinkSync(testSaltFile);
     if (fs.existsSync(testVaultDir)) fs.rmSync(testVaultDir, { recursive: true, force: true });
     
@@ -31,8 +29,6 @@ describe("TokenVault", () => {
     
     // Create and initialize vault
     vault = TokenVault.getInstance({
-      vaultFile: testVaultFile,
-      saltFile: testSaltFile,
       masterSecret: "test-master-secret",
     });
     await vault.initialize();
@@ -44,7 +40,6 @@ describe("TokenVault", () => {
     delete process.env.ALLOWED_OWNERS;
     
     // Clean up test files
-    if (fs.existsSync(testVaultFile)) fs.unlinkSync(testVaultFile);
     if (fs.existsSync(testSaltFile)) fs.unlinkSync(testSaltFile);
     if (fs.existsSync(testVaultDir)) fs.rmSync(testVaultDir, { recursive: true, force: true });
   });
@@ -88,8 +83,6 @@ describe("TokenVault", () => {
     // Create new instance with same config
     TokenVault.resetInstance();
     const vault2 = TokenVault.getInstance({
-      vaultFile: testVaultFile,
-      saltFile: testSaltFile,
       masterSecret: "test-master-secret",
     });
     await vault2.initialize();

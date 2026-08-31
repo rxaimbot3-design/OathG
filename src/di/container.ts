@@ -122,20 +122,14 @@ export class DIContainer {
   }
 
   private bindCoreServices(): void {
-    // Redis Persistence - foundation for all state
+    // Redis Persistence - foundation for all state (singleton with private constructor)
     this.container.bind<RedisPersistence>(TYPES.RedisPersistence)
-      .to(RedisPersistence)
+      .toDynamicValue(() => RedisPersistence.getInstance())
       .inSingletonScope();
 
-    // TokenVault - depends on RedisPersistence and OwnerLock
+    // TokenVault - singleton, handles its own initialization
     this.container.bind<TokenVault>(TYPES.TokenVault)
-      .toDynamicValue(async (context: interfaces.Context) => {
-        const persistence = await context.container.getAsync<TYPES.RedisPersistence>(TYPES.RedisPersistence);
-        const ownerLock = await context.container.getAsync<OwnerLock>(TYPES.OwnerLock);
-        const vault = TokenVault.getInstance();
-        // The singleton already handles persistence internally
-        return vault;
-      })
+      .toDynamicValue(() => TokenVault.getInstance())
       .inSingletonScope();
 
     // OwnerLock - no dependencies
@@ -147,7 +141,7 @@ export class DIContainer {
   private bindSecurityModules(): void {
     // RateLimiter
     this.container.bind<RateLimiter>(TYPES.RateLimiter)
-      .toDynamicValue(async (context: interfaces.Context) => {
+      .toDynamicValue(async (context) => {
         const limiter = RateLimiter.getInstance();
         await limiter.initialize();
         return limiter;
@@ -156,7 +150,7 @@ export class DIContainer {
 
     // BehaviorScoring
     this.container.bind<BehaviorScoring>(TYPES.BehaviorScoring)
-      .toDynamicValue(async (context: interfaces.Context) => {
+      .toDynamicValue(async (context) => {
         const scoring = BehaviorScoring.getInstance();
         await scoring.initialize();
         return scoring;
@@ -165,7 +159,7 @@ export class DIContainer {
 
     // SentimentTracker
     this.container.bind<SentimentTracker>(TYPES.SentimentTracker)
-      .toDynamicValue(async (context: interfaces.Context) => {
+      .toDynamicValue(async (context) => {
         const tracker = SentimentTracker.getInstance();
         await tracker.initialize();
         return tracker;
@@ -194,7 +188,7 @@ export class DIContainer {
 
     // InviteTrackerEngine
     this.container.bind<InviteTrackerEngine>(TYPES.InviteTrackerEngine)
-      .toDynamicValue(async (context: interfaces.Context) => {
+      .toDynamicValue(async (context) => {
         const tracker = InviteTrackerEngine.getInstance();
         await tracker.initialize();
         return tracker;
@@ -390,7 +384,8 @@ export class DIContainer {
 
   // For testing - create child container with overrides
   createChildContainer(): Container {
-    return this.container.createChild();
+    const child = new Container({ defaultScope: "Singleton" });
+    return child;
   }
 
   // Rebind a service (useful for testing)

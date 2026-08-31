@@ -28,6 +28,7 @@ export interface TokenVaultConfig {
   argon2MemoryCost?: number;      // KiB (default: 65536 = 64MB)
   argon2TimeCost?: number;        // iterations (default: 3)
   argon2Parallelism?: number;     // threads (default: 4)
+  redisEnabled?: boolean;
 }
 
 export interface EncryptedTokenData {
@@ -67,6 +68,7 @@ export class TokenVault {
       argon2MemoryCost: config.argon2MemoryCost ?? 65536,
       argon2TimeCost: config.argon2TimeCost ?? 3,
       argon2Parallelism: config.argon2Parallelism ?? 4,
+      redisEnabled: config.redisEnabled ?? true,
     };
     this.persistence = RedisPersistence.getInstance();
   }
@@ -88,37 +90,42 @@ export class TokenVault {
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    await this.persistence.connect();
-    
-    // Load key version
-    const storedVersion = await this.persistence.get<number>(MASTER_KEY_VERSION);
-    if (storedVersion) {
-      this.keyVersion = storedVersion;
-    }
+    if (this.config.redisEnabled) {
+      await this.persistence.connect();
+      
+      // Load key version
+      const storedVersion = await this.persistence.get<number>(MASTER_KEY_VERSION);
+      if (storedVersion) {
+        this.keyVersion = storedVersion;
+      }
 
-    // Load last rotation time
-    const storedRotation = await this.persistence.get<number>("vault:last_rotation");
-    if (storedRotation) {
-      this.lastRotation = storedRotation;
-    }
+      // Load last rotation time
+      const storedRotation = await this.persistence.get<number>("vault:last_rotation");
+      if (storedRotation) {
+        this.lastRotation = storedRotation;
+      }
 
-    // Load salt from Redis
-    const storedSalt = await this.persistence.get<string>(SALT_KEY);
-    if (!storedSalt) {
-      // First run - generate and store salt
-      const newSalt = crypto.randomBytes(32).toString("hex");
-      await this.persistence.set(SALT_KEY, newSalt);
-      this.cachedSalt = newSalt;
+      // Load salt from Redis
+      const storedSalt = await this.persistence.get<string>(SALT_KEY);
+      if (!storedSalt) {
+        // First run - generate and store salt
+        const newSalt = crypto.randomBytes(32).toString("hex");
+        await this.persistence.set(SALT_KEY, newSalt);
+        this.cachedSalt = newSalt;
+      } else {
+        this.cachedSalt = storedSalt;
+      }
+
+      // Load tokens from Redis
+      await this.loadFromPersistence();
+
+      // Check if key rotation is needed
+      if (this.lastRotation && Date.now() - this.lastRotation > this.config.keyRotationIntervalMs) {
+        await this.rotateKey();
+      }
     } else {
-      this.cachedSalt = storedSalt;
-    }
-
-    // Load tokens from Redis
-    await this.loadFromPersistence();
-
-    // Check if key rotation is needed
-    if (this.lastRotation && Date.now() - this.lastRotation > this.config.keyRotationIntervalMs) {
-      await this.rotateKey();
+      // In test mode without Redis, generate a salt
+      this.cachedSalt = crypto.randomBytes(32).toString("hex");
     }
 
     this.initialized = true;
@@ -140,6 +147,9 @@ export class TokenVault {
   }
 
   private async getSalt(): Promise<string> {
+    if (!this.config.redisEnabled && this.cachedSalt) {
+      return this.cachedSalt;
+    }
     const salt = await this.persistence.get<string>(SALT_KEY);
     if (!salt) {
       throw new Error("Salt not found in persistence");

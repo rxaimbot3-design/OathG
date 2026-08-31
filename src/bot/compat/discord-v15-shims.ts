@@ -78,7 +78,7 @@ export function isDiscordV15(): boolean {
  */
 export function hasPermission(
   member: any,
-  permission: typeof PermissionFlagsBits
+  permission: bigint
 ): boolean {
   return member?.permissions?.has(permission) ?? false;
 }

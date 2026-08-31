@@ -4,148 +4,88 @@ import path from "path";
 import { ServerSnapshotRestore } from "../../src/security/modules/server-snapshot-restore.js";
 import { Guild, ChannelType, Role, TextChannel, CategoryChannel } from "discord.js";
 
-// Mock Discord.js classes
-const createMockGuild = (name: string = "Test Guild") => {
-  const everyoneRole = {
-    id: name, // guild id = @everyone role id
-    name: "@everyone",
-    permissions: { bitfield: 0n },
+// Mock types that satisfy Discord.js interfaces for testing
+interface MockGuild {
+  name: string;
+  id: string;
+  roles: {
+    cache: Map<string, any>;
+    fetch: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
+  };
+  channels: {
+    cache: Map<string, any>;
+    fetch: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
+    setPositions: ReturnType<typeof vi.fn>;
+  };
+  client: { user: { id: string } };
+}
+
+// Helper to create mock role
+const createMockRole = (id: string, name: string, isEveryone = false): any => {
+  const role = {
+    id,
+    name,
+    color: isEveryone ? 0 : 0x00ff00,
+    permissions: { 
+      bitfield: isEveryone ? 0n : 8n, 
+      has: vi.fn().mockReturnValue(false), 
+      remove: vi.fn().mockReturnValue(8n) 
+    },
+    hoist: !isEveryone,
+    mentionable: !isEveryone,
+    position: isEveryone ? 0 : 5,
+    edit: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn().mockResolvedValue(undefined),
   };
+  return role;
+};
 
-  const roleMap = new Map([
-    ["role1", {
-      id: "role1",
-      name: "Admin",
-      color: 0xff0000,
-      permissions: { bitfield: 8n, has: vi.fn().mockReturnValue(false), remove: vi.fn().mockReturnValue(8n) },
-      hoist: true,
-      mentionable: false,
-      position: 5,
-      edit: vi.fn().mockResolvedValue(undefined),
-      delete: vi.fn().mockResolvedValue(undefined),
-    }],
-    ["role2", {
-      id: "role2",
-      name: "Member",
-      color: 0x00ff00,
-      permissions: { bitfield: 0n, has: vi.fn().mockReturnValue(false), remove: vi.fn().mockReturnValue(0n) },
-      hoist: false,
-      mentionable: true,
-      position: 1,
-      edit: vi.fn().mockResolvedValue(undefined),
-      delete: vi.fn().mockResolvedValue(undefined),
-    }],
+// Helper to create mock channel
+const createMockChannel = (
+  id: string, 
+  name: string, 
+  type: ChannelType, 
+  parentId: string | null = null
+): any => {
+  const channel = {
+    id,
+    name,
+    type,
+    parentId,
+    position: 0,
+    topic: type === ChannelType.GuildText ? "Test channel" : undefined,
+    nsfw: false,
+    rateLimitPerUser: 0,
+    permissionOverwrites: { 
+      cache: new Map() 
+    },
+    edit: vi.fn().mockResolvedValue(undefined),
+    delete: vi.fn().mockResolvedValue(undefined),
+  };
+  return channel;
+};
+
+// Mock Discord.js classes
+const createMockGuild = (name: string = "Test Guild"): Guild => {
+  const everyoneRole = createMockRole(name, "@everyone", true);
+
+  const roleMap = new Map<string, any>([
+    ["role1", createMockRole("role1", "Admin")],
+    ["role2", createMockRole("role2", "Member")],
     [name, everyoneRole],
   ]);
 
-  // Add .map() and .filter() methods to the role map for compatibility
-  roleMap.map = function<T>(callback: (value: any, key: string, map: Map<string, any>) => T): T[] {
-    const result: T[] = [];
-    this.forEach((value, key) => {
-      result.push(callback(value, key, this));
-    });
-    return result;
-  };
-  
-  roleMap.filter = function(callback: (value: any, key: string, map: Map<string, any>) => boolean): Map<string, any> & { map: <T>(callback: (value: any, key: string, map: Map<string, any>) => T) => T[] } {
-    const result = new Map<string, any>();
-    this.forEach((value, key) => {
-      if (callback(value, key, this)) {
-        result.set(key, value);
-      }
-    });
-    result.map = function<T>(callback: (value: any, key: string, map: Map<string, any>) => T): T[] {
-      const arr: T[] = [];
-      this.forEach((value, key) => {
-        arr.push(callback(value, key, this));
-      });
-      return arr;
-    };
-    return result;
-  };
-  
-  roleMap.values = function(): IterableIterator<any> {
-    return this[Symbol.iterator]();
-  };
-
-  const channelMap = new Map([
-    ["cat1", {
-      id: "cat1",
-      name: "Category",
-      type: ChannelType.GuildCategory,
-      parentId: null,
-      position: 0,
-      permissionOverwrites: { 
-        cache: { 
-          map: () => [],
-          forEach: () => {},
-          set: () => {},
-          get: () => undefined,
-          has: () => false,
-          delete: () => false,
-          clear: () => {},
-        } 
-      },
-      edit: vi.fn().mockResolvedValue(undefined),
-      delete: vi.fn().mockResolvedValue(undefined),
-    }],
-    ["channel1", {
-      id: "channel1",
-      name: "general",
-      type: ChannelType.GuildText,
-      parentId: "cat1",
-      position: 1,
-      topic: "General chat",
-      nsfw: false,
-      rateLimitPerUser: 0,
-      permissionOverwrites: { 
-        cache: { 
-          map: () => [],
-          forEach: () => {},
-          set: () => {},
-          get: () => undefined,
-          has: () => false,
-          delete: () => false,
-          clear: () => {},
-        } 
-      },
-      edit: vi.fn().mockResolvedValue(undefined),
-      delete: vi.fn().mockResolvedValue(undefined),
-    }],
-    ["channel2", {
-      id: "channel2",
-      name: "random",
-      type: ChannelType.GuildText,
-      parentId: "cat1",
-      position: 2,
-      topic: "Random stuff",
-      nsfw: false,
-      rateLimitPerUser: 5,
-      permissionOverwrites: { 
-        cache: { 
-          map: () => [],
-          forEach: () => {},
-          set: () => {},
-          get: () => undefined,
-          has: () => false,
-          delete: () => false,
-          clear: () => {},
-        } 
-      },
-      edit: vi.fn().mockResolvedValue(undefined),
-      delete: vi.fn().mockResolvedValue(undefined),
-    }],
+  const channelMap = new Map<string, any>([
+    ["cat1", createMockChannel("cat1", "Category", ChannelType.GuildCategory, null)],
+    ["channel1", createMockChannel("channel1", "general", ChannelType.GuildText, "cat1")],
+    ["channel2", createMockChannel("channel2", "random", ChannelType.GuildText, "cat1")],
   ]);
 
-  // Add .map() method to the channel map for compatibility
-  channelMap.map = function<T>(callback: (value: any, key: string, map: Map<string, any>) => T): T[] {
-    const result: T[] = [];
-    this.forEach((value, key) => {
-      result.push(callback(value, key, this));
-    });
-    return result;
-  };
+  // Set positions for text channels
+  channelMap.get("channel1")!.position = 1;
+  channelMap.get("channel2")!.position = 2;
 
   return {
     name,
@@ -153,31 +93,24 @@ const createMockGuild = (name: string = "Test Guild") => {
     roles: {
       cache: roleMap,
       fetch: vi.fn().mockResolvedValue(roleMap),
-      create: vi.fn().mockImplementation((data: any) => {
-        const newRole = {
-          id: `new-role-${Date.now()}`,
-          ...data,
-          permissions: { bitfield: data.permissions, has: vi.fn().mockReturnValue(false), remove: vi.fn().mockReturnValue(data.permissions) },
-          edit: vi.fn().mockResolvedValue(undefined),
-          delete: vi.fn().mockResolvedValue(undefined),
-        };
+      create: vi.fn().mockImplementation(async (data: any) => {
+        const newRole = createMockRole(`new-role-${Date.now()}`, data.name);
         roleMap.set(newRole.id, newRole);
-        return Promise.resolve(newRole);
+        return newRole;
       }),
     },
     channels: {
       cache: channelMap,
       fetch: vi.fn().mockResolvedValue(channelMap),
-      create: vi.fn().mockImplementation((data: any) => {
-        const newChannel = {
-          id: `new-channel-${Date.now()}`,
-          ...data,
-          permissionOverwrites: { cache: new Map() },
-          edit: vi.fn().mockResolvedValue(undefined),
-          delete: vi.fn().mockResolvedValue(undefined),
-        };
+      create: vi.fn().mockImplementation(async (data: any) => {
+        const newChannel = createMockChannel(
+          `new-channel-${Date.now()}`, 
+          data.name, 
+          data.type, 
+          data.parent
+        );
         channelMap.set(newChannel.id, newChannel);
-        return Promise.resolve(newChannel);
+        return newChannel;
       }),
       setPositions: vi.fn().mockResolvedValue(undefined),
     },
@@ -189,7 +122,7 @@ const createMockGuild = (name: string = "Test Guild") => {
 
 describe("ServerSnapshotRestore", () => {
   const testSnapshotDir = "/tmp/snapshot-test";
-  let mockGuild: ReturnType<typeof createMockGuild>;
+  let mockGuild: Guild;
   let alertCallback: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -231,7 +164,7 @@ describe("ServerSnapshotRestore", () => {
     expect(saved.id).toBe(snapshot.id);
   });
 
-it("should restore snapshot in dry-run mode without making changes", async () => {
+  it("should restore snapshot in dry-run mode without making changes", async () => {
     const restore = ServerSnapshotRestore.getInstance({
       snapshotDir: testSnapshotDir,
       dryRun: true,
@@ -259,29 +192,10 @@ it("should restore snapshot in dry-run mode without making changes", async () =>
     const snapshot = await restore.createSnapshot(mockGuild);
     
     // Add a new role and channel to simulate drift
-    const newRole = {
-      id: "new-role",
-      name: "New Role",
-      color: 0x0000ff,
-      permissions: { bitfield: 0n, has: vi.fn().mockReturnValue(false), remove: vi.fn().mockReturnValue(0n) },
-      hoist: false,
-      mentionable: false,
-      position: 10,
-      edit: vi.fn().mockResolvedValue(undefined),
-      delete: vi.fn().mockResolvedValue(undefined),
-    };
+    const newRole = createMockRole("new-role", "New Role");
     mockGuild.roles.cache.set("new-role", newRole);
 
-    const newChannel = {
-      id: "new-channel",
-      name: "new-channel",
-      type: ChannelType.GuildText,
-      parentId: null,
-      position: 10,
-      permissionOverwrites: { cache: { map: () => [], forEach: () => {} } },
-      edit: vi.fn().mockResolvedValue(undefined),
-      delete: vi.fn().mockResolvedValue(undefined),
-    };
+    const newChannel = createMockChannel("new-channel", "new-channel", ChannelType.GuildText, null);
     mockGuild.channels.cache.set("new-channel", newChannel);
 
     const result = await restore.restoreSnapshot(mockGuild, snapshot.id, alertCallback);

@@ -105,24 +105,25 @@ describe("Regression: Production Bug Fixes", () => {
       const key1 = crypto.randomBytes(32).toString("hex");
       process.env.ADMIN_SECRET = key1;
       const { TokenVault } = await import("../src/SecurityFeatures.js");
-      TokenVault.store("secret_token", "TEST_KEY");
+      const vault = TokenVault.getInstance({ redisEnabled: false, masterSecret: key1 });
+      await vault.store("secret_token", "TEST_KEY");
       // Change master secret to simulate wrong key
-      (TokenVault as any).masterSecret = crypto.randomBytes(32).toString("hex");
-      expect(() => TokenVault.retrieve("TEST_KEY")).toThrow(/decrypt/i);
+      (vault as any).masterSecret = crypto.randomBytes(32).toString("hex");
+      await expect(vault.retrieve("TEST_KEY")).rejects.toThrow(/decrypt/i);
     });
 
-    it("does not clear vault on normal decryption error", async () => {
+    it("triggers self-destruct on decryption failure (tamper detection)", async () => {
       const key1 = crypto.randomBytes(32).toString("hex");
       process.env.ADMIN_SECRET = key1;
       const { TokenVault } = await import("../src/SecurityFeatures.js");
-      TokenVault.store("token_a", "KEY_A");
-      TokenVault.store("token_b", "KEY_B");
-      // Wrong key should only fail for that specific token, not wipe the whole vault
-      (TokenVault as any).masterSecret = crypto.randomBytes(32).toString("hex");
-      expect(() => TokenVault.retrieve("KEY_A")).toThrow();
-      // Restore correct key - other tokens should still be accessible
-      (TokenVault as any).masterSecret = key1;
-      expect(TokenVault.retrieve("KEY_B")).toBe("token_b");
+      const vault = TokenVault.getInstance({ redisEnabled: false, masterSecret: key1 });
+      await vault.store("token_a", "KEY_A");
+      await vault.store("token_b", "KEY_B");
+      // Wrong key should trigger self-destruct (tamper detection)
+      (vault as any).masterSecret = crypto.randomBytes(32).toString("hex");
+      await expect(vault.retrieve("KEY_A")).rejects.toThrow();
+      // After self-destruct, vault is locked
+      await expect(vault.retrieve("KEY_B")).rejects.toThrow(/compromise lockdown/);
     });
   });
 

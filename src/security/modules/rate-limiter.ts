@@ -60,7 +60,9 @@ export class RateLimiter {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    await this.persistence.connect();
+    if (this.config.redisEnabled) {
+      await this.persistence.connect();
+    }
     this.initialized = true;
   }
 
@@ -73,24 +75,26 @@ export class RateLimiter {
     const resetAt = now + windowMs;
     const key = `${this.config.keyPrefix}${userId}`;
 
-    try {
-      // Use Redis for distributed rate limiting
-      const count = await this.persistence.incr(key, windowMs);
-      const ttlSec = Math.ceil(windowMs / 1000);
-      await this.persistence.expire(key, windowMs);
+    if (this.config.redisEnabled) {
+      try {
+        // Use Redis for distributed rate limiting
+        const count = await this.persistence.incr(key, windowMs);
+        const ttlSec = Math.ceil(windowMs / 1000);
+        await this.persistence.expire(key, windowMs);
 
-      const remaining = Math.max(0, limit - count);
-      return {
-        allowed: count <= limit,
-        remaining,
-        resetAt,
-        totalRequests: count,
-      };
-    } catch (err) {
-      console.warn("[RateLimiter] Redis check failed, using in-memory fallback:", (err as Error).message);
+        const remaining = Math.max(0, limit - count);
+        return {
+          allowed: count <= limit,
+          remaining,
+          resetAt,
+          totalRequests: count,
+        };
+      } catch (err) {
+        console.warn("[RateLimiter] Redis check failed, using in-memory fallback:", (err as Error).message);
+      }
     }
 
-    // In-memory fallback
+    // In-memory fallback (used when redisEnabled is false or Redis fails)
     const data = this.userActions.get(userId) || { count: 0, timestamp: now };
 
     if (now - data.timestamp > windowMs) {

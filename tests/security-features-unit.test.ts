@@ -5,27 +5,31 @@ import { SecurityPipeline, SecurityEvent } from "../src/security/Pipeline.js";
 describe("SecurityFeatures: RateLimiter", () => {
   beforeEach(() => {
     SecurityPipeline.reset();
+    RateLimiter.resetInstance();
   });
 
   it("allows requests under limit", async () => {
+    const limiter = RateLimiter.getInstance({ redisEnabled: false, maxRequests: 5, windowMs: 10000 });
     for (let i = 0; i < 4; i++) {
-      expect(await RateLimiter.check("user_1")).toBe(false);
+      expect((await limiter.check("user_1")).allowed).toBe(true);
     }
   });
 
   it("blocks requests over limit", async () => {
+    const limiter = RateLimiter.getInstance({ redisEnabled: false, maxRequests: 5, windowMs: 10000 });
     for (let i = 0; i < 5; i++) {
-      await RateLimiter.check("user_1");
+      await limiter.check("user_1");
     }
-    expect(await RateLimiter.check("user_1")).toBe(true);
+    expect((await limiter.check("user_1")).allowed).toBe(false);
   });
 
   it("tracks separate limits per key", async () => {
+    const limiter = RateLimiter.getInstance({ redisEnabled: false, maxRequests: 5, windowMs: 10000 });
     for (let i = 0; i < 5; i++) {
-      await RateLimiter.check("user_1");
+      await limiter.check("user_1");
     }
-    expect(await RateLimiter.check("user_1")).toBe(true);
-    expect(await RateLimiter.check("user_2")).toBe(false);
+    expect((await limiter.check("user_1")).allowed).toBe(false);
+    expect((await limiter.check("user_2")).allowed).toBe(true);
   });
 });
 
