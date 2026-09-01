@@ -19,6 +19,12 @@ export interface BackupResult {
   dumpFile: string;
 }
 
+// Distributed lock for cross-process coordination
+interface LockEntry {
+  owner: string;
+  expiresAt: number;
+}
+
 export class MongoRedisEngine {
   private static instance: MongoRedisEngine;
   private realCacheMap: TtlMap<string, { val: any; exp?: number }>;
@@ -30,14 +36,10 @@ export class MongoRedisEngine {
   private circuitBreakerThreshold = 5;
   private circuitBreakerResetMs = 30000;
   private lastCircuitOpenTime = 0;
-
-  private constructor() {
-    this.realCacheMap = new TtlMap<string, { val: any; exp?: number }>({
-      ttlMs: 24 * 60 * 60 * 1000,
-      maxEntries: 10000,
-      autoCleanupMs: 300000,
-    });
-  }
+  // Process ID for distributed lock identification
+  private readonly processId = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  // Local locks map for cross-process coordination (in-memory fallback)
+  private localLocks = new TtlMap<string, LockEntry>({ ttlMs: 10000, maxEntries: 1000, autoCleanupMs: 5000 });
 
   static getInstance(): MongoRedisEngine {
     if (!MongoRedisEngine.instance) {
@@ -66,6 +68,79 @@ export class MongoRedisEngine {
       }
     }
     throw new Error("Max retries exceeded");
+  }
+
+  // Distributed lock for cross-process coordination
+  async acquireLock(key: string, ttlMs = 5000): Promise<boolean> {
+    const lockKey = `lock:${key}`;
+    
+    if (this.redisAvailable && this.redisClient) {
+      try {
+        // Use Redis SET NX for distributed lock
+        const result = await this.redisClient.set(lockKey, this.processId, {
+          NX: true,
+          EX: Math.ceil(ttlMs / 1000)
+        });
+        return result === 'OK';
+      } catch {
+        // Fall back to local lock
+      }
+    }
+    
+    // Local in-memory lock fallback
+    const existing = this.localLocks.get(lockKey);
+    const now = Date.now();
+    if (existing && existing.expiresAt > now) {
+      return false; // Lock held by another process
+    }
+    this.localLocks.set(lockKey, { owner: this.processId, expiresAt: now + ttlMs });
+    return true;
+  }
+
+  async releaseLock(key: string): Promise<void> {
+    const lockKey = `lock:${key}`;
+    
+    if (this.redisAvailable && this.redisClient) {
+      try {
+        // Use Lua script for atomic check-and-delete
+        const script = `
+          if redis.call("get", KEYS[1]) == ARGV[1] then
+            return redis.call("del", KEYS[1])
+          else
+            return 0
+          end
+        `;
+        await this.redisClient.eval(script, { keys: [lockKey], arguments: [this.processId] });
+        return;
+      } catch {
+        // Fall back to local release
+      }
+    }
+    
+    // Local in-memory release
+    const existing = this.localLocks.get(lockKey);
+    if (existing && existing.owner === this.processId) {
+      this.localLocks.delete(lockKey);
+    }
+  }
+
+  // Execute operation with distributed lock
+  async withLock<T>(key: string, operation: () => Promise<T>, ttlMs = 5000): Promise<T> {
+    const acquired = await this.acquireLock(key, ttlMs);
+    if (!acquired) {
+      // Wait and retry once
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const retryAcquired = await this.acquireLock(key, ttlMs);
+      if (!retryAcquired) {
+        throw new Error(`Could not acquire lock for ${key}`);
+      }
+    }
+    
+    try {
+      return await operation();
+    } finally {
+      await this.releaseLock(key);
+    }
   }
 
   async initRedis(): Promise<void> {
@@ -155,22 +230,26 @@ export class MongoRedisEngine {
       return;
     }
 
-    if (this.redisAvailable && this.redisClient) {
-      try {
-        await this.retryWithBackoff(async () => {
-          if (ttlSec) {
-            await this.redisClient.setEx(key, ttlSec, JSON.stringify(val));
-          } else {
-            await this.redisClient.set(key, JSON.stringify(val));
-          }
-        }, 3, 1000);
-        return;
-      } catch {
-        this.redisAvailable = false;
-        this.recordFailure();
+    // Use distributed lock for write operations to ensure consistency
+    await this.withLock(`set:${key}`, async () => {
+      if (this.redisAvailable && this.redisClient) {
+        try {
+          await this.retryWithBackoff(async () => {
+            if (ttlSec) {
+              await this.redisClient.setEx(key, ttlSec, JSON.stringify(val));
+            } else {
+              await this.redisClient.set(key, JSON.stringify(val));
+            }
+          }, 3, 1000);
+          return;
+        } catch {
+          this.redisAvailable = false;
+          this.recordFailure();
+        }
       }
-    }
-    this.realCacheMap.set(key, { val });
+      // Fallback to in-memory
+      this.realCacheMap.set(key, { val });
+    });
   }
 
   async get(key: string): Promise<any> {
@@ -202,18 +281,21 @@ export class MongoRedisEngine {
       return;
     }
 
-    if (this.redisAvailable && this.redisClient) {
-      try {
-        await this.retryWithBackoff(async () => {
-          await this.redisClient.del(key);
-        }, 3, 1000);
-        return;
-      } catch {
-        this.redisAvailable = false;
-        this.recordFailure();
+    // Use distributed lock for delete operations to ensure consistency
+    await this.withLock(`del:${key}`, async () => {
+      if (this.redisAvailable && this.redisClient) {
+        try {
+          await this.retryWithBackoff(async () => {
+            await this.redisClient.del(key);
+          }, 3, 1000);
+          return;
+        } catch {
+          this.redisAvailable = false;
+          this.recordFailure();
+        }
       }
-    }
-    this.realCacheMap.delete(key);
+      this.realCacheMap.delete(key);
+    });
   }
 
   async performCacheBackup(): Promise<BackupResult> {

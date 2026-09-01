@@ -28,6 +28,7 @@ import { auditLogQueue } from "./src/security/AuditLog.js";
 import { CppNativeEngine } from "./src/CppEngine.js";
 import { validateEnvironmentVariables } from "./src/EnvValidator.js";
 import { hashToken, scanForSecrets, validateInput, runBackupIntegrityTest } from "./src/security.js";
+import { TtlMap } from "./src/security/MapManager.js";
 
 // Monitoring imports
 import { discordMetrics, getMetrics, getContentType, httpMetricsMiddleware } from "./src/monitoring/metrics.js";
@@ -222,7 +223,8 @@ export function structuredLog(context: LogContext, message: string) {
 }
 
 // Session Replay Protection (short-lived token nonce tracking)
-const recentlyUsedTokens = new Map<string, number>();
+// Using TtlMap for automatic cleanup with 5-minute TTL
+const recentlyUsedTokens = new TtlMap<string, number>({ ttlMs: 5 * 60 * 1000, maxEntries: 10000, autoCleanupMs: 60000 });
 
 function checkSessionReplay(token: string): boolean {
   const tokenHash = hashToken(token);
@@ -232,10 +234,6 @@ function checkSessionReplay(token: string): boolean {
     return true; // Replay detected within 5s window
   }
   recentlyUsedTokens.set(tokenHash, now);
-  // Prune old entries
-  for (const [hash, ts] of recentlyUsedTokens.entries()) {
-    if (now - ts > 300000) recentlyUsedTokens.delete(hash);
-  }
   return false;
 }
 
@@ -255,8 +253,9 @@ interface AdminSession {
   tokenHash: string;
   clientIp: string;
 }
-const activeAdminSessions = new Map<string, AdminSession>();
-const revokedSessionHashes = new Map<string, number>();
+// Using TtlMap for automatic cleanup with 24-hour TTL
+const activeAdminSessions = new TtlMap<string, AdminSession>({ ttlMs: 24 * 60 * 60 * 1000, maxEntries: 10000, autoCleanupMs: 5 * 60 * 1000 });
+const revokedSessionHashes = new TtlMap<string, number>({ ttlMs: 24 * 60 * 60 * 1000, maxEntries: 10000, autoCleanupMs: 10 * 60 * 1000 });
 const SESSIONS_FILE = path.join(process.cwd(), "admin_sessions.json");
 const REDIS_SESSION_PREFIX = "session:admin:";
 
@@ -329,17 +328,7 @@ setInterval(() => {
   purgeRevokedSessionsFromRedis().catch(() => {});
 }, 2 * 60 * 1000);
 
-// Periodic cleanup of revoked session hashes (every 10 minutes)
-// Prevents unbounded memory growth from accumulated revoked sessions
-setInterval(() => {
-  const now = Date.now();
-  const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-  for (const [tokenHash, revokedAt] of revokedSessionHashes.entries()) {
-    if (now - revokedAt > maxAge) {
-      revokedSessionHashes.delete(tokenHash);
-    }
-  }
-}, 10 * 60 * 1000);
+// Periodic cleanup of revoked session hashes - handled by TtlMap auto-cleanup
 
 async function loadAdminSessions() {
   try {
@@ -444,7 +433,8 @@ async function setGitHubToken(token: string): Promise<void> {
 
 loadAdminSessions();
 
-// Cleanup expired sessions every 10 minutes
+// Cleanup expired sessions every 10 minutes - also cleans up Redis
+// TtlMap handles in-memory cleanup automatically via TTL
 setInterval(async () => {
   const now = Date.now();
   let changed = false;
@@ -484,10 +474,6 @@ async function requireAdminAuth(req: express.Request, res: express.Response, nex
       return res.status(401).json({ success: false, error: "Unauthorized: Session token replay detected." });
     }
     recentlyUsedTokens.set(replayTokenHash, now);
-    // Prune old entries
-    for (const [hash, ts] of recentlyUsedTokens.entries()) {
-      if (now - ts > 300000) recentlyUsedTokens.delete(hash);
-    }
 
     // Redis-first session lookup (Redis is authoritative, local Map is cache)
     const tokenHash = hashSessionToken(tokenStr);
@@ -537,7 +523,7 @@ async function requireAdminAuth(req: express.Request, res: express.Response, nex
 // Uses Redis sorted sets when available for multi-instance consistency;
 // falls back to in-memory sliding window otherwise.
 class RateLimiterMiddleware {
-  private static requests = new Map<string, number[]>();
+  private static requests = new TtlMap<string, number[]>({ ttlMs: 300000, maxEntries: 10000, autoCleanupMs: 60000 });
   private static redisAvailable = false;
 
   static async initRedis(): Promise<void> {
@@ -2736,18 +2722,9 @@ app.post("/api/github/push", requireAdminAuth, async (req, res) => {
   }
 });
 
-const processedWebhookDeliveries = new Map<string, number>();
+const processedWebhookDeliveries = new TtlMap<string, number>({ ttlMs: 24 * 60 * 60 * 1000, maxEntries: 10000, autoCleanupMs: 5 * 60 * 1000 });
 
-// Periodic cleanup of old webhook delivery IDs (every 5 minutes)
-setInterval(() => {
-  const now = Date.now();
-  const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-  for (const [id, ts] of processedWebhookDeliveries.entries()) {
-    if (now - ts > maxAge) {
-      processedWebhookDeliveries.delete(id);
-    }
-  }
-}, 5 * 60 * 1000);
+// Periodic cleanup of old webhook delivery IDs (every 5 minutes) - handled by TtlMap auto-cleanup
 
 app.post("/api/github/webhook", async (req, res) => {
   try {
