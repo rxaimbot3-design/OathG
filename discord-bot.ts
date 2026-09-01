@@ -397,6 +397,7 @@ let channelSnapshots: Map<string, {
   topic?: string | null;
   position?: number;
   permissionOverwrites: Array<{ id: string; allow: string; deny: string; type: number }>;
+  timestamp: number;
 }> = new Map();
 
 let roleSnapshots: Map<string, {
@@ -405,6 +406,7 @@ let roleSnapshots: Map<string, {
   hoist: boolean;
   permissions: string;
   position: number;
+  timestamp: number;
 }> = new Map();
 
 // Rate limiter / Burst tracker for 100 Nukers Simultaneous Attack Defense
@@ -425,7 +427,7 @@ const recentWhitelistedActions = new Map<string, {
 }[]>();
 
 // Periodic cleanup for unbounded global trackers (prevents memory leaks in long-running bots)
-setInterval(() => {
+safeSetInterval(() => {
   const now = Date.now();
   const maxAge = 30 * 60 * 1000; // 30 minutes
 
@@ -467,6 +469,34 @@ setInterval(() => {
 
   for (const [userId, data] of userViolations) {
     if (now - data.timestamp > 3600000) userViolations.delete(userId);
+  }
+
+  // Cleanup sequentialKickBanTracker (remove entries with no recent timestamps)
+  for (const [executorId, timestamps] of sequentialKickBanTracker.entries()) {
+    const recent = timestamps.filter(t => now - t < 60000);
+    if (recent.length === 0) sequentialKickBanTracker.delete(executorId);
+    else sequentialKickBanTracker.set(executorId, recent);
+  }
+
+  // Cleanup channelSnapshots and roleSnapshots (remove entries for deleted channels/roles)
+  // Keep snapshots for 1 hour to allow rollback
+  const snapshotMaxAge = 60 * 60 * 1000;
+  for (const [id, snapshot] of channelSnapshots.entries()) {
+    if (now - (snapshot.timestamp || 0) > snapshotMaxAge) {
+      channelSnapshots.delete(id);
+    }
+  }
+  for (const [id, snapshot] of roleSnapshots.entries()) {
+    if (now - (snapshot.timestamp || 0) > snapshotMaxAge) {
+      roleSnapshots.delete(id);
+    }
+  }
+
+  // Cleanup EnhancedEventEngine crossThreadSyncBus
+  for (const [key, timestamp] of EnhancedEventEngine.crossThreadSyncBus.entries()) {
+    if (now - timestamp > 30000) {
+      EnhancedEventEngine.crossThreadSyncBus.delete(key);
+    }
   }
 }, 5 * 60 * 1000);
 
@@ -1739,6 +1769,7 @@ client.on("clientReady", async () => {
 
             // Store snapshots of channels & roles for instant zero-downtime rollback
             try {
+              const now = Date.now();
               const chs = await guild.channels.fetch();
               chs.forEach(c => {
                 if (c) {
@@ -1746,7 +1777,8 @@ client.on("clientReady", async () => {
                     name: c.name,
                     type: c.type,
                     parentId: c.parentId,
-                    position: c.rawPosition
+                    position: c.rawPosition,
+                    timestamp: now
                   } as any);
                 }
               });
@@ -1759,7 +1791,8 @@ client.on("clientReady", async () => {
                     color: r.color,
                     hoist: r.hoist,
                     permissions: r.permissions.bitfield.toString(),
-                    position: r.position
+                    position: r.position,
+                    timestamp: now
                   });
                 }
               });
