@@ -58,6 +58,7 @@ import { botContext } from "./src/core/contexts/BotContext.js";
 import { GuildContext, getGuildContext } from "./src/core/contexts/GuildContext.js";
 import { validateEnvironmentVariables } from "./src/EnvValidator.js";
 import { CppNativeEngine } from "./src/CppEngine.js";
+import { TtlMap, LruMap } from "./src/security/MapManager.js";
 
 // ==================== PERMISSION HELPERS ====================
 
@@ -98,9 +99,9 @@ function getOrCreateGuildContext(guild: Guild): GuildContext {
   return getGuildContext(guild, botContext);
 }
 
-// Global Module Tracker State
-export const userSpamTracker = new Map<string, number[]>();
-export const userViolations = new Map<string, { count: number, timestamp: number }>();
+// Global Module Tracker State - Using bounded maps to prevent memory leaks
+export const userSpamTracker = new TtlMap<string, number[]>({ ttlMs: 60000, maxEntries: 10000, autoCleanupMs: 30000 });
+export const userViolations = new TtlMap<string, { count: number, timestamp: number }>({ ttlMs: 3600000, maxEntries: 10000, autoCleanupMs: 300000 });
 export let presenceRotatorInterval: NodeJS.Timeout | null = null;
 
 async function withRetry<T>(op: () => Promise<T>, label: string): Promise<T | undefined> {
@@ -147,8 +148,8 @@ const ai = {
 };
 
 // Whitelist & Owner Compromise Action Tracking
-
-const whitelistActionTimestamps = new Map<string, number[]>();
+// Using TtlMap with 10s TTL and maxEntries to prevent unbounded growth
+const whitelistActionTimestamps = new TtlMap<string, number[]>({ ttlMs: 10000, maxEntries: 1000, autoCleanupMs: 5000 });
 
 // Whitelist Compromise Prevention Engine
 async function rollbackWhitelistedAdminActions(executorId: string, guild: Guild) {
@@ -308,8 +309,8 @@ function safeSetInterval(fn: any, delay: number) {
   return t;
 }
 
-// Security Engine Internal State
-export const customLogChannels = new Map<string, string>();
+// Security Engine Internal State - Bounded to prevent memory growth
+export const customLogChannels = new TtlMap<string, string>({ ttlMs: 7 * 24 * 60 * 60 * 1000, maxEntries: 1000, autoCleanupMs: 60 * 60 * 1000 });
 let blockedAttacksCount = 0;
 let panicLockdownActive = false;
 let panicLockdownTimer: NodeJS.Timeout | null = null;
@@ -390,7 +391,8 @@ export function saveWhitelistState() {
 
 // Load persisted state immediately
 loadWhitelistState();
-let channelSnapshots: Map<string, {
+// Using TtlMap with 1 hour TTL for snapshots to allow rollback
+let channelSnapshots: TtlMap<string, {
   name: string;
   type: ChannelType;
   parentId?: string | null;
@@ -398,33 +400,33 @@ let channelSnapshots: Map<string, {
   position?: number;
   permissionOverwrites: Array<{ id: string; allow: string; deny: string; type: number }>;
   timestamp: number;
-}> = new Map();
+}> = new TtlMap({ ttlMs: 60 * 60 * 1000, maxEntries: 5000, autoCleanupMs: 5 * 60 * 1000 });
 
-let roleSnapshots: Map<string, {
+let roleSnapshots: TtlMap<string, {
   name: string;
   color: number;
   hoist: boolean;
   permissions: string;
   position: number;
   timestamp: number;
-}> = new Map();
+}> = new TtlMap({ ttlMs: 60 * 60 * 1000, maxEntries: 2000, autoCleanupMs: 5 * 60 * 1000 });
 
-// Rate limiter / Burst tracker for 100 Nukers Simultaneous Attack Defense
-const userActionTimestamps: Map<string, number[]> = new Map();
-const guildBurstActions: Map<string, number[]> = new Map();
-const guildPanicBurstActions: Map<string, number[]> = new Map();
+// Rate limiter / Burst tracker for 100 Nukers Simultaneous Attack Defense - Bounded maps
+const userActionTimestamps: TtlMap<string, number[]> = new TtlMap({ ttlMs: 5000, maxEntries: 10000, autoCleanupMs: 30000 });
+const guildBurstActions: TtlMap<string, number[]> = new TtlMap({ ttlMs: 5000, maxEntries: 1000, autoCleanupMs: 30000 });
+const guildPanicBurstActions: TtlMap<string, number[]> = new TtlMap({ ttlMs: 3000, maxEntries: 1000, autoCleanupMs: 30000 });
 
-// 🛡️ Nuke-Proof Global Trackers (Mass Ban & Join Raid Velocity)
-const globalBanActions = new Map<string, { executorId: string; targetId: string; timestamp: number }[]>();
-const globalJoinHistory = new Map<string, number[]>();
-const globalLeaveHistory = new Map<string, number[]>();
-const recentWhitelistedActions = new Map<string, {
+// 🛡️ Nuke-Proof Global Trackers (Mass Ban & Join Raid Velocity) - Bounded maps
+const globalBanActions: TtlMap<string, { executorId: string; targetId: string; timestamp: number }[]> = new TtlMap({ ttlMs: 30 * 60 * 1000, maxEntries: 500, autoCleanupMs: 5 * 60 * 1000 });
+const globalJoinHistory: TtlMap<string, number[]> = new TtlMap({ ttlMs: 30 * 60 * 1000, maxEntries: 1000, autoCleanupMs: 5 * 60 * 1000 });
+const globalLeaveHistory: TtlMap<string, number[]> = new TtlMap({ ttlMs: 30 * 60 * 1000, maxEntries: 1000, autoCleanupMs: 5 * 60 * 1000 });
+const recentWhitelistedActions: TtlMap<string, {
   executorId: string;
   type: "ban" | "channelDelete" | "roleDelete";
   targetId: string;
   data: any;
   timestamp: number;
-}[]>();
+}[]> = new TtlMap({ ttlMs: 30000, maxEntries: 500, autoCleanupMs: 30000 });
 
 // Periodic cleanup for unbounded global trackers (prevents memory leaks in long-running bots)
 safeSetInterval(() => {
@@ -603,47 +605,41 @@ export function getSecurityStats(): SecurityStats {
 }
 
 // 🛡️ BOT ACTION MEMORY SETS (Prevents Infinite Feedback Loops with Bot's Own Actions)
-const botCreatedChannelIds = new Set<string>();
-const botDeletedChannelIds = new Set<string>();
-const botCreatedRoleIds = new Set<string>();
-const botDeletedRoleIds = new Set<string>();
-const botCreatingChannelNames = new Map<string, number>();
-const botCreatingRoleNames = new Map<string, number>();
-const recentProcessedKicks = new Set<string>();
+// Using TtlMap for automatic cleanup instead of manual setTimeout
+const botCreatedChannelIds = new TtlMap<string, true>({ ttlMs: 30000, maxEntries: 1000, autoCleanupMs: 10000 });
+const botDeletedChannelIds = new TtlMap<string, true>({ ttlMs: 30000, maxEntries: 1000, autoCleanupMs: 10000 });
+const botCreatedRoleIds = new TtlMap<string, true>({ ttlMs: 30000, maxEntries: 1000, autoCleanupMs: 10000 });
+const botDeletedRoleIds = new TtlMap<string, true>({ ttlMs: 30000, maxEntries: 1000, autoCleanupMs: 10000 });
+const botCreatingChannelNames = new TtlMap<string, number>({ ttlMs: 10000, maxEntries: 500, autoCleanupMs: 5000 });
+const botCreatingRoleNames = new TtlMap<string, number>({ ttlMs: 10000, maxEntries: 500, autoCleanupMs: 5000 });
+const recentProcessedKicks = new TtlMap<string, true>({ ttlMs: 30000, maxEntries: 1000, autoCleanupMs: 10000 });
 
 function markBotCreatedChannel(channelId: string) {
-  botCreatedChannelIds.add(channelId);
-  setTimeout(() => botCreatedChannelIds.delete(channelId), 30000);
+  botCreatedChannelIds.set(channelId, true);
 }
 
 function markBotDeletedChannel(channelId: string) {
-  botDeletedChannelIds.add(channelId);
-  setTimeout(() => botDeletedChannelIds.delete(channelId), 30000);
+  botDeletedChannelIds.set(channelId, true);
 }
 
 function markBotCreatedRole(roleId: string) {
-  botCreatedRoleIds.add(roleId);
-  setTimeout(() => botCreatedRoleIds.delete(roleId), 30000);
+  botCreatedRoleIds.set(roleId, true);
 }
 
 function markBotDeletedRole(roleId: string) {
-  botDeletedRoleIds.add(roleId);
-  setTimeout(() => botDeletedRoleIds.delete(roleId), 30000);
+  botDeletedRoleIds.set(roleId, true);
 }
 
 function markBotCreatingChannel(name: string) {
   botCreatingChannelNames.set(name, Date.now());
-  setTimeout(() => botCreatingChannelNames.delete(name), 10000);
 }
 
 function markBotCreatingRole(name: string) {
   botCreatingRoleNames.set(name, Date.now());
-  setTimeout(() => botCreatingRoleNames.delete(name), 10000);
 }
 
 function markKickProcessed(memberId: string) {
-  recentProcessedKicks.add(memberId);
-  setTimeout(() => recentProcessedKicks.delete(memberId), 30000);
+  recentProcessedKicks.set(memberId, true);
 }
 
 async function sendInviteToKickedVictim(guild: Guild, victimId: string, executorTag?: string) {
@@ -662,7 +658,7 @@ async function sendInviteToKickedVictim(guild: Guild, victimId: string, executor
 }
 
 // Helper to send high-visibility embeds to live security audit channel (#security-logs)
-const inviteLogChannels = new Map<string, string>();
+const inviteLogChannels = new TtlMap<string, string>({ ttlMs: 7 * 24 * 60 * 60 * 1000, maxEntries: 1000, autoCleanupMs: 60 * 60 * 1000 });
 
 export async function sendInviteLogAlert(guild: Guild, options: {
   title: string;
@@ -1169,7 +1165,7 @@ function trackGuildActionAndCheckPanic(guildId: string): boolean {
 }
 
 // 🛡️ Sequential Kick/Ban Velocity Tracker (2-3 kicks or bans in 15s -> Instant IP BAN & Maximum Threat Penalty)
-const sequentialKickBanTracker = new Map<string, number[]>();
+const sequentialKickBanTracker = new TtlMap<string, number[]>({ ttlMs: 15000, maxEntries: 1000, autoCleanupMs: 30000 });
 
 export function recordAndCheckSequentialKickBan(executorId: string, guild: Guild, actionType: string): boolean {
   if (!executorId || executorId === guild.client.user?.id) return false;
@@ -1207,7 +1203,7 @@ export function recordAndCheckSequentialKickBan(executorId: string, guild: Guild
   return false;
 }
 
-const pendingAuditLogRequests = new Map<string, Promise<any>>();
+const pendingAuditLogRequests = new TtlMap<string, Promise<any>>({ ttlMs: 30000, maxEntries: 1000, autoCleanupMs: 10000 });
 
 async function fetchAuditLogsDeduplicated(guild: Guild, type?: AuditLogEvent) {
   const cacheKey = `${guild.id}-${type ?? 'all'}`;
@@ -1289,7 +1285,7 @@ async function fetchAuditLogWithRetry(guild: Guild, type: AuditLogEvent, targetI
   return null;
 }
 
-export const activeGuildAudits = new Set<string>();
+export const activeGuildAudits = new TtlMap<string, true>({ ttlMs: 5 * 60 * 1000, maxEntries: 1000, autoCleanupMs: 60000 });
 
 // Verification system removed
 export async function auditAndApplyVerifiedRolePermissions(_guild: Guild, _customRoleName?: string) {
@@ -1329,7 +1325,7 @@ export async function stopDiscordBot() {
 // Core Event Interception, Cross-Thread State Syncing & Recursive Validation
 // ============================================================================
 export class EnhancedEventEngine {
-  static crossThreadSyncBus = new Map<string, number>();
+  static crossThreadSyncBus = new TtlMap<string, number>({ ttlMs: 30000, maxEntries: 10000, autoCleanupMs: 10000 });
 
   static async intercept(
     eventName: string,
@@ -1346,13 +1342,6 @@ export class EnhancedEventEngine {
     const now = Date.now();
     if (this.crossThreadSyncBus.has(syncKey) && now - (this.crossThreadSyncBus.get(syncKey) || 0) < 5000) {
       return; 
-    }
-
-    // Prune stale entries older than 30 seconds to prevent memory leak
-    for (const [key, timestamp] of this.crossThreadSyncBus.entries()) {
-      if (now - timestamp > 30000) {
-        this.crossThreadSyncBus.delete(key);
-      }
     }
 
     this.crossThreadSyncBus.set(syncKey, startTime);
@@ -1547,8 +1536,8 @@ function handleRaidDetection(guild: Guild) {
     }
 }
 
-// Invite Tracker Cache for Anti-Invite Shield
-const globalInvitesCache = new Map<string, Map<string, number>>();
+// Invite Tracker Cache for Anti-Invite Shield - Bounded to prevent memory growth
+const globalInvitesCache = new TtlMap<string, Map<string, number>>({ ttlMs: 24 * 60 * 60 * 1000, maxEntries: 100, autoCleanupMs: 60 * 60 * 1000 });
 
 function startPresenceRotator(client: Client) {
   if (presenceRotatorInterval) {
@@ -2192,9 +2181,9 @@ client.on("clientReady", async () => {
     // Handle Interactions (Button Clicks & Slash Commands)
     // Advanced Anti-Spam & Anti-Link tracking uses module-level maps userSpamTracker and userViolations
     
-// Premium Feature Globals
-const serverBackups = new Map<string, any[]>();
-let raidActionCounter = new Map<string, number>();
+// Premium Feature Globals - Bounded to prevent memory growth
+const serverBackups = new TtlMap<string, any[]>({ ttlMs: 30 * 24 * 60 * 60 * 1000, maxEntries: 100, autoCleanupMs: 60 * 60 * 1000 });
+const raidActionCounter = new TtlMap<string, number>({ ttlMs: 10000, maxEntries: 1000, autoCleanupMs: 5000 });
 
 // Helper: Backup Server
 async function createServerBackup(guild: Guild) {
