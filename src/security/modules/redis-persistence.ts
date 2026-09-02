@@ -259,10 +259,10 @@ export class RedisPersistence {
       try {
         if (this.useUpstash) {
           // Upstash REST API doesn't support KEYS, but supports SCAN
-          // Use SCAN to iterate all keys matching pattern
           return await this.upstashScanKeys(fullPattern);
         } else if (this.client) {
-          return await this.client.keys(fullPattern);
+          // Use SCAN instead of KEYS to avoid blocking Redis event loop
+          return await this.scanKeys(fullPattern);
         }
       } catch (err) {
         console.warn("[RedisPersistence] Keys failed:", (err as Error).message);
@@ -272,6 +272,26 @@ export class RedisPersistence {
     // In-memory fallback
     const regex = new RegExp("^" + fullPattern.replace(/\*/g, ".*") + "$");
     return Array.from(this.localCache.keys()).filter(k => regex.test(k));
+  }
+
+  /**
+   * SCAN-based key iteration for standard Redis (TCP)
+   * Avoids blocking KEYS command
+   */
+  private async scanKeys(pattern: string): Promise<string[]> {
+    if (!this.client) return [];
+    
+    const keys: string[] = [];
+    let cursor = 0;
+    
+    do {
+      // Redis SCAN returns { cursor: number, keys: string[] }
+      const result = await this.client.scan(cursor, { MATCH: pattern, COUNT: 100 });
+      cursor = result.cursor;
+      keys.push(...result.keys);
+    } while (cursor !== 0);
+    
+    return keys;
   }
 
   /**

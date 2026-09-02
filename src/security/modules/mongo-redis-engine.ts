@@ -121,25 +121,20 @@ export class MongoRedisEngine {
     
     if (this.redisAvailable) {
       try {
+        // Use Lua script for atomic compare-and-delete (works on both Upstash and standard Redis)
+        const script = `
+          if redis.call("get", KEYS[1]) == ARGV[1] then
+            return redis.call("del", KEYS[1])
+          else
+            return 0
+          end
+        `;
         if (this.useUpstash) {
-          // Use Lua script equivalent for Upstash - use GET + DEL with check
-          const currentOwner = await this.upstashRequest<string | null>("GET", lockKey);
-          if (currentOwner === this.processId) {
-            await this.upstashRequest("DEL", lockKey);
-          }
-          return;
+          await this.upstashRequest("EVAL", script, "1", lockKey, this.processId);
         } else if (this.redisClient) {
-          // Use Lua script for atomic check-and-delete
-          const script = `
-            if redis.call("get", KEYS[1]) == ARGV[1] then
-              return redis.call("del", KEYS[1])
-            else
-              return 0
-            end
-          `;
           await this.redisClient.eval(script, { keys: [lockKey], arguments: [this.processId] });
-          return;
         }
+        return;
       } catch {
         // Fall back to local release
       }

@@ -224,16 +224,16 @@ export function structuredLog(context: LogContext, message: string) {
 
 // Session Replay Protection (short-lived token nonce tracking)
 // Using TtlMap for automatic cleanup with 5-minute TTL
-const recentlyUsedTokens = new TtlMap<string, number>({ ttlMs: 5 * 60 * 1000, maxEntries: 10000, autoCleanupMs: 60000 });
+const recentlyUsedTokens = new TtlMap<string, { count: number; windowStart: number }>({ ttlMs: 5 * 60 * 1000, maxEntries: 10000, autoCleanupMs: 60000 });
 
 function checkSessionReplay(token: string): boolean {
   const tokenHash = hashToken(token);
   const now = Date.now();
-  const lastUsed = recentlyUsedTokens.get(tokenHash);
-  if (lastUsed && now - lastUsed < 5000) {
+  const replayEntry = recentlyUsedTokens.get(tokenHash);
+  if (replayEntry && now - replayEntry.windowStart < 5000) {
     return true; // Replay detected within 5s window
   }
-  recentlyUsedTokens.set(tokenHash, now);
+  recentlyUsedTokens.set(tokenHash, { count: 1, windowStart: now });
   return false;
 }
 
@@ -473,13 +473,28 @@ async function requireAdminAuth(req: express.Request, res: express.Response, nex
 
     // Replay protection for session tokens (1s window allows parallel dashboard requests
     // while blocking automated token replay attacks).
+    // Track request count per token per second to allow legitimate parallel requests.
     const replayTokenHash = hashToken(tokenStr);
     const now = Date.now();
-    const lastUsed = recentlyUsedTokens.get(replayTokenHash);
-    if (lastUsed && now - lastUsed < 1000) {
-      return res.status(401).json({ success: false, error: "Unauthorized: Session token replay detected." });
+    const replayEntry = recentlyUsedTokens.get(replayTokenHash);
+    const MAX_REQUESTS_PER_SECOND = 20; // Allow burst of parallel dashboard requests
+
+    if (replayEntry) {
+      const { count, windowStart } = replayEntry;
+      if (now - windowStart < 1000) {
+        // Within same 1-second window
+        if (count >= MAX_REQUESTS_PER_SECOND) {
+          return res.status(401).json({ success: false, error: "Unauthorized: Session token replay detected (rate limit exceeded)." });
+        }
+        recentlyUsedTokens.set(replayTokenHash, { count: count + 1, windowStart });
+      } else {
+        // New 1-second window started
+        recentlyUsedTokens.set(replayTokenHash, { count: 1, windowStart: now });
+      }
+    } else {
+      // First request for this token
+      recentlyUsedTokens.set(replayTokenHash, { count: 1, windowStart: now });
     }
-    recentlyUsedTokens.set(replayTokenHash, now);
 
     // Redis-first session lookup (Redis is authoritative, local Map is cache)
     const tokenHash = hashSessionToken(tokenStr);
@@ -2784,10 +2799,12 @@ app.post("/api/github/webhook", async (req, res) => {
     const success = await sendGitHubAlert(repoName, event, payload);
     
     // Mark delivery ID as processed ONLY after successful processing
-    // This ensures failed deliveries can be retried by GitHub
-    processedWebhookDeliveries.set(deliveryId, now);
-    // Note: TtlMap auto-cleanup handles expired entries (24h TTL, 5min cleanup interval)
-    // No manual size-based eviction needed - avoids premature deduplication loss
+    // This ensures failed deliveries (sendGitHubAlert returns false) can be retried by GitHub
+    if (success) {
+      processedWebhookDeliveries.set(deliveryId, now);
+      // Note: TtlMap auto-cleanup handles expired entries (24h TTL, 5min cleanup interval)
+      // No manual size-based eviction needed - avoids premature deduplication loss
+    }
     
     res.json({ success, message: "Webhook processed." });
 
