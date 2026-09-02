@@ -311,13 +311,19 @@ async function purgeRevokedSessionsFromRedis(): Promise<void> {
   const client = MongoRedisEngine.getClient();
   if (!client) return;
   try {
-    const keys = await client.keys(`${REDIS_SESSION_PREFIX}*`);
-    for (const key of keys) {
-      const tokenHash = key.replace(REDIS_SESSION_PREFIX, "");
-      if (revokedSessionHashes.has(tokenHash)) {
-        await client.del(key);
+    // Use SCAN instead of KEYS to avoid blocking Redis event loop
+    let cursor = "0";
+    const pattern = `${REDIS_SESSION_PREFIX}*`;
+    do {
+      const [newCursor, keys] = await client.scan(cursor, { MATCH: pattern, COUNT: 100 });
+      cursor = newCursor;
+      for (const key of keys) {
+        const tokenHash = key.replace(REDIS_SESSION_PREFIX, "");
+        if (revokedSessionHashes.has(tokenHash)) {
+          await client.del(key);
+        }
       }
-    }
+    } while (cursor !== "0");
   } catch (err: any) {
     console.error("[Redis] Failed to purge revoked sessions:", err.message);
   }
@@ -2764,12 +2770,6 @@ app.post("/api/github/webhook", async (req, res) => {
     if (processedWebhookDeliveries.has(deliveryId)) {
       return res.status(200).json({ success: true, message: "Duplicate webhook delivery ignored." });
     }
-    processedWebhookDeliveries.set(deliveryId, now);
-    if (processedWebhookDeliveries.size > 5000) {
-      const arr = Array.from(processedWebhookDeliveries.entries());
-      arr.sort((a, b) => a[1] - b[1]);
-      arr.slice(0, 2500).forEach(([id]) => processedWebhookDeliveries.delete(id));
-    }
 
     const payload = JSON.parse(payloadBuffer.toString('utf8'));
     const event = req.headers["x-github-event"] as string;
@@ -2782,6 +2782,13 @@ app.post("/api/github/webhook", async (req, res) => {
     addBotLog(`Received verified GitHub webhook event '${event}' for repository: ${repoName}`, "info");
 
     const success = await sendGitHubAlert(repoName, event, payload);
+    
+    // Mark delivery ID as processed ONLY after successful processing
+    // This ensures failed deliveries can be retried by GitHub
+    processedWebhookDeliveries.set(deliveryId, now);
+    // Note: TtlMap auto-cleanup handles expired entries (24h TTL, 5min cleanup interval)
+    // No manual size-based eviction needed - avoids premature deduplication loss
+    
     res.json({ success, message: "Webhook processed." });
 
   } catch (err: any) {

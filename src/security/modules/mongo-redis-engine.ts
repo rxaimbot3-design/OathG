@@ -97,12 +97,16 @@ export class MongoRedisEngine {
           });
           return result === 'OK';
         }
-      } catch {
-        // Fall back to local lock
+      } catch (err) {
+        // Redis is available but lock acquisition failed - fail-closed
+        // Do NOT fall back to local lock in distributed mode as it breaks
+        // the distributed locking guarantee across processes
+        console.error(`[MongoRedisEngine] Distributed lock acquisition failed for ${key}:`, (err as Error).message);
+        return false;
       }
     }
     
-    // Local in-memory lock fallback
+    // Local in-memory lock fallback - ONLY when Redis is NOT available (single-process mode)
     const existing = this.localLocks.get(lockKey);
     const now = Date.now();
     if (existing && existing.expiresAt > now) {
