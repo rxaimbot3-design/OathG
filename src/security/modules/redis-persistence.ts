@@ -258,8 +258,9 @@ export class RedisPersistence {
     if (this.isConnected) {
       try {
         if (this.useUpstash) {
-          // Upstash doesn't support KEYS directly via REST, use in-memory fallback
-          // This is a limitation of Upstash REST API
+          // Upstash REST API doesn't support KEYS, but supports SCAN
+          // Use SCAN to iterate all keys matching pattern
+          return await this.upstashScanKeys(fullPattern);
         } else if (this.client) {
           return await this.client.keys(fullPattern);
         }
@@ -271,6 +272,24 @@ export class RedisPersistence {
     // In-memory fallback
     const regex = new RegExp("^" + fullPattern.replace(/\*/g, ".*") + "$");
     return Array.from(this.localCache.keys()).filter(k => regex.test(k));
+  }
+
+  /**
+   * SCAN-based key iteration for Upstash REST API
+   * Upstash supports SCAN command via REST API
+   */
+  private async upstashScanKeys(pattern: string): Promise<string[]> {
+    const keys: string[] = [];
+    let cursor = "0";
+    
+    do {
+      // Upstash SCAN returns [cursor, keys[]]
+      const result = await this.upstashRequest<[string, string[]]>("SCAN", cursor, "MATCH", pattern, "COUNT", "100");
+      cursor = result[0];
+      keys.push(...result[1]);
+    } while (cursor !== "0");
+    
+    return keys;
   }
 
   async hset(key: string, field: string, value: any): Promise<void> {
@@ -307,7 +326,8 @@ export class RedisPersistence {
         if (this.useUpstash) {
           value = await this.upstashRequest<string | null>("HGET", fullKey, field);
         } else if (this.client) {
-          value = await this.client.hGet(fullKey, field);
+          const rawValue = await this.client.hGet(fullKey, field);
+          value = rawValue ?? null;
         }
         if (value) return JSON.parse(value) as T;
       } catch (err) {

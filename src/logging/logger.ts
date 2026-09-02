@@ -22,6 +22,16 @@ export interface LoggerConfig {
   base?: Record<string, any>;
 }
 
+export interface SecurityFailureContext {
+  action: string;
+  targetId?: string;
+  guildId?: string;
+  executorId?: string;
+  reason?: string;
+  error: Error;
+  severity: "critical" | "high" | "medium" | "low";
+}
+
 class LogManager {
   private static instance: LogManager;
   private logger: Logger;
@@ -139,6 +149,33 @@ class LogManager {
     }, `Performance: ${operation} took ${durationMs}ms`);
   }
 
+  // Structured logging for security-critical action failures
+  // Use this instead of silent .catch(() => {}) for security-relevant operations
+  securityFailure(context: SecurityFailureContext): void {
+    const { action, targetId, guildId, executorId, reason, error, severity } = context;
+    const logLevel = severity === "critical" || severity === "high" ? "error" : "warn";
+    
+    this.getLogger({ 
+      module: "security-failure", 
+      eventType: "security_failure",
+      guildId,
+      userId: targetId,
+      executorId,
+      severity 
+    })[logLevel]({
+      action,
+      targetId,
+      guildId,
+      executorId,
+      reason,
+      error: {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+      },
+    }, `Security action failed: ${action} - ${error.message}`);
+  }
+
   // Get raw pino logger for advanced usage
   getRawLogger(): Logger {
     return this.logger;
@@ -170,4 +207,28 @@ export function getRequestLogger(traceId?: string, context?: LogContext): Logger
 // Module-specific logger factory
 export function createModuleLogger(moduleName: string): Logger {
   return LogManager.getInstance().getLogger({ module: moduleName });
+}
+
+/**
+ * Helper to wrap security-critical async operations with structured failure logging
+ * Usage:
+ *   await withSecurityLogging(
+ *     () => guild.members.ban(userId, { reason: "Zero Trust" }),
+ *     { action: "ban", targetId: userId, guildId: guild.id, severity: "critical" }
+ *   );
+ */
+export async function withSecurityLogging<T>(
+  operation: () => Promise<T>,
+  context: Omit<SecurityFailureContext, "error"> & { fallback?: T }
+): Promise<T | undefined> {
+  try {
+    return await operation();
+  } catch (error) {
+    const err = error as Error;
+    LogManager.getInstance().securityFailure({
+      ...context,
+      error: err,
+    });
+    return context.fallback;
+  }
 }

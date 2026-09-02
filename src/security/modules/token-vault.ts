@@ -134,7 +134,16 @@ export class TokenVault {
   private async loadFromPersistence(): Promise<void> {
     try {
       const keys = await this.persistence.keys(`${VAULT_KEY_PREFIX}*`);
-      for (const key of keys) {
+      
+      // Enforce maxEntries limit during startup loading
+      // Sort keys to ensure deterministic behavior, then take only up to maxEntries
+      const keysToLoad = keys.slice(0, this.config.maxEntries);
+      
+      if (keys.length > this.config.maxEntries) {
+        console.warn(`[TokenVault] Persisted entries (${keys.length}) exceed maxEntries (${this.config.maxEntries}). Only loading first ${this.config.maxEntries} entries.`);
+      }
+      
+      for (const key of keysToLoad) {
         const data = await this.persistence.get<EncryptedTokenData>(key);
         if (data) {
           const tokenKey = key.replace(VAULT_KEY_PREFIX, "");

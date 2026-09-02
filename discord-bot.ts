@@ -13,6 +13,7 @@ import {
   Role, 
   PermissionFlagsBits, 
   GuildChannel,
+  Channel,
   TextChannel,
   VoiceChannel,
   CategoryChannel,
@@ -60,6 +61,7 @@ import { GuildContext, getGuildContext } from "./src/core/contexts/GuildContext.
 import { validateEnvironmentVariables } from "./src/EnvValidator.js";
 import { CppNativeEngine } from "./src/CppEngine.js";
 import { TtlMap, LruMap } from "./src/security/MapManager.js";
+import { withSecurityLogging } from "./src/logging/logger.js";
 
 // ==================== PERMISSION HELPERS ====================
 
@@ -3539,7 +3541,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
             // Ban all associated user accounts on Discord
             for (const uid of userIdsAssociated) {
-              await guild.members.ban(uid, { deleteMessageSeconds: 604800, reason: `IP Banned: ${reason}` }).catch(() => {});
+              await withSecurityLogging(
+                () => guild.members.ban(uid, { deleteMessageSeconds: 604800, reason: `IP Banned: ${reason}` }),
+                { action: "ban", targetId: uid, guildId: guild.id, reason: `IP Banned: ${reason}`, severity: "critical" }
+              );
             }
 
             await safeReply(interaction, {
@@ -3559,7 +3564,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
             addBotLog(`🔨 [IP-BAN] Blacklisted User ID: ${target}. Reason: ${reason}. Associated IPs: ${ipAddressesBanned.join(", ") || "None"}`, "warning");
 
             // Perform Discord Ban
-            await guild.members.ban(target, { deleteMessageSeconds: 604800, reason: `Zero-Trust IP Ban: ${reason}` }).catch(() => {});
+            await withSecurityLogging(
+              () => guild.members.ban(target, { deleteMessageSeconds: 604800, reason: `Zero-Trust IP Ban: ${reason}` }),
+              { action: "ban", targetId: target, guildId: guild.id, reason: `Zero-Trust IP Ban: ${reason}`, severity: "critical" }
+            );
 
             await safeReply(interaction, {
               embeds: [{
@@ -3648,15 +3656,21 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
             if (target === "roles" || target === "all") {
                for (const r of latest.roles) {
                    if (!guild.roles.cache.has(r.id) && !guild.roles.cache.find(gr => gr.name === r.name)) {
-                        await guild.roles.create({ name: r.name, color: r.color, permissions: BigInt(r.permissions.bitfield), reason: "Selective Restore" }).catch(() => {});
+                        await withSecurityLogging(
+                          () => guild.roles.create({ name: r.name, color: r.color, permissions: BigInt(r.permissions.bitfield), reason: "Selective Restore" }),
+                          { action: "role_create", targetId: r.name, guildId: guild.id, reason: "Selective Restore", severity: "high" }
+                        );
                    }
                }
             }
             if (target === "channels" || target === "all") {
                for (const c of latest.channels) {
                    if (!guild.channels.cache.has(c.id) && !guild.channels.cache.find(gc => gc.name.toLowerCase() === c.name.toLowerCase() && gc.type === c.type)) {
-                       const createdCh = await guild.channels.create({ name: c.name, type: c.type, parent: c.parentId, reason: "Selective Restore" }).catch(() => null);
-                        if (createdCh) markBotCreatedChannel(createdCh.id);
+                       const createdCh = await withSecurityLogging(
+                         () => guild.channels.create({ name: c.name, type: c.type, parent: c.parentId, reason: "Selective Restore" }),
+                         { action: "channel_create", targetId: c.name, guildId: guild.id, reason: "Selective Restore", severity: "high" }
+                       );
+                       if (createdCh) markBotCreatedChannel(createdCh.id);
                    }
                }
             }
@@ -3687,7 +3701,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
            // 1. Recreate missing roles
            for (const r of latest.roles) {
                if (!guild.roles.cache.find(gr => gr.name === r.name)) {
-                    await guild.roles.create({ name: r.name, color: r.color, permissions: BigInt(r.permissions.bitfield), reason: "1-Click Server Recovery" }).catch(() => {});
+                    await withSecurityLogging(
+                      () => guild.roles.create({ name: r.name, color: r.color, permissions: BigInt(r.permissions.bitfield), reason: "1-Click Server Recovery" }),
+                      { action: "role_create", targetId: r.name, guildId: guild.id, reason: "1-Click Server Recovery", severity: "high" }
+                    );
                    rolesRestoredCount++;
                }
            }
@@ -3701,7 +3718,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
            for (const cat of categories) {
                let existingCat = guild.channels.cache.find(gc => gc.name.toLowerCase() === cat.name.toLowerCase() && gc.type === ChannelType.GuildCategory);
                if (!existingCat) {
-                   const newCat = await guild.channels.create({ name: cat.name, type: ChannelType.GuildCategory, reason: "1-Click Server Recovery" }).catch(() => null);
+                   const newCat = await withSecurityLogging(
+                     () => guild.channels.create({ name: cat.name, type: ChannelType.GuildCategory, reason: "1-Click Server Recovery" }),
+                     { action: "channel_create", targetId: cat.name, guildId: guild.id, reason: "1-Click Server Recovery", severity: "high" }
+                   );
                    if (newCat) {
                        createdCategories.set(cat.id, newCat.id);
                        channelsRestoredCount++;
@@ -3716,7 +3736,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
                const exists = guild.channels.cache.find(gc => gc.name.toLowerCase() === c.name.toLowerCase() && gc.type === c.type);
                if (!exists) {
                     const mappedParentId = c.parentId ? (createdCategories.get(c.parentId) || guild.channels.cache.find(gc => gc.name === latest.channels.find((lc: any) => lc.id === c.parentId)?.name)?.id) : null;
-                   await guild.channels.create({ name: c.name, type: c.type, parent: mappedParentId || undefined, reason: "1-Click Server Recovery" }).catch(() => {});
+                   await withSecurityLogging(
+                     () => guild.channels.create({ name: c.name, type: c.type, parent: mappedParentId || undefined, reason: "1-Click Server Recovery" }),
+                     { action: "channel_create", targetId: c.name, guildId: guild.id, reason: "1-Click Server Recovery", severity: "high" }
+                   );
                    channelsRestoredCount++;
                }
            }
@@ -3944,7 +3967,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         },
         async (executorTag) => {
           markBotDeletedChannel(channel.id);
-          await channel.delete("E++ Engine: Zero Trust Revert").catch(() => {});
+          await withSecurityLogging(
+            () => channel.delete("E++ Engine: Zero Trust Revert") as Promise<Channel>,
+            { action: "channel_delete", targetId: channel.id, guildId: channel.guild.id, reason: "E++ Engine: Zero Trust Revert", severity: "critical" }
+          );
           await sendLiveAuditAlert(channel.guild, {
             title: "🚨 [E++] UNAUTHORIZED CHANNEL CREATION REVERTED",
             description: `**Channel:** #${channel.name}\n**Rogue Admin:** ${executorTag}\n**Action Taken:** Instant Channel Deletion & Rogue Admin Stripped`,
@@ -4008,9 +4034,12 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           }
           return false;
         },
-        async (executorTag) => {
+async (executorTag) => {
           markBotDeletedRole(role.id);
-          await role.delete("E++ Engine: Zero Trust Revert").catch(() => {});
+          await withSecurityLogging(
+            () => role.delete("E++ Engine: Zero Trust Revert"),
+            { action: "role_delete", targetId: role.id, guildId: role.guild.id, reason: "E++ Engine: Zero Trust Revert", severity: "critical" }
+          );
           await sendLiveAuditAlert(role.guild, {
             title: "🚨 [E++] UNAUTHORIZED ROLE CREATION REVERTED",
             description: `**Role:** @${role.name}\n**Rogue Admin:** ${executorTag}\n**Action Taken:** Instant Role Deletion & Rogue Admin Stripped`,
@@ -4392,11 +4421,14 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
           const webhookId = entry.targetId;
           if (webhookId) {
-             const webhooks = await targetGuild.fetchWebhooks().catch(() => null);
-             if (webhooks) {
-                 const webhook = webhooks.get(webhookId as string);
-                 if (webhook) await webhook.delete("Strict Owner-Only Webhook Policy Enforced").catch(() => {});
-             }
+const webhooks = await targetGuild.fetchWebhooks().catch(() => null);
+              if (webhooks) {
+                  const webhook = webhooks.get(webhookId as string);
+                  if (webhook) await withSecurityLogging(
+                    () => webhook.delete("Strict Owner-Only Webhook Policy Enforced"),
+                    { action: "webhook_delete", targetId: webhookId as string, guildId: targetGuild.id, reason: "Strict Owner-Only Webhook Policy Enforced", severity: "high" }
+                  );
+              }
           }
 
           await punishRogueAdmin(targetGuild, executorId, "Unauthorized Webhook Activity", "Webhooks are strictly restricted to Server Owner ONLY.");
@@ -4651,7 +4683,12 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
 
           const webhooks = await channel.fetchWebhooks().catch(() => null);
           if (webhooks && webhooks.size > 0) {
-            webhooks.forEach(wh => wh.delete("Strict Owner-Only Webhook Policy").catch(() => {}));
+            for (const wh of webhooks.values()) {
+              await withSecurityLogging(
+                () => wh.delete("Strict Owner-Only Webhook Policy"),
+                { action: "webhook_delete", targetId: wh.id, guildId: guild.id, reason: "Strict Owner-Only Webhook Policy", severity: "high" }
+              );
+            }
           }
 
           if (executorId && !isStrictServerOwner(executorId, guild)) {
@@ -4980,7 +5017,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         const isBanned = ctx.ipBanSystem.isBanned(member.id);
         if (isBanned) {
           addBotLog(`🚨 [IP-BAN MATCH] Blacklisted User ID '${member.user.tag}' (${member.id}) attempted to join. Executing auto-ban.`, "error");
-          await member.ban({ deleteMessageSeconds: 604800, reason: `Zero-Trust Custom IP-Ban: Blacklisted ID` }).catch(() => {});
+          await withSecurityLogging(
+            () => member.ban({ deleteMessageSeconds: 604800, reason: `Zero-Trust Custom IP-Ban: Blacklisted ID` }),
+            { action: "ban", targetId: member.id, guildId: guild.id, reason: "Zero-Trust Custom IP-Ban: Blacklisted ID", severity: "critical" }
+          );
           
           await sendLiveAuditAlert(guild, {
             title: "🔨 ZERO-TRUST CUSTOM IP-BAN AUTO-SHIELD",
@@ -5065,16 +5105,25 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
               addBotLog(`🚨 [ANTI-INVITE SHIELD] User ${member.user.tag} joined using unauthorized invite created by <@${inviterId}>. Executing auto-ban.`, "error");
 
               // 1. Delete the unauthorized invite link
-              await usedInvite.delete("Zero-Trust: Unauthorized Invite Link used").catch(() => {});
+              await withSecurityLogging(
+                () => usedInvite.delete("Zero-Trust: Unauthorized Invite Link used"),
+                { action: "invite_delete", targetId: usedInvite.code, guildId: guild.id, reason: "Zero-Trust: Unauthorized Invite Link used", severity: "high" }
+              );
 
               // 2. Ban the inviter for breaking the rule
               const inviterMember = await guild.members.fetch(inviterId).catch(() => null);
               if (inviterMember) {
-                await inviterMember.ban({ deleteMessageSeconds: 604800, reason: "Zero-Trust Anti-Invite: You invited someone without authorization." }).catch(() => {});
+                await withSecurityLogging(
+                  () => inviterMember.ban({ deleteMessageSeconds: 604800, reason: "Zero-Trust Anti-Invite: You invited someone without authorization." }),
+                  { action: "ban", targetId: inviterId, guildId: guild.id, reason: "Zero-Trust Anti-Invite: You invited someone without authorization.", severity: "critical" }
+                );
               }
 
               // 3. Ban the person who joined
-              await member.ban({ deleteMessageSeconds: 604800, reason: "Zero-Trust Anti-Invite: Joined via unauthorized invite link." }).catch(() => {});
+              await withSecurityLogging(
+                () => member.ban({ deleteMessageSeconds: 604800, reason: "Zero-Trust Anti-Invite: Joined via unauthorized invite link." }),
+                { action: "ban", targetId: member.id, guildId: guild.id, reason: "Zero-Trust Anti-Invite: Joined via unauthorized invite link.", severity: "critical" }
+              );
 
               // 4. Audit Alert
               await sendLiveAuditAlert(guild, {
@@ -5104,7 +5153,10 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       if (accountAgeDays < 2 && noAvatar && isExplicitRaidBot) {
          addBotLog(`🛡️ [QUALITY GATE] Banned suspicious bot account: ${member.user.tag} (Age: ${Math.floor(accountAgeDays)} days, Avatar: ${!noAvatar}, Raid Pattern: ${isExplicitRaidBot})`, "warning");
          
-         await member.ban({ reason: "Zero Trust Account Quality Gate: Explicit raid bot signature detected." }).catch(() => {});
+         await withSecurityLogging(
+           () => member.ban({ reason: "Zero Trust Account Quality Gate: Explicit raid bot signature detected." }),
+           { action: "ban", targetId: member.id, guildId: guild.id, reason: "Zero Trust Account Quality Gate: Explicit raid bot signature detected.", severity: "critical" }
+         );
          
          await sendLiveAuditAlert(guild, {
              title: "🛡️ TIER 1: ACCOUNT QUALITY GATE BAN",
@@ -5307,20 +5359,9 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
   }
 }
 
-// Note: Graceful shutdown is handled by server.ts to ensure admin sessions
-// are saved and the Discord bot is stopped cleanly.
-
-process.on("unhandledRejection", (reason, promise) => {
-  console.error("🚨 [UNHANDLED REJECTION]:", reason);
-  addBotLog(`🚨 [FATAL ERROR] Unhandled Promise Rejection: ${reason}`, "error");
-  // process.exit(1);
-});
-
-process.on("uncaughtException", (err) => {
-  console.error("🚨 [UNCAUGHT EXCEPTION]:", err);
-  addBotLog(`🚨 [FATAL ERROR] Uncaught Exception: ${err.message}`, "error");
-  // process.exit(1);
-});
+// Note: Graceful shutdown and process exception handlers are managed by server.ts
+// to ensure admin sessions are saved and the Discord bot is stopped cleanly.
+// This avoids duplicate/conflicting handlers in the same process.
 
 export async function runNukeDefenseDrill() {
   const startTime = Date.now();
@@ -5511,7 +5552,10 @@ export async function triggerHoneypotTrap(options: {
     for (const targetGuild of guildsToAlert) {
       // Ban target users from Discord Guild
       for (const uid of usersToBan) {
-        await targetGuild.members.ban(uid, { reason: `🚨 HONEYPOT TRAP TRIGGERED: Visited decoy URL (${trapName || "Decoy URL"})` }).catch(() => {});
+        await withSecurityLogging(
+          () => targetGuild.members.ban(uid, { reason: `🚨 HONEYPOT TRAP TRIGGERED: Visited decoy URL (${trapName || "Decoy URL"})` }),
+          { action: "ban", targetId: uid, guildId: targetGuild.id, reason: `Honeypot trap triggered: ${trapName || "Decoy URL"}`, severity: "critical" }
+        );
       }
 
       // Send live audit alert embed
@@ -5527,7 +5571,7 @@ export async function triggerHoneypotTrap(options: {
           `  - 🔨 **Discord Account Auto-Banned** from server\n` +
           `  - 🛡️ **Zero Trust Security Alert** dispatched to Server Owner`,
         color: 0xDC2626
-      }).catch(() => {});
+      });
     }
   }
 

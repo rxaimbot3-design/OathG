@@ -32,7 +32,7 @@ interface UpstashResponse<T> {
 
 export class MongoRedisEngine {
   private static instance: MongoRedisEngine;
-  private realCacheMap: TtlMap<string, { val: any; exp?: number }>;
+  private realCacheMap!: TtlMap<string, { val: any; exp?: number }>;
   private redisClient: any = null;
   private redisAvailable = false;
   private redisInitPromise: Promise<void> | null = null;
@@ -260,6 +260,16 @@ export class MongoRedisEngine {
     }
   }
 
+  private ensureCacheMap(): void {
+    if (!this.realCacheMap) {
+      this.realCacheMap = new TtlMap<string, { val: any; exp?: number }>({
+        ttlMs: 24 * 60 * 60 * 1000,
+        maxEntries: 100000,
+        autoCleanupMs: 60000,
+      });
+    }
+  }
+
   // Upstash REST API request helper
   private async upstashRequest<T>(command: string, ...args: string[]): Promise<T> {
     if (!this.useUpstash || !this.upstashUrl || !this.upstashToken) {
@@ -298,6 +308,7 @@ export class MongoRedisEngine {
   }
 
   async set(key: string, val: any, ttlSec?: number): Promise<void> {
+    this.ensureCacheMap();
     if (this.circuitBreakerOpen) {
       this.realCacheMap.set(key, { val });
       return;
@@ -335,6 +346,7 @@ export class MongoRedisEngine {
   }
 
   async get(key: string): Promise<any> {
+    this.ensureCacheMap();
     if (this.circuitBreakerOpen) {
       const entry = this.realCacheMap.get(key);
       if (!entry) return null;
@@ -363,6 +375,7 @@ export class MongoRedisEngine {
   }
 
   async del(key: string): Promise<void> {
+    this.ensureCacheMap();
     if (this.circuitBreakerOpen) {
       this.realCacheMap.delete(key);
       return;

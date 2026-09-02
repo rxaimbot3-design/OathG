@@ -99,11 +99,30 @@ export class BehaviorScoring {
     }
   }
 
+  private decayRunning = false;
+
   private startDecayTimer(): void {
     if (this.decayInterval) return;
-    this.decayInterval = setInterval(async () => {
-      await this.decayScores();
+    this.decayInterval = setInterval(() => {
+      // Fire-and-forget with overlap guard
+      if (this.decayRunning) {
+        console.warn("[BehaviorScoring] Decay cycle skipped - previous execution still running");
+        return;
+      }
+      this.runDecaySafe();
     }, 60 * 60 * 1000); // Every hour
+  }
+
+  private async runDecaySafe(): Promise<void> {
+    if (this.decayRunning) return;
+    this.decayRunning = true;
+    try {
+      await this.decayScores();
+    } catch (err) {
+      console.error("[BehaviorScoring] Decay cycle failed:", (err as Error).message);
+    } finally {
+      this.decayRunning = false;
+    }
   }
 
   private async decayScores(): Promise<void> {
