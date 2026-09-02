@@ -25,6 +25,11 @@ interface LockEntry {
   expiresAt: number;
 }
 
+// Upstash REST API response types
+interface UpstashResponse<T> {
+  result: T;
+}
+
 export class MongoRedisEngine {
   private static instance: MongoRedisEngine;
   private realCacheMap: TtlMap<string, { val: any; exp?: number }>;
@@ -40,6 +45,10 @@ export class MongoRedisEngine {
   private readonly processId = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   // Local locks map for cross-process coordination (in-memory fallback)
   private localLocks = new TtlMap<string, LockEntry>({ ttlMs: 10000, maxEntries: 1000, autoCleanupMs: 5000 });
+  // Upstash REST API config
+  private upstashUrl: string | null = null;
+  private upstashToken: string | null = null;
+  private useUpstash = false;
 
   static getInstance(): MongoRedisEngine {
     if (!MongoRedisEngine.instance) {
@@ -74,14 +83,20 @@ export class MongoRedisEngine {
   async acquireLock(key: string, ttlMs = 5000): Promise<boolean> {
     const lockKey = `lock:${key}`;
     
-    if (this.redisAvailable && this.redisClient) {
+    if (this.redisAvailable) {
       try {
-        // Use Redis SET NX for distributed lock
-        const result = await this.redisClient.set(lockKey, this.processId, {
-          NX: true,
-          EX: Math.ceil(ttlMs / 1000)
-        });
-        return result === 'OK';
+        if (this.useUpstash) {
+          // Use Upstash SET NX EX for distributed lock
+          const result = await this.upstashRequest<string>("SET", lockKey, this.processId, "NX", "EX", String(Math.ceil(ttlMs / 1000)));
+          return result === 'OK';
+        } else if (this.redisClient) {
+          // Use Redis SET NX for distributed lock
+          const result = await this.redisClient.set(lockKey, this.processId, {
+            NX: true,
+            EX: Math.ceil(ttlMs / 1000)
+          });
+          return result === 'OK';
+        }
       } catch {
         // Fall back to local lock
       }
@@ -100,18 +115,27 @@ export class MongoRedisEngine {
   async releaseLock(key: string): Promise<void> {
     const lockKey = `lock:${key}`;
     
-    if (this.redisAvailable && this.redisClient) {
+    if (this.redisAvailable) {
       try {
-        // Use Lua script for atomic check-and-delete
-        const script = `
-          if redis.call("get", KEYS[1]) == ARGV[1] then
-            return redis.call("del", KEYS[1])
-          else
-            return 0
-          end
-        `;
-        await this.redisClient.eval(script, { keys: [lockKey], arguments: [this.processId] });
-        return;
+        if (this.useUpstash) {
+          // Use Lua script equivalent for Upstash - use GET + DEL with check
+          const currentOwner = await this.upstashRequest<string | null>("GET", lockKey);
+          if (currentOwner === this.processId) {
+            await this.upstashRequest("DEL", lockKey);
+          }
+          return;
+        } else if (this.redisClient) {
+          // Use Lua script for atomic check-and-delete
+          const script = `
+            if redis.call("get", KEYS[1]) == ARGV[1] then
+              return redis.call("del", KEYS[1])
+            else
+              return 0
+            end
+          `;
+          await this.redisClient.eval(script, { keys: [lockKey], arguments: [this.processId] });
+          return;
+        }
       } catch {
         // Fall back to local release
       }
@@ -163,6 +187,25 @@ export class MongoRedisEngine {
     this.redisInitPromise = (async () => {
       try {
         await this.retryWithBackoff(async () => {
+          // Check for Upstash REST API credentials first
+          const upstashUrl = process.env.UPSTASH_REDIS_REST_URL;
+          const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+          
+          if (upstashUrl && upstashToken) {
+            this.upstashUrl = upstashUrl.replace(/\/$/, ""); // Remove trailing slash
+            this.upstashToken = upstashToken;
+            this.useUpstash = true;
+            console.log("[REDIS] Upstash REST API configured, using HTTP-based Redis.");
+            // Test connection
+            await this.upstashRequest("PING");
+            this.redisAvailable = true;
+            this.connectionFailures = 0;
+            this.circuitBreakerOpen = false;
+            console.log("[REDIS] Connected to Upstash Redis via REST API.");
+            return;
+          }
+
+          // Fallback to standard Redis TCP connection
           const redisUrl = process.env.REDIS_URL || process.env.REDIS_HOST;
           if (!redisUrl) {
             console.log("[REDIS] No REDIS_URL configured, using in-memory fallback.");
@@ -178,6 +221,7 @@ export class MongoRedisEngine {
             return;
           }
 
+          this.useUpstash = false;
           this.redisClient = RedisClient({ url: redisUrl });
           this.redisClient.on("error", (err: any) => {
             console.warn("[REDIS] Client error:", err.message);
@@ -216,6 +260,31 @@ export class MongoRedisEngine {
     }
   }
 
+  // Upstash REST API request helper
+  private async upstashRequest<T>(command: string, ...args: string[]): Promise<T> {
+    if (!this.useUpstash || !this.upstashUrl || !this.upstashToken) {
+      throw new Error("Upstash not configured");
+    }
+    
+    const body = [command, ...args];
+    const response = await fetch(this.upstashUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${this.upstashToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Upstash request failed: ${response.status} ${errorText}`);
+    }
+    
+    const data = await response.json() as UpstashResponse<T>;
+    return data.result;
+  }
+
   get isRedisConnected(): boolean {
     return this.redisAvailable && !!this.redisClient;
   }
@@ -232,13 +301,22 @@ export class MongoRedisEngine {
 
     // Use distributed lock for write operations to ensure consistency
     await this.withLock(`set:${key}`, async () => {
-      if (this.redisAvailable && this.redisClient) {
+      if (this.redisAvailable) {
         try {
           await this.retryWithBackoff(async () => {
-            if (ttlSec) {
-              await this.redisClient.setEx(key, ttlSec, JSON.stringify(val));
-            } else {
-              await this.redisClient.set(key, JSON.stringify(val));
+            if (this.useUpstash) {
+              const serialized = JSON.stringify(val);
+              if (ttlSec) {
+                await this.upstashRequest("SET", key, serialized, "EX", String(ttlSec));
+              } else {
+                await this.upstashRequest("SET", key, serialized);
+              }
+            } else if (this.redisClient) {
+              if (ttlSec) {
+                await this.redisClient.setEx(key, ttlSec, JSON.stringify(val));
+              } else {
+                await this.redisClient.set(key, JSON.stringify(val));
+              }
             }
           }, 3, 1000);
           return;
@@ -259,10 +337,15 @@ export class MongoRedisEngine {
       return entry.val;
     }
 
-    if (this.redisAvailable && this.redisClient) {
+    if (this.redisAvailable) {
       try {
         const raw = await this.retryWithBackoff(async () => {
-          return await this.redisClient.get(key);
+          if (this.useUpstash) {
+            return await this.upstashRequest<string | null>("GET", key);
+          } else if (this.redisClient) {
+            return await this.redisClient.get(key);
+          }
+          return null;
         }, 3, 1000);
         if (raw) return JSON.parse(raw);
       } catch {
@@ -283,10 +366,14 @@ export class MongoRedisEngine {
 
     // Use distributed lock for delete operations to ensure consistency
     await this.withLock(`del:${key}`, async () => {
-      if (this.redisAvailable && this.redisClient) {
+      if (this.redisAvailable) {
         try {
           await this.retryWithBackoff(async () => {
-            await this.redisClient.del(key);
+            if (this.useUpstash) {
+              await this.upstashRequest("DEL", key);
+            } else if (this.redisClient) {
+              await this.redisClient.del(key);
+            }
           }, 3, 1000);
           return;
         } catch {
