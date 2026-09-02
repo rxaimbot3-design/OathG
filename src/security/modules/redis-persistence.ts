@@ -1,10 +1,15 @@
 /**
  * Redis Persistence Layer
  * Provides unified Redis access with in-memory fallback for all state modules
+ * Supports both standard Redis (TCP) and Upstash Redis (REST API)
  */
 
 import { createClient, RedisClientType, RedisModules } from "redis";
 import { MongoRedisEngine } from "./mongo-redis-engine.js";
+
+interface UpstashResponse<T> {
+  result: T;
+}
 
 export interface PersistenceConfig {
   redisUrl?: string;
@@ -20,6 +25,10 @@ export class RedisPersistence {
   private config: Required<PersistenceConfig>;
   private connectionPromise: Promise<void> | null = null;
   private localCache = new Map<string, { value: string; expiresAt: number }>();
+  // Upstash REST API config
+  private upstashUrl: string | null = null;
+  private upstashToken: string | null = null;
+  private useUpstash = false;
 
   private constructor(config: PersistenceConfig = {}) {
     this.config = {
@@ -44,12 +53,55 @@ export class RedisPersistence {
     RedisPersistence.instance = undefined as any;
   }
 
+  // Upstash REST API request helper
+  private async upstashRequest<T>(command: string, ...args: string[]): Promise<T> {
+    if (!this.useUpstash || !this.upstashUrl || !this.upstashToken) {
+      throw new Error("Upstash not configured");
+    }
+    
+    const body = [command, ...args];
+    const response = await fetch(this.upstashUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${this.upstashToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Upstash request failed: ${response.status} ${errorText}`);
+    }
+    
+    const data = await response.json() as UpstashResponse<T>;
+    return data.result;
+  }
+
   async connect(): Promise<void> {
     if (this.isConnected) return;
     if (this.connectionPromise) return this.connectionPromise;
 
     this.connectionPromise = (async () => {
       try {
+        // Check for Upstash REST API credentials first
+        const upstashUrl = process.env.UPSTASH_REDIS_REST_URL;
+        const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+        
+        if (upstashUrl && upstashToken) {
+          this.upstashUrl = upstashUrl.replace(/\/$/, "");
+          this.upstashToken = upstashToken;
+          this.useUpstash = true;
+          console.log("[RedisPersistence] Upstash REST API configured, using HTTP-based Redis.");
+          // Test connection
+          await this.upstashRequest("PING");
+          this.isConnected = true;
+          console.log("[RedisPersistence] Connected to Upstash Redis via REST API.");
+          return;
+        }
+
+        // Fallback to standard Redis TCP connection
+        this.useUpstash = false;
         this.client = createClient({
           url: this.config.redisUrl,
           socket: {
@@ -107,9 +159,13 @@ export class RedisPersistence {
     const serialized = JSON.stringify(value);
     const ttlSec = this.getTtlSeconds(ttlMs);
 
-    if (this.isConnected && this.client) {
+    if (this.isConnected) {
       try {
-        await this.client.setEx(fullKey, ttlSec, serialized);
+        if (this.useUpstash) {
+          await this.upstashRequest("SET", fullKey, serialized, "EX", String(ttlSec));
+        } else if (this.client) {
+          await this.client.setEx(fullKey, ttlSec, serialized);
+        }
         return;
       } catch (err) {
         console.warn("[RedisPersistence] Set failed, falling back to memory:", (err as Error).message);
@@ -128,9 +184,14 @@ export class RedisPersistence {
   async get<T>(key: string): Promise<T | null> {
     const fullKey = this.getKey(key);
 
-    if (this.isConnected && this.client) {
+    if (this.isConnected) {
       try {
-        const value = await this.client.get(fullKey);
+        let value: string | null = null;
+        if (this.useUpstash) {
+          value = await this.upstashRequest<string | null>("GET", fullKey);
+        } else if (this.client) {
+          value = await this.client.get(fullKey);
+        }
         if (value) return JSON.parse(value) as T;
       } catch (err) {
         console.warn("[RedisPersistence] Get failed, falling back to memory:", (err as Error).message);
@@ -151,9 +212,13 @@ export class RedisPersistence {
   async del(key: string): Promise<void> {
     const fullKey = this.getKey(key);
 
-    if (this.isConnected && this.client) {
+    if (this.isConnected) {
       try {
-        await this.client.del(fullKey);
+        if (this.useUpstash) {
+          await this.upstashRequest("DEL", fullKey);
+        } else if (this.client) {
+          await this.client.del(fullKey);
+        }
       } catch (err) {
         console.warn("[RedisPersistence] Del failed:", (err as Error).message);
       }
@@ -165,9 +230,14 @@ export class RedisPersistence {
   async exists(key: string): Promise<boolean> {
     const fullKey = this.getKey(key);
 
-    if (this.isConnected && this.client) {
+    if (this.isConnected) {
       try {
-        return await this.client.exists(fullKey) === 1;
+        if (this.useUpstash) {
+          const result = await this.upstashRequest<number>("EXISTS", fullKey);
+          return result === 1;
+        } else if (this.client) {
+          return await this.client.exists(fullKey) === 1;
+        }
       } catch (err) {
         console.warn("[RedisPersistence] Exists failed:", (err as Error).message);
       }
@@ -185,9 +255,14 @@ export class RedisPersistence {
   async keys(pattern: string): Promise<string[]> {
     const fullPattern = this.getKey(pattern);
 
-    if (this.isConnected && this.client) {
+    if (this.isConnected) {
       try {
-        return await this.client.keys(fullPattern);
+        if (this.useUpstash) {
+          // Upstash doesn't support KEYS directly via REST, use in-memory fallback
+          // This is a limitation of Upstash REST API
+        } else if (this.client) {
+          return await this.client.keys(fullPattern);
+        }
       } catch (err) {
         console.warn("[RedisPersistence] Keys failed:", (err as Error).message);
       }
@@ -202,10 +277,15 @@ export class RedisPersistence {
     const fullKey = this.getKey(key);
     const serialized = JSON.stringify(value);
 
-    if (this.isConnected && this.client) {
+    if (this.isConnected) {
       try {
-        await this.client.hSet(fullKey, field, serialized);
-        return;
+        if (this.useUpstash) {
+          await this.upstashRequest("HSET", fullKey, field, serialized);
+          return;
+        } else if (this.client) {
+          await this.client.hSet(fullKey, field, serialized);
+          return;
+        }
       } catch (err) {
         console.warn("[RedisPersistence] HSet failed:", (err as Error).message);
       }
@@ -221,9 +301,14 @@ export class RedisPersistence {
   async hget<T>(key: string, field: string): Promise<T | null> {
     const fullKey = this.getKey(key);
 
-    if (this.isConnected && this.client) {
+    if (this.isConnected) {
       try {
-        const value = await this.client.hGet(fullKey, field);
+        let value: string | null = null;
+        if (this.useUpstash) {
+          value = await this.upstashRequest<string | null>("HGET", fullKey, field);
+        } else if (this.client) {
+          value = await this.client.hGet(fullKey, field);
+        }
         if (value) return JSON.parse(value) as T;
       } catch (err) {
         console.warn("[RedisPersistence] HGet failed:", (err as Error).message);
@@ -243,13 +328,18 @@ export class RedisPersistence {
     const fullKey = this.getKey(key);
     const result: Record<string, T> = {};
 
-    if (this.isConnected && this.client) {
+    if (this.isConnected) {
       try {
-        const data = await this.client.hGetAll(fullKey);
-        for (const [field, value] of Object.entries(data)) {
-          result[field] = JSON.parse(value) as T;
+        if (this.useUpstash) {
+          // Upstash REST API doesn't support HGETALL directly
+          // Fall back to in-memory
+        } else if (this.client) {
+          const data = await this.client.hGetAll(fullKey);
+          for (const [field, value] of Object.entries(data)) {
+            result[field] = JSON.parse(value) as T;
+          }
+          return result;
         }
-        return result;
       } catch (err) {
         console.warn("[RedisPersistence] HGetAll failed:", (err as Error).message);
       }
@@ -271,9 +361,13 @@ export class RedisPersistence {
   async hdel(key: string, field: string): Promise<void> {
     const fullKey = this.getKey(key);
 
-    if (this.isConnected && this.client) {
+    if (this.isConnected) {
       try {
-        await this.client.hDel(fullKey, field);
+        if (this.useUpstash) {
+          await this.upstashRequest("HDEL", fullKey, field);
+        } else if (this.client) {
+          await this.client.hDel(fullKey, field);
+        }
       } catch (err) {
         console.warn("[RedisPersistence] HDel failed:", (err as Error).message);
       }
@@ -284,14 +378,23 @@ export class RedisPersistence {
 
   async incr(key: string, ttlMs?: number): Promise<number> {
     const fullKey = this.getKey(key);
+    const ttlSec = this.getTtlSeconds(ttlMs);
 
-    if (this.isConnected && this.client) {
+    if (this.isConnected) {
       try {
-        const count = await this.client.incr(fullKey);
-        if (count === 1) {
-          await this.client.expire(fullKey, this.getTtlSeconds(ttlMs));
+        if (this.useUpstash) {
+          const count = await this.upstashRequest<number>("INCR", fullKey);
+          if (count === 1) {
+            await this.upstashRequest("EXPIRE", fullKey, String(ttlSec));
+          }
+          return count;
+        } else if (this.client) {
+          const count = await this.client.incr(fullKey);
+          if (count === 1) {
+            await this.client.expire(fullKey, ttlSec);
+          }
+          return count;
         }
-        return count;
       } catch (err) {
         console.warn("[RedisPersistence] Incr failed:", (err as Error).message);
       }
@@ -314,9 +417,14 @@ export class RedisPersistence {
     const fullKey = this.getKey(key);
     const ttlSec = this.getTtlSeconds(ttlMs);
 
-    if (this.isConnected && this.client) {
+    if (this.isConnected) {
       try {
-        return await this.client.expire(fullKey, ttlSec);
+        if (this.useUpstash) {
+          await this.upstashRequest("EXPIRE", fullKey, String(ttlSec));
+          return true;
+        } else if (this.client) {
+          return await this.client.expire(fullKey, ttlSec);
+        }
       } catch (err) {
         console.warn("[RedisPersistence] Expire failed:", (err as Error).message);
       }
@@ -333,9 +441,13 @@ export class RedisPersistence {
   async ttl(key: string): Promise<number> {
     const fullKey = this.getKey(key);
 
-    if (this.isConnected && this.client) {
+    if (this.isConnected) {
       try {
-        return await this.client.ttl(fullKey);
+        if (this.useUpstash) {
+          return await this.upstashRequest<number>("TTL", fullKey);
+        } else if (this.client) {
+          return await this.client.ttl(fullKey);
+        }
       } catch (err) {
         console.warn("[RedisPersistence] TTL failed:", (err as Error).message);
       }

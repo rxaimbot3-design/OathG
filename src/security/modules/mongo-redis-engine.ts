@@ -25,6 +25,11 @@ interface LockEntry {
   expiresAt: number;
 }
 
+// Upstash REST API response types
+interface UpstashResponse<T> {
+  result: T;
+}
+
 export class MongoRedisEngine {
   private static instance: MongoRedisEngine;
   private realCacheMap: TtlMap<string, { val: any; exp?: number }>;
@@ -40,6 +45,10 @@ export class MongoRedisEngine {
   private readonly processId = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   // Local locks map for cross-process coordination (in-memory fallback)
   private localLocks = new TtlMap<string, LockEntry>({ ttlMs: 10000, maxEntries: 1000, autoCleanupMs: 5000 });
+  // Upstash REST API config
+  private upstashUrl: string | null = null;
+  private upstashToken: string | null = null;
+  private useUpstash = false;
 
   static getInstance(): MongoRedisEngine {
     if (!MongoRedisEngine.instance) {
@@ -163,6 +172,25 @@ export class MongoRedisEngine {
     this.redisInitPromise = (async () => {
       try {
         await this.retryWithBackoff(async () => {
+          // Check for Upstash REST API credentials first
+          const upstashUrl = process.env.UPSTASH_REDIS_REST_URL;
+          const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+          
+          if (upstashUrl && upstashToken) {
+            this.upstashUrl = upstashUrl.replace(/\/$/, ""); // Remove trailing slash
+            this.upstashToken = upstashToken;
+            this.useUpstash = true;
+            console.log("[REDIS] Upstash REST API configured, using HTTP-based Redis.");
+            // Test connection
+            await this.upstashRequest("PING");
+            this.redisAvailable = true;
+            this.connectionFailures = 0;
+            this.circuitBreakerOpen = false;
+            console.log("[REDIS] Connected to Upstash Redis via REST API.");
+            return;
+          }
+
+          // Fallback to standard Redis TCP connection
           const redisUrl = process.env.REDIS_URL || process.env.REDIS_HOST;
           if (!redisUrl) {
             console.log("[REDIS] No REDIS_URL configured, using in-memory fallback.");
@@ -178,6 +206,7 @@ export class MongoRedisEngine {
             return;
           }
 
+          this.useUpstash = false;
           this.redisClient = RedisClient({ url: redisUrl });
           this.redisClient.on("error", (err: any) => {
             console.warn("[REDIS] Client error:", err.message);
@@ -216,8 +245,37 @@ export class MongoRedisEngine {
     }
   }
 
+  // Upstash REST API request helper
+  private async upstashRequest<T>(command: string, ...args: string[]): Promise<T> {
+    if (!this.useUpstash || !this.upstashUrl || !this.upstashToken) {
+      throw new Error("Upstash not configured");
+    }
+    
+    const body = [command, ...args];
+    const response = await fetch(this.upstashUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${this.upstashToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      // Check for permission errors and treat them as connection failures
+      if (response.status === 403 || errorText.includes("NOPERM")) {
+        throw new Error(`Upstash permission denied: ${errorText}`);
+      }
+      throw new Error(`Upstash request failed: ${response.status} ${errorText}`);
+    }
+    
+    const data = await response.json() as UpstashResponse<T>;
+    return data.result;
+  }
+
   get isRedisConnected(): boolean {
-    return this.redisAvailable && !!this.redisClient;
+    return this.useUpstash ? this.redisAvailable : (this.redisAvailable && !!this.redisClient);
   }
 
   get isMongoConnected(): boolean {
