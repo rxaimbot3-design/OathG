@@ -278,6 +278,10 @@ export class MongoRedisEngine {
     
     if (!response.ok) {
       const errorText = await response.text();
+      // Check for permission errors and treat them as connection failures
+      if (response.status === 403 || errorText.includes("NOPERM")) {
+        throw new Error(`Upstash permission denied: ${errorText}`);
+      }
       throw new Error(`Upstash request failed: ${response.status} ${errorText}`);
     }
     
@@ -286,7 +290,7 @@ export class MongoRedisEngine {
   }
 
   get isRedisConnected(): boolean {
-    return this.redisAvailable && !!this.redisClient;
+    return this.useUpstash ? this.redisAvailable : (this.redisAvailable && !!this.redisClient);
   }
 
   get isMongoConnected(): boolean {
