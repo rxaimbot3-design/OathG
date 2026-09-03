@@ -369,6 +369,7 @@ export class MongoRedisEngine {
         if (raw) return JSON.parse(raw);
       } catch {
         this.redisAvailable = false;
+        this.redisInitPromise = null; // Allow retry on next initRedis() call
         this.recordFailure();
       }
     }
@@ -384,25 +385,26 @@ export class MongoRedisEngine {
       return;
     }
 
-    // Use distributed lock for delete operations to ensure consistency
-    await this.withLock(`del:${key}`, async () => {
-      if (this.redisAvailable) {
-        try {
-          await this.retryWithBackoff(async () => {
-            if (this.useUpstash) {
-              await this.upstashRequest("DEL", key);
-            } else if (this.redisClient) {
-              await this.redisClient.del(key);
-            }
-          }, 3, 1000);
-          return;
-        } catch {
-          this.redisAvailable = false;
-          this.recordFailure();
+// Use distributed lock for delete operations to ensure consistency
+      await this.withLock(`del:${key}`, async () => {
+        if (this.redisAvailable) {
+          try {
+            await this.retryWithBackoff(async () => {
+              if (this.useUpstash) {
+                await this.upstashRequest("DEL", key);
+              } else if (this.redisClient) {
+                await this.redisClient.del(key);
+              }
+            }, 3, 1000);
+            return;
+          } catch {
+            this.redisAvailable = false;
+            this.redisInitPromise = null; // Allow retry on next initRedis() call
+            this.recordFailure();
+          }
         }
-      }
-      this.realCacheMap.delete(key);
-    });
+        this.realCacheMap.delete(key);
+      });
   }
 
   async performCacheBackup(): Promise<BackupResult> {
@@ -424,31 +426,40 @@ export class MongoRedisEngine {
           cursor = result.cursor;
           
           if (result.keys.length > 0) {
-            // Use pipeline for efficient batch get
-            const pipeline = this.redisClient.multi();
-            for (const key of result.keys) {
-              pipeline.get(key);
-              pipeline.ttl(key);
-            }
-            const results = await pipeline.exec();
+            // Filter out internal keys (session, ratelimit, lock)
+            const appKeys = result.keys.filter(key => 
+              !key.startsWith("session:admin:") &&
+              !key.startsWith("ratelimit:") &&
+              !key.startsWith("lock:")
+            );
             
-            for (let i = 0; i < result.keys.length; i++) {
-              const key = result.keys[i];
-              const valueResult = results[i * 2];
-              const ttlResult = results[i * 2 + 1];
+            if (appKeys.length > 0) {
+              // Use pipeline for efficient batch get
+              const pipeline = this.redisClient.multi();
+              for (const key of appKeys) {
+                pipeline.get(key);
+                pipeline.ttl(key);
+              }
+              const results = await pipeline.exec();
               
-              if (valueResult && valueResult[1]) {
-                const ttl = ttlResult[1] as number;
-                cacheData[key] = {
-                  val: JSON.parse(valueResult[1] as string),
-                  exp: ttl > 0 ? Date.now() + ttl * 1000 : undefined
-                };
+              for (let i = 0; i < appKeys.length; i++) {
+                const key = appKeys[i];
+                const valueResult = results[i * 2];
+                const ttlResult = results[i * 2 + 1];
+                
+                if (valueResult && valueResult[1]) {
+                  const ttl = ttlResult[1] as number;
+                  cacheData[key] = {
+                    val: JSON.parse(valueResult[1] as string),
+                    exp: ttl > 0 ? Date.now() + ttl * 1000 : undefined
+                  };
+                }
               }
             }
           }
         } while (cursor !== 0);
         
-        console.log(`[CACHE BACKUP] Fetched ${Object.keys(cacheData).length} keys from Redis`);
+        console.log(`[CACHE BACKUP] Fetched ${Object.keys(cacheData).length} application keys from Redis`);
       } catch (err) {
         console.warn("[CACHE BACKUP] Failed to fetch from Redis, falling back to local cache:", (err as Error).message);
         // Fall back to local cache
@@ -495,6 +506,7 @@ export class MongoRedisEngine {
       }
 
       const cacheData = dumpData.cacheData as Record<string, { val: any; exp?: number }>;
+      const backupKeys = new Set(Object.keys(cacheData));
       
       // Ensure cache map exists
       this.ensureCacheMap();
@@ -505,13 +517,48 @@ export class MongoRedisEngine {
       // Restore cache data
       let restoredKeys = 0;
       for (const [key, entry] of Object.entries(cacheData)) {
-        this.realCacheMap.set(key, entry);
+        // Preserve original expiration timestamp if present
+        if (entry.exp && entry.exp > Date.now()) {
+          this.realCacheMap.setWithExpiry(key, entry, entry.exp);
+        } else {
+          this.realCacheMap.set(key, entry);
+        }
         restoredKeys++;
       }
 
       // Also restore to Redis if connected
       if (this.isRedisConnected) {
         const client = this.redisClient;
+        
+        // First, delete keys not in backup (for exact restore)
+        if (!this.useUpstash && client) {
+          try {
+            let cursor = 0;
+            const keysToDelete: string[] = [];
+            do {
+              const result = await client.scan(cursor, { MATCH: "*", COUNT: 1000 });
+              cursor = result.cursor;
+              
+              for (const key of result.keys) {
+                // Only delete application keys not in backup (skip internal keys)
+                if (!key.startsWith("session:admin:") &&
+                    !key.startsWith("ratelimit:") &&
+                    !key.startsWith("lock:") &&
+                    !backupKeys.has(key)) {
+                  keysToDelete.push(key);
+                }
+              }
+            } while (cursor !== 0);
+            
+            if (keysToDelete.length > 0) {
+              await client.del(keysToDelete);
+              console.log(`[CACHE RESTORE] Deleted ${keysToDelete.length} keys not in backup`);
+            }
+          } catch (err) {
+            console.warn("[CACHE RESTORE] Failed to delete old keys:", (err as Error).message);
+          }
+        }
+        
         if (client && !this.useUpstash) {
           for (const [key, entry] of Object.entries(cacheData)) {
             try {
@@ -529,6 +576,7 @@ export class MongoRedisEngine {
           }
         } else if (this.useUpstash && this.upstashUrl && this.upstashToken) {
           // Upstash restore would need individual SET calls
+          // Note: Upstash doesn't support SCAN for deletion, so we skip deletion for Upstash
           for (const [key, entry] of Object.entries(cacheData)) {
             try {
               const serialized = JSON.stringify(entry.val);

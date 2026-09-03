@@ -21,6 +21,15 @@ export class TtlMap<K, V> {
     this.enforceLimit();
   }
 
+  /**
+   * Set a value with a custom expiration timestamp (absolute timestamp in ms)
+   * Used for restoring cache with original TTLs
+   */
+  setWithExpiry(key: K, value: V, expiresAt: number): void {
+    this.map.set(key, { value, expiresAt });
+    this.enforceLimit();
+  }
+
   get(key: K): V | undefined {
     const entry = this.map.get(key);
     if (!entry) return undefined;
