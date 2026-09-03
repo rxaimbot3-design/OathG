@@ -573,21 +573,6 @@ class RateLimiterMiddleware {
     RateLimiterMiddleware.failClosed = enabled;
   }
 
-  // Atomic Lua script for sliding window rate limiting
-  private static readonly RATE_LIMIT_LUA_SCRIPT = `
-    local key = KEYS[1]
-    local windowStart = tonumber(ARGV[1])
-    local now = tonumber(ARGV[2])
-    local ttlSec = tonumber(ARGV[3])
-    local member = ARGV[4]
-
-    redis.call('ZREMRANGEBYSCORE', key, '-inf', windowStart)
-    redis.call('ZADD', key, now, member)
-    redis.call('EXPIRE', key, ttlSec)
-    local count = redis.call('ZCARD', key)
-    return count
-  `;
-
   static async initRedis(): Promise<void> {
     try {
       await MongoRedisEngine.initRedis();
