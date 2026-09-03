@@ -541,11 +541,26 @@ async function requireAdminAuth(req: express.Request, res: express.Response, nex
 }
 
 // Sliding Window Rate Limiting Middleware
-// Uses Redis sorted sets when available for multi-instance consistency;
+// Uses Redis sorted sets with atomic Lua script for multi-instance consistency;
 // falls back to in-memory sliding window otherwise.
 class RateLimiterMiddleware {
   private static requests = new TtlMap<string, number[]>({ ttlMs: 300000, maxEntries: 10000, autoCleanupMs: 60000 });
   private static redisAvailable = false;
+
+  // Atomic Lua script for sliding window rate limiting
+  private static readonly RATE_LIMIT_LUA_SCRIPT = `
+    local key = KEYS[1]
+    local windowStart = tonumber(ARGV[1])
+    local now = tonumber(ARGV[2])
+    local ttlSec = tonumber(ARGV[3])
+    local member = ARGV[4]
+
+    redis.call('ZREMRANGEBYSCORE', key, '-inf', windowStart)
+    redis.call('ZADD', key, now, member)
+    redis.call('EXPIRE', key, ttlSec)
+    local count = redis.call('ZCARD', key)
+    return count
+  `;
 
   static async initRedis(): Promise<void> {
     try {
@@ -568,11 +583,21 @@ class RateLimiterMiddleware {
           if (client) {
             const windowStart = now - windowMs;
             const redisKey = `ratelimit:${key}`;
-            await client.zRemRangeByScore(redisKey, 0, windowStart);
-            await client.zAdd(redisKey, { score: now, value: `${now}:${Math.random()}` });
-            await client.expire(redisKey, Math.ceil(windowMs / 1000));
-            const count = await client.zCard(redisKey);
-            if (count >= maxRequests) {
+            const ttlSec = Math.ceil(windowMs / 1000);
+            const member = `${now}:${Math.random()}`;
+
+            // Atomic sliding window rate limit check
+            const count = await client.eval(
+              RateLimiterMiddleware.RATE_LIMIT_LUA_SCRIPT,
+              1,
+              redisKey,
+              windowStart,
+              now,
+              ttlSec,
+              member
+            ) as number;
+
+            if (count > maxRequests) {
               addBotLog(`⚠️ [RATE LIMIT] Exceeded rate limit for IP ${ip} on ${req.path}`, "warning");
               return res.status(429).json({
                 success: false,

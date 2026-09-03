@@ -1,5 +1,11 @@
 import { MongoRedisEngine } from "../security/modules/mongo-redis-engine.js";
 
+export interface RedisRateLimiterConfig {
+  /** When true and Redis is unavailable, fail-closed (reject requests) instead of falling back to local mode.
+   * Should be enabled in multi-instance deployments to maintain rate-limit consistency. */
+  failClosedOnRedisFailure?: boolean;
+}
+
 const LOCAL_FALLBACK_MAX_ENTRIES = 10000;
 const LOCAL_FALLBACK_CLEANUP_MS = 5 * 60 * 1000;
 
@@ -21,8 +27,10 @@ export class RedisRateLimiter {
   private static redisAvailable: boolean = false;
   private static localRequests = new Map<string, number[]>();
   private static localCleanupTimer: NodeJS.Timeout | null = null;
+  private static config: RedisRateLimiterConfig = { failClosedOnRedisFailure: false };
 
-  static async init(): Promise<void> {
+  static async init(config: RedisRateLimiterConfig = {}): Promise<void> {
+    this.config = config;
     try {
       await MongoRedisEngine.initRedis();
       this.redisAvailable = MongoRedisEngine.isRedisConnected;
@@ -53,7 +61,7 @@ export class RedisRateLimiter {
         const client = await MongoRedisEngine.getClient();
         if (!client) {
           this.redisAvailable = false;
-          return this.checkLocal(key, windowMs, maxRequests);
+          return this.handleRedisFailure(key, windowMs, maxRequests);
         }
 
         const now = Date.now();
@@ -66,10 +74,24 @@ export class RedisRateLimiter {
         return count < maxRequests;
       } catch {
         this.redisAvailable = false;
-        return this.checkLocal(key, windowMs, maxRequests);
+        return this.handleRedisFailure(key, windowMs, maxRequests);
       }
     }
 
+    return this.handleRedisFailure(key, windowMs, maxRequests);
+  }
+
+  /**
+   * Handles Redis failure - either fail-closed or fall back to local mode
+   * based on configuration.
+   */
+  private static handleRedisFailure(key: string, windowMs: number, maxRequests: number): boolean {
+    if (this.config.failClosedOnRedisFailure) {
+      // Fail-closed: reject requests when Redis is unavailable in distributed mode
+      console.warn(`[RedisRateLimiter] Redis unavailable, failing closed for key: ${key}`);
+      return false;
+    }
+    // Fallback to local in-memory rate limiting (single-instance mode)
     return this.checkLocal(key, windowMs, maxRequests);
   }
 
@@ -97,5 +119,9 @@ export class RedisRateLimiter {
 
   static isAvailable(): boolean {
     return this.redisAvailable;
+  }
+
+  static getConfig(): RedisRateLimiterConfig {
+    return { ...this.config };
   }
 }
