@@ -80,7 +80,19 @@ export class RedisPersistence {
 
   async connect(): Promise<void> {
     if (this.isConnected) return;
-    if (this.connectionPromise) return this.connectionPromise;
+    // If we have a pending connection promise, check if it's still pending
+    // If it resolved (success or failure), we should allow a new attempt
+    if (this.connectionPromise) {
+      try {
+        await this.connectionPromise;
+        // If we get here, the promise resolved successfully
+        if (this.isConnected) return;
+      } catch {
+        // Promise rejected, we'll create a new one below
+      }
+      // Promise resolved but not connected, or rejected - allow new attempt
+      this.connectionPromise = null;
+    }
 
     this.connectionPromise = (async () => {
       try {
@@ -125,6 +137,7 @@ export class RedisPersistence {
         this.client.on("disconnect", () => {
           console.warn("[RedisPersistence] Disconnected from Redis");
           this.isConnected = false;
+          this.connectionPromise = null; // Allow reconnection attempt
         });
 
         await this.client.connect();
@@ -132,6 +145,7 @@ export class RedisPersistence {
         console.warn("[RedisPersistence] Failed to connect, using in-memory fallback:", (err as Error).message);
         this.client = null;
         this.isConnected = false;
+        this.connectionPromise = null; // Allow retry on next connect() call
       }
     })();
 

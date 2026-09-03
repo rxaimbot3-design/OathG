@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { LruMap } from "../MapManager.js";
+import { TtlMap } from "../MapManager.js";
 
 export interface CanaryTokenConfig {
   adminSecret?: string;
@@ -25,13 +25,19 @@ export interface VerifiedTokenResult {
 export class CanaryToken {
   private static instance: CanaryToken;
   private processFallbackSecret: string;
-  private consumedTokens: LruMap<string, boolean>;
+  private consumedTokens: TtlMap<string, boolean>;
   private config: CanaryTokenConfig;
 
   private constructor(config: CanaryTokenConfig = {}) {
     this.config = config;
     this.processFallbackSecret = crypto.randomBytes(32).toString("hex");
-    this.consumedTokens = new LruMap<string, boolean>(config.maxConsumedTokens ?? 10000);
+    // Use TtlMap with 24-hour TTL matching token validity window
+    // This prevents replay attacks while avoiding unbounded growth
+    this.consumedTokens = new TtlMap<string, boolean>({
+      ttlMs: 24 * 60 * 60 * 1000, // 24 hours - matches token validity
+      maxEntries: config.maxConsumedTokens ?? 50000, // Higher capacity for safety
+      autoCleanupMs: 60 * 60 * 1000, // Clean up expired entries hourly
+    });
   }
 
   static getInstance(config?: CanaryTokenConfig): CanaryToken {

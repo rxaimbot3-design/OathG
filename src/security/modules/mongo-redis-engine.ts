@@ -235,6 +235,9 @@ export class MongoRedisEngine {
           this.redisClient.on("disconnect", () => {
             console.warn("[REDIS] Disconnected from Redis");
             this.redisAvailable = false;
+            // Null out client and reset init promise to allow reconnection
+            this.redisClient = null;
+            this.redisInitPromise = null;
             this.recordFailure();
           });
 
