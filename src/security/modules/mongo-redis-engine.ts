@@ -246,6 +246,7 @@ export class MongoRedisEngine {
       } catch (err: any) {
         console.warn("[REDIS] Init failed after retries:", err.message);
         this.redisClient = null;
+        this.redisInitPromise = null; // Allow retry on next initRedis() call
         this.recordFailure();
       }
     })();
@@ -410,12 +411,20 @@ export class MongoRedisEngine {
     if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
     const dumpFile = path.join(backupDir, `mongo_dump_${Date.now()}.json`);
+    
+    // Collect actual cache data
+    const cacheData: Record<string, { val: any; exp?: number }> = {};
+    for (const [key, entry] of this.realCacheMap.entries()) {
+      cacheData[key] = entry;
+    }
+
     const dumpData = {
       timestamp,
       environment: process.env.NODE_ENV || "development",
       redisConnected: this.isRedisConnected,
       mongoConfigured: this.isMongoConnected,
-      cachedKeysCount: this.realCacheMap.size
+      cachedKeysCount: this.realCacheMap.size,
+      cacheData // Actual key/value data
     };
 
     await this.retryWithBackoff(async () => {
@@ -424,8 +433,81 @@ export class MongoRedisEngine {
     }, 3, 1000);
 
     const sizeMB = parseFloat((fs.statSync(dumpFile).size / (1024 * 1024)).toFixed(3));
-    console.log(`[CACHE BACKUP] Exported cache snapshot to ${dumpFile} (${sizeMB} MB)`);
+    console.log(`[CACHE BACKUP] Exported cache snapshot to ${dumpFile} (${sizeMB} MB, ${Object.keys(cacheData).length} keys)`);
     return { success: true, timestamp, backupSizeMB: Math.max(0.01, sizeMB), dumpFile };
+  }
+
+  async restoreCacheBackup(dumpFile: string): Promise<{ success: boolean; restoredKeys: number; error?: string }> {
+    try {
+      if (!fs.existsSync(dumpFile)) {
+        return { success: false, restoredKeys: 0, error: "Backup file not found" };
+      }
+
+      const dumpData = JSON.parse(fs.readFileSync(dumpFile, "utf8"));
+      
+      if (!dumpData.cacheData || typeof dumpData.cacheData !== "object") {
+        return { success: false, restoredKeys: 0, error: "Invalid backup format: no cache data" };
+      }
+
+      const cacheData = dumpData.cacheData as Record<string, { val: any; exp?: number }>;
+      
+      // Ensure cache map exists
+      this.ensureCacheMap();
+      
+      // Clear existing cache
+      this.realCacheMap.clear();
+      
+      // Restore cache data
+      let restoredKeys = 0;
+      for (const [key, entry] of Object.entries(cacheData)) {
+        this.realCacheMap.set(key, entry);
+        restoredKeys++;
+      }
+
+      // Also restore to Redis if connected
+      if (this.isRedisConnected) {
+        const client = this.redisClient;
+        if (client && !this.useUpstash) {
+          for (const [key, entry] of Object.entries(cacheData)) {
+            try {
+              if (entry.exp) {
+                const ttlSec = Math.max(1, Math.ceil((entry.exp - Date.now()) / 1000));
+                if (ttlSec > 0) {
+                  await client.setEx(key, ttlSec, JSON.stringify(entry.val));
+                }
+              } else {
+                await client.set(key, JSON.stringify(entry.val));
+              }
+            } catch {
+              // Ignore individual key failures
+            }
+          }
+        } else if (this.useUpstash && this.upstashUrl && this.upstashToken) {
+          // Upstash restore would need individual SET calls
+          for (const [key, entry] of Object.entries(cacheData)) {
+            try {
+              const serialized = JSON.stringify(entry.val);
+              if (entry.exp) {
+                const ttlSec = Math.max(1, Math.ceil((entry.exp - Date.now()) / 1000));
+                if (ttlSec > 0) {
+                  await this.upstashRequest("SET", key, serialized, "EX", String(ttlSec));
+                }
+              } else {
+                await this.upstashRequest("SET", key, serialized);
+              }
+            } catch {
+              // Ignore individual key failures
+            }
+          }
+        }
+      }
+
+      console.log(`[CACHE RESTORE] Restored ${restoredKeys} keys from ${dumpFile}`);
+      return { success: true, restoredKeys };
+    } catch (err: any) {
+      console.error("[CACHE RESTORE] Failed:", err.message);
+      return { success: false, restoredKeys: 0, error: err.message };
+    }
   }
 
   getRedisStats(): CacheStats {
@@ -472,6 +554,10 @@ export class MongoRedisEngine {
 
   static async performCacheBackup(): Promise<BackupResult> {
     return this.getInstance().performCacheBackup();
+  }
+
+  static async restoreCacheBackup(dumpFile: string): Promise<{ success: boolean; restoredKeys: number; error?: string }> {
+    return this.getInstance().restoreCacheBackup(dumpFile);
   }
 
   static getRedisStats(): CacheStats {

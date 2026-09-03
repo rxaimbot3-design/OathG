@@ -3173,7 +3173,8 @@ app.post("/api/analytics/backups", requireAdminAuth, heavyOpRateLimit, async (re
       size: `${result.backupSizeMB || 0} MB`,
       duration: `${durationSec}s`,
       type: 'full',
-      verified: verificationState
+      verified: verificationState,
+      dumpFile: result.dumpFile
     });
     if (backupHistory.length > MAX_HISTORY) backupHistory.shift();
     saveBackupHistory();
@@ -3194,11 +3195,29 @@ app.post("/api/analytics/backups/:id/restore", requireAdminAuth, heavyOpRateLimi
     logAdminAuditAction("BACKUP_RESTORE", req, { backupId });
     addBotLog(`[ENTERPRISE] Restore initiated for backup ${backupId}`, "info");
     
-    // In a real implementation, this would restore the backup file to the cache/Redis
-    // For now, we simulate a successful restore operation
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Use dumpFile from backup history
+    const dumpFile = (backup as any).dumpFile;
     
-    res.json({ success: true, message: `Backup ${backupId} restore completed`, restoredAt: new Date().toISOString() });
+    if (!dumpFile || !fs.existsSync(dumpFile)) {
+      return res.status(404).json({ success: false, error: "Backup file not found on disk" });
+    }
+    
+    // Perform actual restore
+    const restoreResult = await MongoRedisEngine.restoreCacheBackup(dumpFile);
+    
+    if (!restoreResult.success) {
+      addBotLog(`[ENTERPRISE] Backup restore failed: ${restoreResult.error}`, "error");
+      return res.status(500).json({ success: false, error: restoreResult.error || "Restore failed" });
+    }
+    
+    addBotLog(`[ENTERPRISE] Restore completed: ${restoreResult.restoredKeys} keys restored from ${path.basename(dumpFile)}`, "success");
+    
+    res.json({ 
+      success: true, 
+      message: `Backup ${backupId} restore completed`, 
+      restoredKeys: restoreResult.restoredKeys,
+      restoredAt: new Date().toISOString() 
+    });
   } catch (err: any) {
     addBotLog(`[ENTERPRISE] Backup restore failed: ${err.message}`, "error");
     res.status(500).json({ success: false, error: "Restore failed" });
