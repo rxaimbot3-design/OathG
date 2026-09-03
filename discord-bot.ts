@@ -2176,6 +2176,9 @@ client.on("clientReady", async () => {
         const ctx = getOrCreateGuildContext(guild);
         ctx.inviteTracker; // Ensure tracker is initialized before reset
         InviteTrackerEngine.resetGuildSync(guild.id);
+        
+        // Destroy GuildContext to prevent memory leak
+        destroyGuildContext(guild.id);
       } catch (err: any) {
         addBotLog(`⚠️ Guild cleanup note for ${guild.name}: ${err.message}`, "warning");
       }
