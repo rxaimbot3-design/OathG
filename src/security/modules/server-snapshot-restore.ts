@@ -167,6 +167,9 @@ export class ServerSnapshotRestore {
 
     alertCallback(`📸 [1-CLICK RESTORE INITIATED] Restoring **${guild.name}** to snapshot from ${new Date(snap.timestamp).toLocaleString()}${this.config.dryRun ? " (DRY RUN)" : ""}...`);
     
+    // Map to track old role ID -> new role ID for permission overwrite mapping
+    const roleIdMap = new Map<string, string>();
+
     try {
       await guild.channels.fetch().catch(() => {});
       await guild.roles.fetch().catch(() => {});
@@ -204,16 +207,23 @@ export class ServerSnapshotRestore {
               await existing.edit({ ...updateData, reason: "Snapshot restore: updating role" }).catch(() => {});
             }
           }
+          // Map existing role ID to itself (no change)
+          roleIdMap.set(snapRole.id, existing.id);
         } else {
           if (!this.config.dryRun) {
-            await guild.roles.create({
+            const newRole = await guild.roles.create({
               name: snapRole.name,
               color: snapRole.color,
               permissions: BigInt(snapRole.permissions),
               hoist: snapRole.hoist,
               mentionable: snapRole.mentionable,
               reason: "Snapshot restore: creating missing role"
-            }).catch(() => {});
+            }).catch(() => null as any);
+            
+            if (newRole) {
+              // Map old snapshot role ID to new Discord role ID
+              roleIdMap.set(snapRole.id, newRole.id);
+            }
           }
         }
       }
@@ -246,7 +256,8 @@ export class ServerSnapshotRestore {
               nsfw: snapChan.nsfw,
               rateLimitPerUser: snapChan.rateLimitPerUser,
               permissionOverwrites: snapChan.permissionOverwrites?.map(po => ({
-                id: po.id,
+                // Map old role IDs to new role IDs
+                id: roleIdMap.get(po.id) || po.id,
                 allow: BigInt(po.allow),
                 deny: BigInt(po.deny),
                 type: po.type
@@ -308,25 +319,52 @@ export class ServerSnapshotRestore {
           }
 
           for (const [id, po] of targetOverwrites) {
+            // Map old role ID to new role ID for permission overwrites
+            const newRoleId = roleIdMap.get(id as string) || id;
             const allow = BigInt((po as any).allow);
             const deny = BigInt((po as any).deny);
             const current = currentOverwrites.get(id as string);
             if (current) {
               if ((current as any).allow.bitfield.toString() !== (po as any).allow || (current as any).deny.bitfield.toString() !== (po as any).deny) {
                 if (!this.config.dryRun) {
-                  await existingAny.permissionOverwrites.edit(id as string, { allow, deny, reason: "Snapshot restore: updating overwrite" }).catch(() => {});
+                  await existingAny.permissionOverwrites.edit(newRoleId, { allow, deny, reason: "Snapshot restore: updating overwrite" }).catch(() => {});
                 }
               }
             } else {
               if (!this.config.dryRun) {
-                await existingAny.permissionOverwrites.create({ id: id as string, allow, deny, type: (po as any).type, reason: "Snapshot restore: creating overwrite" }).catch(() => {});
+                await existingAny.permissionOverwrites.create({ id: newRoleId, allow, deny, type: (po as any).type, reason: "Snapshot restore: creating overwrite" }).catch(() => {});
               }
             }
           }
         }
       }
 
-      // Phase 4: Fix channel positions
+      // Phase 4: Restore role positions/hierarchy
+      alertCallback(`🔧 Restoring role hierarchy...`);
+      if (!this.config.dryRun) {
+        // Sort snapshot roles by position (highest first)
+        const sortedRoles = [...snap.roles].sort((a, b) => (b.position || 0) - (a.position || 0));
+        
+        for (const snapRole of sortedRoles) {
+          if (snapRole.id === guild.id) continue; // Skip @everyone
+          
+          const newRoleId = roleIdMap.get(snapRole.id);
+          if (!newRoleId) continue;
+          
+          const role = guild.roles.cache.get(newRoleId);
+          if (!role) continue;
+          
+          // Set role position - need to position relative to other roles
+          // We'll set positions from highest to lowest
+          try {
+            await role.setPosition(snapRole.position || 0, { reason: "Snapshot restore: restoring role hierarchy" }).catch(() => {});
+          } catch {
+            // Position setting may fail if hierarchy constraints violated, continue
+          }
+        }
+      }
+
+      // Phase 5: Fix channel positions
       const channelsToPosition = guild.channels.cache.filter(c => !protectedChannelIds.has(c.id));
       if (channelsToPosition.size > 0 && !this.config.dryRun) {
         await guild.channels.setPositions(

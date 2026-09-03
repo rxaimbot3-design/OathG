@@ -412,10 +412,55 @@ export class MongoRedisEngine {
 
     const dumpFile = path.join(backupDir, `mongo_dump_${Date.now()}.json`);
     
-    // Collect actual cache data
+    // Collect actual cache data - prioritize Redis when connected since local cache may be stale
     const cacheData: Record<string, { val: any; exp?: number }> = {};
-    for (const [key, entry] of this.realCacheMap.entries()) {
-      cacheData[key] = entry;
+    
+    if (this.isRedisConnected && this.redisClient) {
+      try {
+        // Fetch all keys from Redis and their values
+        let cursor = 0;
+        do {
+          const result = await this.redisClient.scan(cursor, { MATCH: "*", COUNT: 1000 });
+          cursor = result.cursor;
+          
+          if (result.keys.length > 0) {
+            // Use pipeline for efficient batch get
+            const pipeline = this.redisClient.multi();
+            for (const key of result.keys) {
+              pipeline.get(key);
+              pipeline.ttl(key);
+            }
+            const results = await pipeline.exec();
+            
+            for (let i = 0; i < result.keys.length; i++) {
+              const key = result.keys[i];
+              const valueResult = results[i * 2];
+              const ttlResult = results[i * 2 + 1];
+              
+              if (valueResult && valueResult[1]) {
+                const ttl = ttlResult[1] as number;
+                cacheData[key] = {
+                  val: JSON.parse(valueResult[1] as string),
+                  exp: ttl > 0 ? Date.now() + ttl * 1000 : undefined
+                };
+              }
+            }
+          }
+        } while (cursor !== 0);
+        
+        console.log(`[CACHE BACKUP] Fetched ${Object.keys(cacheData).length} keys from Redis`);
+      } catch (err) {
+        console.warn("[CACHE BACKUP] Failed to fetch from Redis, falling back to local cache:", (err as Error).message);
+        // Fall back to local cache
+        for (const [key, entry] of this.realCacheMap.entries()) {
+          cacheData[key] = entry;
+        }
+      }
+    } else {
+      // Use local cache when Redis not connected
+      for (const [key, entry] of this.realCacheMap.entries()) {
+        cacheData[key] = entry;
+      }
     }
 
     const dumpData = {
@@ -423,7 +468,7 @@ export class MongoRedisEngine {
       environment: process.env.NODE_ENV || "development",
       redisConnected: this.isRedisConnected,
       mongoConfigured: this.isMongoConnected,
-      cachedKeysCount: this.realCacheMap.size,
+      cachedKeysCount: Object.keys(cacheData).length,
       cacheData // Actual key/value data
     };
 

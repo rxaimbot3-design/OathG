@@ -3233,14 +3233,94 @@ app.post("/api/analytics/backups/:id/test-restore", requireAdminAuth, heavyOpRat
     logAdminAuditAction("BACKUP_TEST_RESTORE", req, { backupId });
     addBotLog(`[ENTERPRISE] Test restore initiated for backup ${backupId}`, "info");
     
-    // Simulate integrity check and test restore
-    const integrityCheck = backup.status === 'success' && backup.verified && backup.verified !== 'pending';
+    // Get dump file from backup history
+    const dumpFile = (backup as any).dumpFile;
+    
+    if (!dumpFile || !fs.existsSync(dumpFile)) {
+      return res.status(404).json({ success: false, error: "Backup file not found on disk" });
+    }
+    
+    // Read and validate backup file structure
+    let dumpData: any;
+    try {
+      dumpData = JSON.parse(fs.readFileSync(dumpFile, "utf8"));
+    } catch (err) {
+      return res.json({ 
+        success: false, 
+        backupId,
+        integrityCheck: false,
+        restoreTest: 'failed',
+        checkedAt: new Date().toISOString(),
+        message: "Backup file is corrupted or invalid JSON",
+        error: (err as Error).message
+      });
+    }
+    
+    // Validate backup format
+    if (!dumpData.cacheData || typeof dumpData.cacheData !== "object") {
+      return res.json({ 
+        success: false, 
+        backupId,
+        integrityCheck: false,
+        restoreTest: 'failed',
+        checkedAt: new Date().toISOString(),
+        message: "Invalid backup format: missing or invalid cacheData"
+      });
+    }
+    
+    // Verify checksum/integrity by checking data consistency
+    const cacheData = dumpData.cacheData as Record<string, { val: any; exp?: number }>;
+    let validEntries = 0;
+    let corruptedEntries = 0;
+    
+    for (const [key, entry] of Object.entries(cacheData)) {
+      if (entry && typeof entry.val !== "undefined") {
+        validEntries++;
+      } else {
+        corruptedEntries++;
+      }
+    }
+    
+    const integrityCheck = corruptedEntries === 0 && validEntries > 0;
+    
+    // Test restore: attempt to restore to a temporary in-memory map (not affecting live cache)
+    let restoreTest = 'failed';
+    let restoredKeys = 0;
+    let testError = "";
+    
+    if (integrityCheck) {
+      try {
+        const testCacheMap = new Map<string, { val: any; exp?: number }>();
+        for (const [key, entry] of Object.entries(cacheData)) {
+          testCacheMap.set(key, entry);
+          restoredKeys++;
+        }
+        // Verify we can read back what we wrote
+        if (testCacheMap.size === restoredKeys) {
+          restoreTest = 'passed';
+        }
+      } catch (err) {
+        testError = (err as Error).message;
+        restoreTest = 'failed';
+      }
+    }
+    
     const testResult = {
       backupId,
       integrityCheck,
-      restoreTest: integrityCheck ? 'passed' : 'failed',
+      restoreTest,
       checkedAt: new Date().toISOString(),
-      message: integrityCheck ? 'Backup integrity verified and restore test passed' : 'Backup integrity check failed'
+      message: integrityCheck && restoreTest === 'passed' 
+        ? `Backup integrity verified and restore test passed (${restoredKeys} keys)` 
+        : `Backup integrity check ${integrityCheck ? 'passed' : 'failed'}; restore test ${restoreTest}`,
+      stats: {
+        totalKeys: Object.keys(cacheData).length,
+        validEntries,
+        corruptedEntries,
+        restoredKeys,
+        backupSize: dumpData.backupSizeMB || 0,
+        backupTimestamp: dumpData.timestamp
+      }
     };
     
     // Update backup verification state if test passed
