@@ -57,7 +57,7 @@ import {
 } from "./src/SecurityFeatures.js";
 // New modular imports (gradual migration)
 import { botContext } from "./src/core/contexts/BotContext.js";
-import { GuildContext, getGuildContext } from "./src/core/contexts/GuildContext.js";
+import { GuildContext, getGuildContext, destroyGuildContext } from "./src/core/contexts/GuildContext.js";
 import { validateEnvironmentVariables } from "./src/EnvValidator.js";
 import { CppNativeEngine } from "./src/CppEngine.js";
 import { TtlMap, LruMap } from "./src/security/MapManager.js";

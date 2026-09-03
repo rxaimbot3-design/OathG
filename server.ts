@@ -546,6 +546,32 @@ async function requireAdminAuth(req: express.Request, res: express.Response, nex
 class RateLimiterMiddleware {
   private static requests = new TtlMap<string, number[]>({ ttlMs: 300000, maxEntries: 10000, autoCleanupMs: 60000 });
   private static redisAvailable = false;
+  private static failClosed = false; // When true, reject requests instead of falling back to local mode
+  private static recoveryTimer: NodeJS.Timeout | null = null;
+
+  // Atomic Lua script for sliding window rate limiting
+  private static readonly RATE_LIMIT_LUA_SCRIPT = `
+    local key = KEYS[1]
+    local windowStart = tonumber(ARGV[1])
+    local now = tonumber(ARGV[2])
+    local ttlSec = tonumber(ARGV[3])
+    local member = ARGV[4]
+
+    redis.call('ZREMRANGEBYSCORE', key, '-inf', windowStart)
+    redis.call('ZADD', key, now, member)
+    redis.call('EXPIRE', key, ttlSec)
+    local count = redis.call('ZCARD', key)
+    return count
+  `;
+
+  /**
+   * Enable fail-closed mode for distributed deployments.
+   * When enabled, rate limiter will reject requests with 503 when Redis is unavailable
+   * instead of falling back to per-instance in-memory limiting.
+   */
+  static setFailClosed(enabled: boolean): void {
+    RateLimiterMiddleware.failClosed = enabled;
+  }
 
   // Atomic Lua script for sliding window rate limiting
   private static readonly RATE_LIMIT_LUA_SCRIPT = `
@@ -569,6 +595,26 @@ class RateLimiterMiddleware {
     } catch {
       RateLimiterMiddleware.redisAvailable = false;
     }
+    // Start background recovery check
+    RateLimiterMiddleware.startRecoveryCheck();
+  }
+
+  private static startRecoveryCheck(): void {
+    if (RateLimiterMiddleware.recoveryTimer) return;
+    
+    RateLimiterMiddleware.recoveryTimer = setInterval(async () => {
+      if (RateLimiterMiddleware.redisAvailable) return;
+      
+      try {
+        await MongoRedisEngine.initRedis();
+        if (MongoRedisEngine.isRedisConnected) {
+          RateLimiterMiddleware.redisAvailable = true;
+          console.log("[RateLimiterMiddleware] Redis connection recovered, re-enabled distributed rate limiting");
+        }
+      } catch {
+        // Redis still unavailable, will retry on next interval
+      }
+    }, 30000); // Check every 30 seconds
   }
 
   public static limit(windowMs: number, maxRequests: number, keyPrefix = "") {
@@ -606,12 +652,21 @@ class RateLimiterMiddleware {
             }
             return next();
           }
-        } catch {
+        } catch (err) {
+          console.warn("[RateLimiterMiddleware] Redis error, marking unavailable:", (err as Error).message);
           RateLimiterMiddleware.redisAvailable = false;
         }
       }
 
-      // In-memory fallback
+      // In-memory fallback (only used when Redis unavailable AND failClosed is false)
+      if (RateLimiterMiddleware.failClosed) {
+        // Fail-closed: reject requests when Redis unavailable in distributed mode
+        return res.status(503).json({
+          success: false,
+          error: "Service temporarily unavailable - rate limiter degraded"
+        });
+      }
+
       const timestamps = RateLimiterMiddleware.requests.get(key) || [];
       const validTimestamps = timestamps.filter(t => now - t < windowMs);
 
