@@ -417,51 +417,19 @@ export class MongoRedisEngine {
     // Collect actual cache data - prioritize Redis when connected since local cache may be stale
     const cacheData: Record<string, { val: any; exp?: number }> = {};
     
-    if (this.isRedisConnected && this.redisClient) {
+    if (this.isRedisConnected) {
       try {
-        // Fetch all keys from Redis and their values
-        let cursor = 0;
-        do {
-          const result = await this.redisClient.scan(cursor, { MATCH: "*", COUNT: 1000 });
-          cursor = result.cursor;
-          
-          if (result.keys.length > 0) {
-            // Filter out internal keys (session, ratelimit, lock)
-            const appKeys = result.keys.filter(key => 
-              !key.startsWith("session:admin:") &&
-              !key.startsWith("ratelimit:") &&
-              !key.startsWith("lock:")
-            );
-            
-            if (appKeys.length > 0) {
-              // Use pipeline for efficient batch get
-              const pipeline = this.redisClient.multi();
-              for (const key of appKeys) {
-                pipeline.get(key);
-                pipeline.ttl(key);
-              }
-              const results = await pipeline.exec();
-              
-              for (let i = 0; i < appKeys.length; i++) {
-                const key = appKeys[i];
-                const valueResult = results[i * 2];
-                const ttlResult = results[i * 2 + 1];
-                
-                if (valueResult && valueResult[1]) {
-                  const ttl = ttlResult[1] as number;
-                  cacheData[key] = {
-                    val: JSON.parse(valueResult[1] as string),
-                    exp: ttl > 0 ? Date.now() + ttl * 1000 : undefined
-                  };
-                }
-              }
-            }
-          }
-        } while (cursor !== 0);
+        if (this.useUpstash) {
+          // Upstash REST API - use SCAN to fetch all keys
+          await this.backupFromUpstash(cacheData);
+        } else if (this.redisClient) {
+          // Standard Redis TCP - use SCAN + pipeline
+          await this.backupFromRedis(cacheData);
+        }
         
-        console.log(`[CACHE BACKUP] Fetched ${Object.keys(cacheData).length} application keys from Redis`);
+        console.log(`[CACHE BACKUP] Fetched ${Object.keys(cacheData).length} application keys from ${this.useUpstash ? "Upstash" : "Redis"}`);
       } catch (err) {
-        console.warn("[CACHE BACKUP] Failed to fetch from Redis, falling back to local cache:", (err as Error).message);
+        console.warn("[CACHE BACKUP] Failed to fetch from Redis/Upstash, falling back to local cache:", (err as Error).message);
         // Fall back to local cache
         for (const [key, entry] of this.realCacheMap.entries()) {
           cacheData[key] = entry;
@@ -491,6 +459,84 @@ export class MongoRedisEngine {
     const sizeMB = parseFloat((fs.statSync(dumpFile).size / (1024 * 1024)).toFixed(3));
     console.log(`[CACHE BACKUP] Exported cache snapshot to ${dumpFile} (${sizeMB} MB, ${Object.keys(cacheData).length} keys)`);
     return { success: true, timestamp, backupSizeMB: Math.max(0.01, sizeMB), dumpFile };
+  }
+
+  private async backupFromRedis(cacheData: Record<string, { val: any; exp?: number }>): Promise<void> {
+    let cursor = 0;
+    do {
+      const result = await this.redisClient!.scan(cursor, { MATCH: "*", COUNT: 1000 });
+      cursor = result.cursor;
+      
+      if (result.keys.length > 0) {
+        // Filter out internal keys (session, ratelimit, lock)
+        const appKeys = result.keys.filter(key => 
+          !key.startsWith("session:admin:") &&
+          !key.startsWith("ratelimit:") &&
+          !key.startsWith("lock:")
+        );
+        
+        if (appKeys.length > 0) {
+          // Use pipeline for efficient batch get
+          const pipeline = this.redisClient!.multi();
+          for (const key of appKeys) {
+            pipeline.get(key);
+            pipeline.ttl(key);
+          }
+          const results = await pipeline.exec();
+          
+          for (let i = 0; i < appKeys.length; i++) {
+            const key = appKeys[i];
+            const valueResult = results[i * 2];
+            const ttlResult = results[i * 2 + 1];
+            
+            if (valueResult && valueResult[1]) {
+              const ttl = ttlResult[1] as number;
+              cacheData[key] = {
+                val: JSON.parse(valueResult[1] as string),
+                exp: ttl > 0 ? Date.now() + ttl * 1000 : undefined
+              };
+            }
+          }
+        }
+      }
+    } while (cursor !== 0);
+  }
+
+  private async backupFromUpstash(cacheData: Record<string, { val: any; exp?: number }>): Promise<void> {
+    // Upstash REST API supports SCAN - iterate all keys
+    let cursor = "0";
+    do {
+      const result = await this.upstashRequest<[string, string[]]>("SCAN", cursor, "MATCH", "*", "COUNT", "1000");
+      cursor = result[0];
+      
+      if (result[1].length > 0) {
+        // Filter out internal keys
+        const appKeys = result[1].filter(key => 
+          !key.startsWith("session:admin:") &&
+          !key.startsWith("ratelimit:") &&
+          !key.startsWith("lock:")
+        );
+        
+        if (appKeys.length > 0) {
+          // Fetch values and TTLs for each key (Upstash doesn't support pipeline, so batch in chunks)
+          for (const key of appKeys) {
+            try {
+              const value = await this.upstashRequest<string | null>("GET", key);
+              const ttl = await this.upstashRequest<number>("TTL", key);
+              
+              if (value) {
+                cacheData[key] = {
+                  val: JSON.parse(value),
+                  exp: ttl > 0 ? Date.now() + ttl * 1000 : undefined
+                };
+              }
+            } catch {
+              // Ignore individual key failures
+            }
+          }
+        }
+      }
+    } while (cursor !== "0");
   }
 
   async restoreCacheBackup(dumpFile: string): Promise<{ success: boolean; restoredKeys: number; error?: string }> {
@@ -556,6 +602,37 @@ export class MongoRedisEngine {
             }
           } catch (err) {
             console.warn("[CACHE RESTORE] Failed to delete old keys:", (err as Error).message);
+          }
+        } else if (this.useUpstash) {
+          // Upstash REST API - use SCAN to find and delete keys not in backup
+          try {
+            let cursor = "0";
+            const keysToDelete: string[] = [];
+            do {
+              const result = await this.upstashRequest<[string, string[]]>("SCAN", cursor, "MATCH", "*", "COUNT", "1000");
+              cursor = result[0];
+              
+              for (const key of result[1]) {
+                // Only delete application keys not in backup (skip internal keys)
+                if (!key.startsWith("session:admin:") &&
+                    !key.startsWith("ratelimit:") &&
+                    !key.startsWith("lock:") &&
+                    !backupKeys.has(key)) {
+                  keysToDelete.push(key);
+                }
+              }
+            } while (cursor !== "0");
+            
+            if (keysToDelete.length > 0) {
+              // Delete in chunks (Upstash DEL supports multiple keys)
+              for (let i = 0; i < keysToDelete.length; i += 100) {
+                const chunk = keysToDelete.slice(i, i + 100);
+                await this.upstashRequest("DEL", ...chunk);
+              }
+              console.log(`[CACHE RESTORE] Deleted ${keysToDelete.length} keys not in backup (Upstash)`);
+            }
+          } catch (err) {
+            console.warn("[CACHE RESTORE] Failed to delete old keys (Upstash):", (err as Error).message);
           }
         }
         
