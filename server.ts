@@ -3355,6 +3355,9 @@ async function setupServer() {
     await RateLimiterMiddleware.initRedis().catch((err) => {
       console.warn("Redis rate limiter initialization failed:", err);
     });
+    // Enable fail-closed mode for distributed rate limiting
+    // When Redis is unavailable, reject requests with 503 instead of falling back to per-instance limits
+    RateLimiterMiddleware.setFailClosed(true);
     // Load persisted risk score history
     loadRiskScoreHistory();
     // Load persisted backup history

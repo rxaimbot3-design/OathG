@@ -173,3 +173,15 @@ export function getGuildContext(guild: Guild, botContextInstance: typeof botCont
   }
   return context;
 }
+
+/**
+ * Destroy and remove a GuildContext for a guild (on guild leave).
+ * Clears internal state and removes from global map to prevent memory leaks.
+ */
+export function destroyGuildContext(guildId: string): void {
+  const context = guildContextMap.get(guildId);
+  if (context) {
+    context.destroy();
+    guildContextMap.delete(guildId);
+  }
+}
