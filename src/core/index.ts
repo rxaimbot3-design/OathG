@@ -41,3 +41,8 @@ export { EdgeCacheSystem, edgeCacheSystem, type CacheEntry, type CacheConfig, ty
 export { BenchmarkEvidenceSystem, benchmarkEvidenceSystem, type BenchmarkResult, type StressTestConfig, type ProofOfPerformance } from "./BenchmarkEvidenceSystem.js";
 export { SelfHealingInfrastructure, selfHealingInfrastructure, type HealthCheck, type SystemHealth, type Incident, type HealingAction } from "./SelfHealingInfrastructure.js";
 export { UltimateBotIntegration, ultimateBotIntegration } from "./UltimateIntegration.js";
+export { VoiceProcessingEngine, voiceProcessingEngine, type VoiceConfig, type VoiceSession, type TranscriptionResult, type VoiceAnalytics } from "./VoiceProcessingEngine.js";
+export { AdvancedAIModerator, advancedAIModerator, type AIModeratorConfig, type CustomRule, type ModerationContext, type ModerationResult, type AIInsight } from "./AdvancedAIModerator.js";
+export { PluginSystem, pluginSystem, type PluginManifest, type PluginInstance, type PluginContext, type PluginAPI, type PluginCommand, type PluginMiddleware, type PluginWebRoute, type PluginStorage, type PluginUtils } from "./PluginSystem.js";
+export { RealtimeAnalyticsDashboard, realtimeAnalyticsDashboard, type DashboardConfig, type MetricSeries, type DashboardWidget, type DashboardLayout, type AlertRule, type Alert, type SystemHealth } from "./RealtimeAnalyticsDashboard.js";
+export { ThreatIntelligenceSystem, threatIntelligenceSystem, type ThreatIntelConfig, type ThreatFeed, type ThreatIndicator, type ThreatActor, type ThreatCampaign, type BlockchainAuditEntry, type ThreatIntelStats } from "./ThreatIntelligenceSystem.js";

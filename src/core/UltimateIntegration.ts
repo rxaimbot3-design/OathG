@@ -3,6 +3,11 @@ import { multiShardCluster, MultiShardCluster } from "./MultiShardCluster.js";
 import { edgeCacheSystem } from "./EdgeCacheSystem.js";
 import { benchmarkEvidenceSystem, BenchmarkEvidenceSystem } from "./BenchmarkEvidenceSystem.js";
 import { selfHealingInfrastructure, SelfHealingInfrastructure } from "./SelfHealingInfrastructure.js";
+import { voiceProcessingEngine, VoiceProcessingEngine } from "./VoiceProcessingEngine.js";
+import { advancedAIModerator, AdvancedAIModerator } from "./AdvancedAIModerator.js";
+import { pluginSystem, PluginSystem } from "./PluginSystem.js";
+import { realtimeAnalyticsDashboard, RealtimeAnalyticsDashboard } from "./RealtimeAnalyticsDashboard.js";
+import { threatIntelligenceSystem, ThreatIntelligenceSystem } from "./ThreatIntelligenceSystem.js";
 import { distributedRateLimiter } from "../security/DistributedRateLimiter.js";
 import { mlAnomalyDetector, MLAnomalyDetector } from "../security/MLAnomalyDetector.js";
 import { predictiveNukeDefense, PredictiveNukeDefense } from "../security/PredictiveNukeDefense.js";
@@ -73,6 +78,17 @@ export class UltimateBotIntegration {
     
     SelfHealingInfrastructure.getInstance();
     
+    VoiceProcessingEngine.getInstance();
+    
+    PluginSystem.getInstance();
+    
+    RealtimeAnalyticsDashboard.getInstance();
+    
+    ThreatIntelligenceSystem.getInstance();
+    
+    await RealtimeAnalyticsDashboard.getInstance().start();
+    await ThreatIntelligenceSystem.getInstance().start();
+    
     log.info({ module: "UltimateIntegration" }, "Core systems initialized");
   }
   
@@ -84,6 +100,8 @@ export class UltimateBotIntegration {
     MLAnomalyDetector.getInstance();
     
     PredictiveNukeDefense.getInstance();
+    
+    AdvancedAIModerator.getInstance();
     
     BenchmarkEvidenceSystem.getInstance();
     
@@ -421,7 +439,12 @@ export class UltimateBotIntegration {
       anomalyDetection: mlAnomalyDetector.getStats(),
       predictiveDefense: predictiveNukeDefense.getStats(),
       selfHealing: selfHealingInfrastructure.getSystemHealth(),
-      benchmark: benchmarkEvidenceSystem.getRealTimeMetrics()
+      benchmark: benchmarkEvidenceSystem.getRealTimeMetrics(),
+      voice: voiceProcessingEngine.getAnalytics(),
+      aiModerator: advancedAIModerator.getStats(),
+      plugins: pluginSystem.getAllPlugins().map(p => ({ id: p.manifest.id, state: p.state })),
+      analytics: realtimeAnalyticsDashboard.getStats(),
+      threatIntel: threatIntelligenceSystem.getStats()
     };
   }
   
@@ -436,6 +459,11 @@ export class UltimateBotIntegration {
     await predictiveNukeDefense.shutdown();
     await benchmarkEvidenceSystem.shutdown();
     await selfHealingInfrastructure.shutdown();
+    await voiceProcessingEngine.shutdown();
+    await advancedAIModerator.shutdown();
+    await pluginSystem.shutdown();
+    await realtimeAnalyticsDashboard.shutdown();
+    await threatIntelligenceSystem.shutdown();
     
     this.initialized = false;
     log.info({ module: "UltimateIntegration" }, "Ultimate bot integration shutdown complete");
