@@ -735,4 +735,17 @@ export class CppNativeEngine {
   static async shutdown() {
     await workerEngine.shutdown();
   }
+
+  // Instance methods for compatibility
+  async initialize(): Promise<void> {
+    await CppNativeEngine.initEngine();
+  }
+
+  async processEvent(event: any): Promise<void> {
+    CppNativeEngine.scanSecurityPacket(event.payload?.packetId || 0, event.payload?.riskWeight || 0);
+  }
+
+  async shutdown(): Promise<void> {
+    await CppNativeEngine.shutdown();
+  }
 }

@@ -54,3 +54,8 @@ export { TtlMap, LruMap } from "./MapManager.js";
 // Legacy aliases for backward compatibility
 export { NukeDefense as ZeroTrustSecurityEngine } from "./modules/nuke-defense.js";
 export { AIRaidPrediction as AiRaidPredictionEngine } from "./modules/ai-raid-prediction.js";
+
+// Ultimate Security Systems (Next-Gen)
+export { MLAnomalyDetector, mlAnomalyDetector, type AnomalyFeatures, type AnomalyResult, type BehavioralProfile } from "./MLAnomalyDetector.js";
+export { PredictiveNukeDefense, predictiveNukeDefense, type ThreatPrediction, type NukeAttempt, type DefenseLayer } from "./PredictiveNukeDefense.js";
+export { DistributedRateLimiter, distributedRateLimiter, type RateLimitConfig, type RateLimitResult, type DistributedRateLimitOptions } from "./DistributedRateLimiter.js";

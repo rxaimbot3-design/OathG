@@ -34,3 +34,10 @@ export type {
   AIRaidPredictionModule, 
   HoneypotAdminRoleModule 
 } from "./interfaces/SecurityModule";
+
+export { UltraLowLatencyPipeline, ultraLowLatencyPipeline, type PipelineEvent, type PipelineMetrics } from "./UltraLowLatencyPipeline.js";
+export { MultiShardCluster, multiShardCluster, type ShardConfig, type WorkerMetrics, type ClusterMetrics } from "./MultiShardCluster.js";
+export { EdgeCacheSystem, edgeCacheSystem, type CacheEntry, type CacheConfig, type CacheStats, type EdgeLocation } from "./EdgeCacheSystem.js";
+export { BenchmarkEvidenceSystem, benchmarkEvidenceSystem, type BenchmarkResult, type StressTestConfig, type ProofOfPerformance } from "./BenchmarkEvidenceSystem.js";
+export { SelfHealingInfrastructure, selfHealingInfrastructure, type HealthCheck, type SystemHealth, type Incident, type HealingAction } from "./SelfHealingInfrastructure.js";
+export { UltimateBotIntegration, ultimateBotIntegration } from "./UltimateIntegration.js";

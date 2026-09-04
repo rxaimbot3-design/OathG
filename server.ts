@@ -50,6 +50,10 @@ import { DIContainer } from "./src/di/container.js";
 // import { registerSystemRoutes } from "./src/server/routes/system.js";
 // import { registerGitHubRoutes } from "./src/server/routes/github.js";
 
+// Ultimate Bot Integration
+import { ultimateBotIntegration } from "./src/core/UltimateIntegration.js";
+import { benchmarkEvidenceSystem } from "./src/core/BenchmarkEvidenceSystem.js";
+
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
@@ -3497,6 +3501,52 @@ async function setupServer() {
     // Enable fail-closed mode for distributed rate limiting
     // When Redis is unavailable, reject requests with 503 instead of falling back to per-instance limits
     RateLimiterMiddleware.setFailClosed(true);
+    
+    // 🚀 INITIALIZE ULTIMATE BOT INTEGRATION (World's #1 Discord Bot)
+    try {
+      await ultimateBotIntegration.initialize();
+      console.log("✅ ULTIMATE BOT INTEGRATION ACTIVE - World's #1 Discord Bot Online");
+    } catch (err) {
+      console.error("❌ Ultimate integration failed:", err);
+    }
+    
+    // 🏆 EXPOSE BENCHMARK/PROOF ENDPOINT
+    app.get("/api/benchmark/proof", async (req, res) => {
+      try {
+        const proof = benchmarkEvidenceSystem.generateProofOfPerformance();
+        res.json(proof);
+      } catch (err) {
+        res.status(500).json({ error: String(err) });
+      }
+    });
+    
+    app.get("/api/benchmark/realtime", async (req, res) => {
+      try {
+        const metrics = benchmarkEvidenceSystem.getRealTimeMetrics();
+        res.json(metrics);
+      } catch (err) {
+        res.status(500).json({ error: String(err) });
+      }
+    });
+    
+    app.get("/api/benchmark/run", async (req, res) => {
+      try {
+        const results = await benchmarkEvidenceSystem.runBenchmarks();
+        res.json(results);
+      } catch (err) {
+        res.status(500).json({ error: String(err) });
+      }
+    });
+    
+    app.get("/api/ultimate/status", async (req, res) => {
+      try {
+        const dashboard = ultimateBotIntegration.getRealTimeDashboard();
+        res.json(dashboard);
+      } catch (err) {
+        res.status(500).json({ error: String(err) });
+      }
+    });
+    
     // Load persisted risk score history
     loadRiskScoreHistory();
     // Load persisted backup history

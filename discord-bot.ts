@@ -1449,6 +1449,11 @@ export async function startDiscordBot() {
   EnvScanner.scan();
   CanaryToken.setup();
   CppNativeEngine.initEngine().catch(() => {});
+  
+  // 🚀 INITIALIZE ULTIMATE BOT INTEGRATION (World's #1 Discord Bot)
+  const { ultimateBotIntegration } = await import("./src/core/UltimateIntegration.js");
+  await ultimateBotIntegration.initialize();
+  
   BotTokenRotationSystem.setReconnectHandler(async (newToken) => {
     addBotLog("[TOKEN-ROTATION] Reconnecting bot with new token...", "warning");
     await stopDiscordBot();
