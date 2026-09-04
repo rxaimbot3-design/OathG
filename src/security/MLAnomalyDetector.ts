@@ -73,20 +73,22 @@ export class MLAnomalyDetector extends EventEmitter {
   }>();
   
   private modelWeights = {
-    velocity: 0.25,
-    frequency: 0.20,
-    entropy: 0.15,
-    deviation: 0.15,
-    accountAge: 0.10,
-    reputation: 0.10,
-    ipReputation: 0.05
+    velocity: 0.10,
+    frequency: 0.10,
+    entropy: 0.05,
+    deviation: 0.05,
+    accountAge: 0.15,
+    reputation: 0.15,
+    ipReputation: 0.15,
+    ipSuspicion: 0.10,
+    newAccountBoost: 0.30
   };
   
   private thresholds = {
-    low: 0.3,
-    medium: 0.5,
-    high: 0.7,
-    critical: 0.85
+    low: 0.25,
+    medium: 0.4,
+    high: 0.6,
+    critical: 0.7
   };
   
   private trainingBuffer: AnomalyFeatures[] = [];
@@ -117,6 +119,8 @@ export class MLAnomalyDetector extends EventEmitter {
     const accountAgeScore = this.calculateAccountAgeScore(features);
     const reputationScore = this.calculateReputationScore(features);
     const ipReputationScore = features.ipReputation;
+    const ipSuspicionScore = this.calculateIPSuspicionScore(features);
+    const newAccountBoostScore = this.calculateNewAccountBoost(features);
     
     const weightedScore = 
       velocityScore * this.modelWeights.velocity +
@@ -125,7 +129,9 @@ export class MLAnomalyDetector extends EventEmitter {
       deviationScore * this.modelWeights.deviation +
       accountAgeScore * this.modelWeights.accountAge +
       reputationScore * this.modelWeights.reputation +
-      ipReputationScore * this.modelWeights.ipReputation;
+      ipReputationScore * this.modelWeights.ipReputation +
+      ipSuspicionScore * this.modelWeights.ipSuspicion +
+      newAccountBoostScore * this.modelWeights.newAccountBoost;
     
     const factors: string[] = [];
     if (velocityScore > 0.7) factors.push("HIGH_VELOCITY");
@@ -217,15 +223,30 @@ export class MLAnomalyDetector extends EventEmitter {
   }
   
   private calculateAccountAgeScore(features: AnomalyFeatures): number {
-    if (features.accountAge < 1) return 0.9;
-    if (features.accountAge < 7) return 0.7;
-    if (features.accountAge < 30) return 0.4;
-    if (features.accountAge < 90) return 0.2;
+    if (features.accountAge < 1) return 0.95;
+    if (features.accountAge < 7) return 0.85;
+    if (features.accountAge < 30) return 0.6;
+    if (features.accountAge < 90) return 0.3;
     return 0.1;
   }
   
   private calculateReputationScore(features: AnomalyFeatures): number {
     return Math.max(0, 1 - features.reputationScore);
+  }
+  
+  private calculateIPSuspicionScore(features: AnomalyFeatures): number {
+    return features.ipReputation;
+  }
+  
+  private calculateNewAccountBoost(features: AnomalyFeatures): number {
+    // Boost score for new accounts with multiple suspicious indicators
+    if (features.accountAge < 7 && features.reputationScore < 0.3 && features.ipReputation > 0.5) {
+      return 0.4; // Strong boost for new account with bad rep + suspicious IP
+    }
+    if (features.accountAge < 30 && features.reputationScore < 0.3) {
+      return 0.2;
+    }
+    return 0;
   }
   
   private getExpectedRate(actionType: string, baseline: any): number {

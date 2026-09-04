@@ -445,12 +445,79 @@ export class PredictiveNukeDefense extends EventEmitter {
     if (!attempt.wasBlocked) {
       this.guildThreatScores.set(attempt.guildId, Math.min(1, (this.guildThreatScores.get(attempt.guildId) || 0) + 0.15));
     }
+    
+    // Trigger immediate prediction for high-severity attempts
+    if (attempt.severity > 0.8) {
+      this.triggerPredictionForGuild(attempt.guildId);
+    }
+  }
+  
+  private triggerPredictionForGuild(guildId: string) {
+    const history = this.threatHistory.get(guildId) || [];
+    const recentAttempts = history.filter(a => Date.now() - a.timestamp < 60000);
+    
+    if (recentAttempts.length === 0) return;
+    
+    // Create synthetic features from recent attempts
+    const uniqueActors = new Set(recentAttempts.map(a => a.executorId));
+    const actionTypes = new Set(recentAttempts.map(a => a.actionType));
+    const avgSeverity = recentAttempts.reduce((sum, a) => sum + a.severity, 0) / recentAttempts.length;
+    
+    const features: AnomalyFeatures = {
+      userId: `guild_analysis_${guildId}`,
+      guildId,
+      actionType: "guild_analysis",
+      timestamp: Date.now(),
+      frequency: recentAttempts.length,
+      velocity: recentAttempts.length,
+      entropy: actionTypes.size / Math.max(1, uniqueActors.size),
+      deviation: uniqueActors.size > 1 ? 0.8 : 0.2,
+      accountAge: 1,
+      reputationScore: 0.1,
+      ipReputation: 0.9,
+      behavioralVector: [recentAttempts.length, recentAttempts.length, actionTypes.size, avgSeverity, 0.002]
+    };
+    
+    // Run prediction asynchronously
+    this.analyzeAndPredict(guildId, features).catch(err => 
+      log.error({ module: "PredictiveNukeDefense" }, "Triggered prediction failed", { error: err })
+    );
   }
   
   private startPredictionEngine() {
+    // Run more frequently for faster detection
     setInterval(() => {
       this.runPredictions();
-    }, 10000);
+    }, 1000);
+  }
+  
+  async forcePrediction(guildId: string): Promise<ThreatPrediction[]> {
+    // Create synthetic features from recent history
+    const history = this.threatHistory.get(guildId) || [];
+    const recentAttempts = history.filter(a => Date.now() - a.timestamp < 60000);
+    
+    if (recentAttempts.length === 0) return [];
+    
+    const uniqueActors = new Set(recentAttempts.map(a => a.executorId));
+    const actionTypes = new Set(recentAttempts.map(a => a.actionType));
+    const avgSeverity = recentAttempts.reduce((sum, a) => sum + a.severity, 0) / recentAttempts.length;
+    
+    const features: AnomalyFeatures = {
+      userId: `guild_analysis_${guildId}`,
+      guildId,
+      actionType: "guild_analysis",
+      timestamp: Date.now(),
+      frequency: recentAttempts.length,
+      velocity: recentAttempts.length,
+      entropy: actionTypes.size / Math.max(1, uniqueActors.size),
+      deviation: uniqueActors.size > 1 ? 0.8 : 0.2,
+      accountAge: 1,
+      reputationScore: 0.1,
+      ipReputation: 0.9,
+      behavioralVector: [recentAttempts.length, recentAttempts.length, actionTypes.size, avgSeverity, 0.002]
+    };
+    
+    return this.analyzeAndPredict(guildId, features);
   }
   
   private async runPredictions() {

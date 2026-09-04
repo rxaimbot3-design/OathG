@@ -76,6 +76,14 @@ export class UltimateBotIntegration {
       }
     });
     
+    // Add security_events config for security event rate limiting
+    distributedRateLimiter.setConfig("security_events", {
+      windowMs: 60000,
+      maxRequests: 50,
+      keyPrefix: "ratelimit:security",
+      blockDurationMs: 300000
+    });
+    
     SelfHealingInfrastructure.getInstance();
     
     VoiceProcessingEngine.getInstance();

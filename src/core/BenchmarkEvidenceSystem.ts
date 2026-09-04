@@ -186,7 +186,7 @@ export class BenchmarkEvidenceSystem extends EventEmitter<BenchmarkEvents> {
     const throughputSamples: number[] = [];
     
     const throughputInterval = setInterval(() => {
-      const currentThroughput = eventsProcessed / ((Date.now() - testStartTime) / 1000);
+      const currentThroughput = this.testCounters.eventsProcessed / ((Date.now() - testStartTime) / 1000);
       throughputSamples.push(currentThroughput);
       peakThroughput = Math.max(peakThroughput, currentThroughput);
     }, 1000);

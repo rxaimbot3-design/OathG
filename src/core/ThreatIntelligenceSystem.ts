@@ -233,6 +233,7 @@ export class ThreatIntelligenceSystem extends EventEmitter<ThreatIntelligenceEve
   addIndicator(indicator: Omit<ThreatIndicator, "id" | "firstSeen" | "lastSeen" | "blockchainVerified" | "blockchainTxHash">): ThreatIndicator {
     const now = Date.now();
     const id = `ti_${indicator.type}_${this.hashValue(indicator.value)}_${now}`;
+    const lookupKey = `${indicator.type}:${indicator.value}`;
     
     const fullIndicator: ThreatIndicator = {
       ...indicator,
@@ -243,6 +244,7 @@ export class ThreatIntelligenceSystem extends EventEmitter<ThreatIntelligenceEve
     };
     
     this.indicators.set(id, fullIndicator);
+    this.indicators.set(lookupKey, fullIndicator); // Also index by simple key
     
     if (this.config.enableBlockchainVerification) {
       this.verifyOnBlockchain(fullIndicator);

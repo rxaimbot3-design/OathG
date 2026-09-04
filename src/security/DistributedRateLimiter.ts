@@ -76,6 +76,16 @@ export class DistributedRateLimiter extends EventEmitter {
       this.setDefaultConfig(config.defaultConfig);
     }
     
+    // Add default security_events config for security event rate limiting
+    if (!this.configs.has("security_events")) {
+      this.setConfig("security_events", {
+        windowMs: 60000,
+        maxRequests: 50,
+        keyPrefix: "ratelimit:security",
+        blockDurationMs: 300000
+      });
+    }
+    
     this.startLocalSync();
     log.info({ module: "DistributedRateLimiter" }, "DistributedRateLimiter initialized", { cluster: this.useCluster });
   }
