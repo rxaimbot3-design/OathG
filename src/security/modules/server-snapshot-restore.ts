@@ -169,6 +169,15 @@ export class ServerSnapshotRestore {
     
     // Map to track old role ID -> new role ID for permission overwrite mapping
     const roleIdMap = new Map<string, string>();
+    
+    // Track restoration results for accurate reporting
+    const restoreStats = {
+      roles: { total: snap.roles.length, deleted: 0, created: 0, updated: 0, failed: 0 },
+      channels: { total: snap.channels.length, deleted: 0, created: 0, updated: 0, failed: 0 },
+      overwrites: { total: 0, created: 0, updated: 0, deleted: 0, failed: 0 },
+      rolePositions: { total: 0, updated: 0, failed: 0 },
+      channelPositions: { total: 0, updated: 0, failed: 0 }
+    };
 
     try {
       await guild.channels.fetch().catch(() => {});
@@ -184,7 +193,8 @@ export class ServerSnapshotRestore {
         if (role.id === guild.id) continue;
         if (!snapshotRoleIds.has(role.id)) {
           if (!this.config.dryRun) {
-            await role.delete("Snapshot restore: removing role not in snapshot").catch(() => {});
+            const success = await role.delete("Snapshot restore: removing role not in snapshot").catch(() => false);
+            if (success) restoreStats.roles.deleted++; else restoreStats.roles.failed++;
           }
         }
       }
@@ -204,7 +214,8 @@ export class ServerSnapshotRestore {
           if (snapRole.mentionable !== undefined && existing.mentionable !== snapRole.mentionable) updateData.mentionable = snapRole.mentionable;
           if (Object.keys(updateData).length > 0) {
             if (!this.config.dryRun) {
-              await existing.edit({ ...updateData, reason: "Snapshot restore: updating role" }).catch(() => {});
+              const success = await existing.edit({ ...updateData, reason: "Snapshot restore: updating role" }).catch(() => false);
+              if (success) restoreStats.roles.updated++; else restoreStats.roles.failed++;
             }
           }
           // Map existing role ID to itself (no change)
@@ -223,6 +234,9 @@ export class ServerSnapshotRestore {
             if (newRole) {
               // Map old snapshot role ID to new Discord role ID
               roleIdMap.set(snapRole.id, newRole.id);
+              restoreStats.roles.created++;
+            } else {
+              restoreStats.roles.failed++;
             }
           }
         }
@@ -247,7 +261,7 @@ export class ServerSnapshotRestore {
         if (!existing) {
           const parent = snapChan.parentId ? guild.channels.cache.get(snapChan.parentId) : undefined;
           if (!this.config.dryRun) {
-            await guild.channels.create({
+            const newChannel = await guild.channels.create({
               name: snapChan.name,
               type: snapChan.type as any,
               parent: parent as any,
@@ -263,7 +277,13 @@ export class ServerSnapshotRestore {
                 type: po.type
               })) || [],
               reason: "Snapshot restore: creating missing channel"
-            }).catch(() => {});
+            }).catch(() => null as any);
+            
+            if (newChannel) {
+              restoreStats.channels.created++;
+            } else {
+              restoreStats.channels.failed++;
+            }
           }
         }
       }
@@ -275,7 +295,8 @@ export class ServerSnapshotRestore {
         if (protectedChannelIds.has(channel.id)) continue;
         if (!snapshotChannelIds.has(channel.id)) {
           if (!this.config.dryRun) {
-            await channel.delete("Snapshot restore: removing channel not in snapshot").catch(() => {});
+            const success = await channel.delete("Snapshot restore: removing channel not in snapshot").catch(() => false);
+            if (success) restoreStats.channels.deleted++; else restoreStats.channels.failed++;
           }
         }
       }
@@ -302,18 +323,25 @@ export class ServerSnapshotRestore {
 
         if (Object.keys(updateData).length > 0) {
           if (!this.config.dryRun) {
-            await existingAny.edit({ ...updateData, reason: "Snapshot restore: updating channel" }).catch(() => {});
+            const success = await existingAny.edit({ ...updateData, reason: "Snapshot restore: updating channel" }).catch(() => false);
+            if (success) restoreStats.channels.updated++; else restoreStats.channels.failed++;
           }
         }
 
         if (snapChan.permissionOverwrites) {
           const currentOverwrites = new Map(existingAny.permissionOverwrites.cache.map((po: any) => [po.id, po]));
           const targetOverwrites = new Map((snapChan.permissionOverwrites as any[]).map((po: any) => [po.id, po]));
+          
+          // Count total overwrites for stats
+          for (const [id, po] of targetOverwrites) {
+            restoreStats.overwrites.total++;
+          }
 
           for (const [id, po] of currentOverwrites) {
             if (!targetOverwrites.has(id as string)) {
               if (!this.config.dryRun) {
-                await existingAny.permissionOverwrites.delete(id as string, { reason: "Snapshot restore: removing overwrite" }).catch(() => {});
+                const success = await existingAny.permissionOverwrites.delete(id as string, { reason: "Snapshot restore: removing overwrite" }).catch(() => false);
+                if (success) restoreStats.overwrites.deleted++; else restoreStats.overwrites.failed++;
               }
             }
           }
@@ -327,12 +355,14 @@ export class ServerSnapshotRestore {
             if (current) {
               if ((current as any).allow.bitfield.toString() !== (po as any).allow || (current as any).deny.bitfield.toString() !== (po as any).deny) {
                 if (!this.config.dryRun) {
-                  await existingAny.permissionOverwrites.edit(newRoleId, { allow, deny, reason: "Snapshot restore: updating overwrite" }).catch(() => {});
+                  const success = await existingAny.permissionOverwrites.edit(newRoleId, { allow, deny, reason: "Snapshot restore: updating overwrite" }).catch(() => false);
+                  if (success) restoreStats.overwrites.updated++; else restoreStats.overwrites.failed++;
                 }
               }
             } else {
               if (!this.config.dryRun) {
-                await existingAny.permissionOverwrites.create({ id: newRoleId, allow, deny, type: (po as any).type, reason: "Snapshot restore: creating overwrite" }).catch(() => {});
+                const success = await existingAny.permissionOverwrites.create({ id: newRoleId, allow, deny, type: (po as any).type, reason: "Snapshot restore: creating overwrite" }).catch(() => false);
+                if (success) restoreStats.overwrites.created++; else restoreStats.overwrites.failed++;
               }
             }
           }
@@ -354,12 +384,15 @@ export class ServerSnapshotRestore {
           const role = guild.roles.cache.get(newRoleId);
           if (!role) continue;
           
+          restoreStats.rolePositions.total++;
           // Set role position - need to position relative to other roles
           // We'll set positions from highest to lowest
           try {
-            await role.setPosition(snapRole.position || 0, { reason: "Snapshot restore: restoring role hierarchy" }).catch(() => {});
+            const success = await role.setPosition(snapRole.position || 0, { reason: "Snapshot restore: restoring role hierarchy" }).catch(() => false);
+            if (success) restoreStats.rolePositions.updated++; else restoreStats.rolePositions.failed++;
           } catch {
             // Position setting may fail if hierarchy constraints violated, continue
+            restoreStats.rolePositions.failed++;
           }
         }
       }
@@ -367,16 +400,37 @@ export class ServerSnapshotRestore {
       // Phase 5: Fix channel positions
       const channelsToPosition = guild.channels.cache.filter(c => !protectedChannelIds.has(c.id));
       if (channelsToPosition.size > 0 && !this.config.dryRun) {
-        await guild.channels.setPositions(
+        restoreStats.channelPositions.total = channelsToPosition.size;
+        const positionResults = await guild.channels.setPositions(
           channelsToPosition.map((c: any) => {
             const snapChan = snap.channels.find((sc: any) => sc.id === c.id);
             return { id: c.id, position: Number(snapChan?.position ?? c.position) } as any;
           })
-        ).catch(() => {});
+        ).catch(() => []);
+        
+        // guild.channels.setPositions doesn't return individual results, assume success if no error
+        // We'll count as updated if no exception thrown
+        restoreStats.channelPositions.updated = channelsToPosition.size;
       }
 
-      alertCallback(`✅ [1-CLICK RESTORE ${this.config.dryRun ? "SIMULATION " : ""}COMPLETE] Server **${guild.name}** successfully restored to snapshot state (${snap.channels.length} channels, ${snap.roles.length} roles verified).`);
-      return true;
+      // Determine overall success
+      const totalFailed = restoreStats.roles.failed + restoreStats.channels.failed + restoreStats.overwrites.failed + restoreStats.rolePositions.failed + restoreStats.channelPositions.failed;
+      const isComplete = totalFailed === 0;
+      const isPartial = totalFailed > 0 && (restoreStats.roles.created + restoreStats.roles.updated + restoreStats.channels.created + restoreStats.channels.updated + restoreStats.overwrites.created + restoreStats.overwrites.updated + restoreStats.overwrites.deleted) > 0;
+      
+      if (isComplete) {
+        alertCallback(`✅ [1-CLICK RESTORE ${this.config.dryRun ? "SIMULATION " : ""}COMPLETE] Server **${guild.name}** successfully restored to snapshot state (${snap.channels.length} channels, ${snap.roles.length} roles).`);
+      } else if (isPartial) {
+        alertCallback(`⚠️ [1-CLICK RESTORE ${this.config.dryRun ? "SIMULATION " : ""}PARTIAL] Server **${guild.name}** partially restored. Some operations failed. Details: ${totalFailed} failed, see logs.`);
+      } else {
+        alertCallback(`❌ [1-CLICK RESTORE ${this.config.dryRun ? "SIMULATION " : ""}FAILED] Server **${guild.name}** restore failed with no successful operations.`);
+        return false;
+      }
+      
+      // Log detailed stats
+      console.log(`[SNAPSHOT RESTORE] Stats:`, JSON.stringify(restoreStats, null, 2));
+      
+      return isComplete || isPartial;
     } catch (err: any) {
       alertCallback(`❌ [SNAPSHOT RESTORE] Failed: ${err.message}`);
       return false;
