@@ -34,7 +34,12 @@ interface LatencyBucket {
   max: number;
 }
 
-export class UltraLowLatencyPipeline extends EventEmitter {
+interface UltraLowLatencyPipelineEvents {
+  processed: [PipelineEvent];
+  error: [{ event: PipelineEvent; error: unknown }];
+}
+
+export class UltraLowLatencyPipeline extends EventEmitter<UltraLowLatencyPipelineEvents> {
   private static instance: UltraLowLatencyPipeline;
   
   private criticalQueue: PipelineEvent[] = [];

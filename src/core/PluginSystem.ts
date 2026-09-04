@@ -80,8 +80,8 @@ export interface PluginAPI {
   getConfig: (key: string) => any;
   setConfig: (key: string, value: any) => void;
   emit: (event: string, data: any) => void;
-  on: (event: string, handler: Function) => void;
-  off: (event: string, handler: Function) => void;
+  on: (event: string, handler: (...args: any[]) => void) => void;
+  off: (event: string, handler: (...args: any[]) => void) => void;
 }
 
 export interface PluginCommand {
@@ -152,13 +152,21 @@ export interface PluginUtils {
   };
 }
 
-export class PluginSystem extends EventEmitter {
+interface PluginSystemEvents {
+  pluginLoaded: [PluginInstance];
+  pluginError: [{ pluginId: string; error: unknown }];
+  pluginEnabled: [PluginInstance];
+  pluginDisabled: [PluginInstance];
+  pluginUnloaded: [{ pluginId: string }];
+}
+
+export class PluginSystem extends EventEmitter<PluginSystemEvents> {
   private static instance: PluginSystem;
   
   private plugins = new Map<string, PluginInstance>();
   private pluginDir: string;
   private globalConfig: Record<string, any> = {};
-  private hookRegistry = new Map<string, Array<{ pluginId: string; handler: Function; priority: number }>>();
+  private hookRegistry = new Map<string, Array<{ pluginId: string; handler: (...args: any[]) => void; priority: number }>>();
   private commandRegistry = new Map<string, PluginCommand>();
   private middlewareRegistry = new Map<string, PluginMiddleware>();
   private webRouteRegistry = new Map<string, PluginWebRoute>();
@@ -180,7 +188,7 @@ export class PluginSystem extends EventEmitter {
   }
   
   private initializeCoreAPI() {
-    logger.info("PluginSystem core API initialized");
+    log.info({ module: "PluginSystem" }, "PluginSystem core API initialized");
   }
   
   async loadPlugin(pluginPath: string, config: Record<string, any> = {}): Promise<PluginInstance> {
@@ -227,7 +235,7 @@ export class PluginSystem extends EventEmitter {
       pluginInstance.state = "enabled";
       pluginInstance.enableTime = Date.now();
       
-      logger.info("Plugin loaded successfully", { 
+      log.info({ module: "PluginSystem" }, "Plugin loaded successfully", { 
         pluginId: manifest.id, 
         name: manifest.name, 
         version: manifest.version 
@@ -240,7 +248,7 @@ export class PluginSystem extends EventEmitter {
     } catch (err) {
       pluginInstance.state = "error";
       pluginInstance.error = String(err);
-      logger.error("Failed to load plugin", { pluginId: manifest.id, error: err });
+      log.error({ module: "PluginSystem" }, "Failed to load plugin", { pluginId: manifest.id, error: err });
       this.emit("pluginError", { pluginId: manifest.id, error: err });
       throw err;
     }
@@ -290,20 +298,20 @@ export class PluginSystem extends EventEmitter {
       registerCommand: (command: PluginCommand) => {
         const fullId = `${pluginId}:${command.id}`;
         this.commandRegistry.set(fullId, command);
-        logger.debug("Plugin command registered", { pluginId, commandId: command.id });
+        log.debug({ module: "PluginSystem" }, "Plugin command registered", { pluginId, commandId: command.id });
       },
       unregisterCommand: (commandId: string) => {
         const fullId = `${pluginId}:${commandId}`;
         this.commandRegistry.delete(fullId);
       },
-      registerEvent: (event: string, handler: Function, priority: number = 0) => {
+      registerEvent: (event: string, handler: (...args: any[]) => void, priority: number = 0) => {
         if (!this.hookRegistry.has(event)) {
           this.hookRegistry.set(event, []);
         }
         this.hookRegistry.get(event)!.push({ pluginId, handler, priority });
         this.hookRegistry.get(event)!.sort((a, b) => b.priority - a.priority);
       },
-      unregisterEvent: (event: string, handler: Function) => {
+      unregisterEvent: (event: string, handler: (...args: any[]) => void) => {
         const hooks = this.hookRegistry.get(event);
         if (hooks) {
           const index = hooks.findIndex(h => h.handler === handler && h.pluginId === pluginId);
@@ -337,14 +345,14 @@ export class PluginSystem extends EventEmitter {
         }
       },
       emit: (event: string, data: any) => {
-        this.emit(`${pluginId}:${event}`, data);
-        this.emit(event, { pluginId, data });
+        (this as any).emit(`${pluginId}:${event}`, data);
+        (this as any).emit(event, { pluginId, data });
       },
-      on: (event: string, handler: Function) => {
-        this.on(`${pluginId}:${event}`, handler);
+      on: (event: string, handler: (...args: any[]) => void) => {
+        (this as any).on(`${pluginId}:${event}`, handler);
       },
-      off: (event: string, handler: Function) => {
-        this.off(`${pluginId}:${event}`, handler);
+      off: (event: string, handler: (...args: any[]) => void) => {
+        (this as any).off(`${pluginId}:${event}`, handler);
       }
     };
   }
@@ -501,7 +509,7 @@ export class PluginSystem extends EventEmitter {
     this.registerPluginWebRoutes(pluginId);
     
     this.emit("pluginEnabled", plugin);
-    logger.info("Plugin enabled", { pluginId });
+    log.info({ module: "PluginSystem" }, "Plugin enabled", { pluginId });
   }
   
   async disablePlugin(pluginId: string): Promise<void> {
@@ -535,7 +543,7 @@ export class PluginSystem extends EventEmitter {
     
     plugin.state = "disabled";
     this.emit("pluginDisabled", plugin);
-    logger.info("Plugin disabled", { pluginId });
+    log.info({ module: "PluginSystem" }, "Plugin disabled", { pluginId });
   }
   
   async unloadPlugin(pluginId: string): Promise<void> {
@@ -552,7 +560,7 @@ export class PluginSystem extends EventEmitter {
     this.pluginContexts.delete(pluginId);
     
     this.emit("pluginUnloaded", { pluginId });
-    logger.info("Plugin unloaded", { pluginId });
+    log.info({ module: "PluginSystem" }, "Plugin unloaded", { pluginId });
   }
   
   getPlugin(pluginId: string): PluginInstance | undefined {
@@ -567,7 +575,7 @@ export class PluginSystem extends EventEmitter {
     return Array.from(this.plugins.values()).filter(p => p.state === "enabled");
   }
   
-  getHooks(event: string): Array<{ pluginId: string; handler: Function; priority: number }> {
+  getHooks(event: string): Array<{ pluginId: string; handler: (...args: any[]) => void; priority: number }> {
     return this.hookRegistry.get(event) || [];
   }
   
@@ -592,7 +600,7 @@ export class PluginSystem extends EventEmitter {
         const result = await hook.handler(data);
         results.push({ pluginId: hook.pluginId, result });
       } catch (err) {
-        logger.error("Plugin hook error", { event, pluginId: hook.pluginId, error: err });
+        log.error({ module: "PluginSystem" }, "Plugin hook error", { event, pluginId: hook.pluginId, error: err });
         results.push({ pluginId: hook.pluginId, error: err });
       }
     }
@@ -600,17 +608,22 @@ export class PluginSystem extends EventEmitter {
     return results;
   }
   
-  async executeMiddlewares(context: any): Promise<void> {
-    const middlewares = this.getMiddlewares();
-    
-    for (const middleware of middlewares) {
-      if (middleware.type === "pre" || middleware.type === "error") {
-        await new Promise<void>((resolve, reject) => {
-          middleware.handler(context, () => resolve()).catch(reject);
-        });
-      }
-    }
-  }
+  // executeMiddlewares(context: any) {
+//     const middlewares = this.getMiddlewares();
+//     const promises: Promise<void>[] = [];
+//     
+//     for (const middleware of middlewares) {
+//       if (middleware.type === "pre" || middleware.type === "error") {
+//         promises.push(new Promise<void>((resolve, reject) => {
+//           middleware.handler(context, () => resolve()).catch(reject);
+//         }));
+//       }
+//     }
+//     
+//     return new Promise<void>((resolve) => {
+//       Promise.all(promises).then(() => resolve());
+//     }) as Promise<void>;
+//   }
   
   async shutdown() {
     for (const pluginId of this.plugins.keys()) {
@@ -622,7 +635,7 @@ export class PluginSystem extends EventEmitter {
     this.webRouteRegistry.clear();
     this.pluginContexts.clear();
     this.removeAllListeners();
-    logger.info("PluginSystem shutdown complete");
+    log.info({ module: "PluginSystem" }, "PluginSystem shutdown complete");
   }
 }
 

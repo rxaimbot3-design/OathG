@@ -78,7 +78,7 @@ interface BenchmarkEvents {
   testComplete: [BenchmarkResult];
 }
 
-export class BenchmarkEvidenceSystem extends EventEmitter {
+export class BenchmarkEvidenceSystem extends EventEmitter<BenchmarkEvents> {
   private static instance: BenchmarkEvidenceSystem;
   
   private runningTests = new Map<string, {

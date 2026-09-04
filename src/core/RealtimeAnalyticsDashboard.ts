@@ -104,7 +104,22 @@ export interface SystemHealth {
   lastUpdated: number;
 }
 
-export class RealtimeAnalyticsDashboard extends EventEmitter {
+interface DashboardEvents {
+  widgetAdded: [DashboardWidget];
+  widgetRemoved: [string];
+  widgetUpdated: [DashboardWidget];
+  layoutSaved: [DashboardLayout];
+  layoutDeleted: [string];
+  alertRuleAdded: [AlertRule];
+  alertRuleRemoved: [string];
+  alertRuleUpdated: [AlertRule];
+  alertFired: [Alert];
+  alertResolved: [Alert];
+  alertAcknowledged: [Alert];
+  notification: [{ notification: AlertNotification; alert: Alert; rule: AlertRule }];
+}
+
+export class RealtimeAnalyticsDashboard extends EventEmitter<DashboardEvents> {
   private static instance: RealtimeAnalyticsDashboard;
   
   private config: DashboardConfig = {
@@ -147,7 +162,7 @@ export class RealtimeAnalyticsDashboard extends EventEmitter {
   
   configure(config: Partial<DashboardConfig>) {
     this.config = { ...this.config, ...config };
-    logger.info("Dashboard configured", { config: this.config });
+    log.info({ module: "RealtimeAnalyticsDashboard" }, "Dashboard configured", { config: this.config });
   }
   
   private initializeDefaultMetrics() {
@@ -238,7 +253,7 @@ export class RealtimeAnalyticsDashboard extends EventEmitter {
     
     this.startPeriodicCollection();
     
-    logger.info("RealtimeAnalyticsDashboard started", { 
+    log.info({ module: "RealtimeAnalyticsDashboard" }, "RealtimeAnalyticsDashboard started", { 
       updateInterval: this.config.updateInterval,
       metricsCount: this.metrics.size,
       widgetsCount: this.widgets.size
@@ -262,7 +277,7 @@ export class RealtimeAnalyticsDashboard extends EventEmitter {
         const data = await collector();
         Object.assign(collected, data);
       } catch (err) {
-        logger.debug("Data collector error", { error: err });
+        log.debug({ module: "RealtimeAnalyticsDashboard" }, "Data collector error", { error: err });
       }
     }
     
@@ -444,14 +459,14 @@ export class RealtimeAnalyticsDashboard extends EventEmitter {
         
         this.emit("alertFired", alert);
         this.sendNotifications(rule, alert);
-        logger.warn("Alert fired", { alertId: alert.id, ruleName: rule.name, value: latestValue });
+        log.warn({ module: "RealtimeAnalyticsDashboard" }, "Alert fired", { alertId: alert.id, ruleName: rule.name, value: latestValue });
         
       } else if (!shouldFire && existingAlert) {
         existingAlert.status = "resolved";
         existingAlert.resolvedAt = now;
         this.activeAlerts.delete(rule.id);
         this.emit("alertResolved", existingAlert);
-        logger.info("Alert resolved", { alertId: existingAlert.id, ruleName: rule.name });
+        log.info({ module: "RealtimeAnalyticsDashboard" }, "Alert resolved", { alertId: existingAlert.id, ruleName: rule.name });
       }
     }
   }
@@ -482,12 +497,12 @@ export class RealtimeAnalyticsDashboard extends EventEmitter {
   
   getSystemHealth(): SystemHealth {
     const components = [
-      { name: "Discord Gateway", status: "healthy" as const, latency: 0, uptime: 0, lastCheck: Date.now() },
-      { name: "Event Pipeline", status: "healthy" as const, latency: 0, uptime: 0, lastCheck: Date.now() },
-      { name: "Security Engine", status: "healthy" as const, latency: 0, uptime: 0, lastCheck: Date.now() },
-      { name: "Cache Layer", status: "healthy" as const, latency: 0, uptime: 0, lastCheck: Date.now() },
-      { name: "Database", status: "healthy" as const, latency: 0, uptime: 0, lastCheck: Date.now() },
-      { name: "Voice Engine", status: "healthy" as const, latency: 0, uptime: 0, lastCheck: Date.now() }
+      { name: "Discord Gateway", status: "healthy" as "healthy" | "degraded" | "critical", latency: 0, uptime: 0, lastCheck: Date.now() },
+      { name: "Event Pipeline", status: "healthy" as "healthy" | "degraded" | "critical", latency: 0, uptime: 0, lastCheck: Date.now() },
+      { name: "Security Engine", status: "healthy" as "healthy" | "degraded" | "critical", latency: 0, uptime: 0, lastCheck: Date.now() },
+      { name: "Cache Layer", status: "healthy" as "healthy" | "degraded" | "critical", latency: 0, uptime: 0, lastCheck: Date.now() },
+      { name: "Database", status: "healthy" as "healthy" | "degraded" | "critical", latency: 0, uptime: 0, lastCheck: Date.now() },
+      { name: "Voice Engine", status: "healthy" as "healthy" | "degraded" | "critical", latency: 0, uptime: 0, lastCheck: Date.now() }
     ];
     
     const critical = components.filter(c => c.status === "critical").length;
@@ -542,15 +557,15 @@ export class RealtimeAnalyticsDashboard extends EventEmitter {
   
   addWebSocketConnection(ws: any) {
     this.wsConnections.add(ws);
-    logger.debug("WebSocket connection added", { total: this.wsConnections.size });
+    log.debug({ module: "RealtimeAnalyticsDashboard" }, "WebSocket connection added", { total: this.wsConnections.size });
     
     ws.on("close", () => {
       this.wsConnections.delete(ws);
-      logger.debug("WebSocket connection removed", { total: this.wsConnections.size });
+      log.debug({ module: "RealtimeAnalyticsDashboard" }, "WebSocket connection removed", { total: this.wsConnections.size });
     });
     
     ws.on("error", (err: any) => {
-      logger.debug("WebSocket error", { error: err });
+      log.debug({ module: "RealtimeAnalyticsDashboard" }, "WebSocket error", { error: err });
     });
     
     ws.send(JSON.stringify({
@@ -594,7 +609,7 @@ export class RealtimeAnalyticsDashboard extends EventEmitter {
     this.dataCollectors.length = 0;
     this.removeAllListeners();
     
-    logger.info("RealtimeAnalyticsDashboard shutdown complete");
+    log.info({ module: "RealtimeAnalyticsDashboard" }, "RealtimeAnalyticsDashboard shutdown complete");
   }
 }
 

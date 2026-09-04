@@ -45,7 +45,14 @@ export interface VoiceAnalytics {
   noiseReductionDb: number;
 }
 
-export class VoiceProcessingEngine extends EventEmitter {
+interface VoiceProcessingEvents {
+  sessionStart: [VoiceSession];
+  sessionEnd: [VoiceSession];
+  audioProcessed: [{ sessionId: string; audioData: Float32Array; vadResult: { isSpeech: boolean; confidence: number } }];
+  transcription: [{ sessionId: string; result: TranscriptionResult }];
+}
+
+export class VoiceProcessingEngine extends EventEmitter<VoiceProcessingEvents> {
   private static instance: VoiceProcessingEngine;
   
   private config: VoiceConfig = {
@@ -89,7 +96,7 @@ export class VoiceProcessingEngine extends EventEmitter {
   
   configure(config: Partial<VoiceConfig>) {
     this.config = { ...this.config, ...config };
-    logger.info("VoiceProcessingEngine configured", { config: this.config });
+    log.info({ module: "VoiceProcessingEngine" }, "VoiceProcessingEngine configured", { config: this.config });
   }
   
   async startSession(guildId: string, channelId: string, userId: string): Promise<string> {
@@ -111,7 +118,7 @@ export class VoiceProcessingEngine extends EventEmitter {
     this.analytics.totalSessions++;
     this.analytics.activeSessions++;
     
-    logger.info("Voice session started", { sessionId, guildId, channelId, userId });
+    log.info({ module: "VoiceProcessingEngine" }, "Voice session started", { sessionId, guildId, channelId, userId });
     this.emit("sessionStart", session);
     
     return sessionId;
@@ -256,7 +263,7 @@ export class VoiceProcessingEngine extends EventEmitter {
           this.emit("transcription", { sessionId: item.sessionId, result });
         }
       } catch (err) {
-        logger.error("Transcription failed", { sessionId: item.sessionId, error: err });
+        log.error({ module: "VoiceProcessingEngine" }, "Transcription failed", { sessionId: item.sessionId, error: err });
       }
     }
     
@@ -297,7 +304,7 @@ export class VoiceProcessingEngine extends EventEmitter {
     this.sessions.delete(sessionId);
     this.analytics.activeSessions--;
     
-    logger.info("Voice session ended", { 
+    log.info({ module: "VoiceProcessingEngine" }, "Voice session ended", { 
       sessionId, 
       duration: Date.now() - session.startTime,
       transcriptLength: session.transcript.length
@@ -326,7 +333,7 @@ export class VoiceProcessingEngine extends EventEmitter {
     }
     this.transcriptionQueue.length = 0;
     this.removeAllListeners();
-    logger.info("VoiceProcessingEngine shutdown complete");
+    log.info({ module: "VoiceProcessingEngine" }, "VoiceProcessingEngine shutdown complete");
   }
 }
 

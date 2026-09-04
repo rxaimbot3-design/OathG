@@ -42,9 +42,10 @@ interface ClusterEvents {
   metrics: [ClusterMetrics];
   workerEvent: [{ workerId: number; event: PipelineEvent }];
   healthChanged: [{ previous: string; current: string }];
+  broadcast: [PipelineEvent];
 }
 
-export class MultiShardCluster extends EventEmitter {
+export class MultiShardCluster extends EventEmitter<ClusterEvents> {
   private static instance: MultiShardCluster;
   
   private config: ShardConfig;

@@ -97,7 +97,16 @@ export interface ThreatIntelStats {
   feedStatus: Record<string, { lastUpdate: number; indicatorsCount: number; status: "ok" | "error" | "stale" }>;
 }
 
-export class ThreatIntelligenceSystem extends EventEmitter {
+interface ThreatIntelligenceEvents {
+  feedsUpdated: [Record<string, { lastUpdate: number; indicatorsCount: number; status: "ok" | "error" | "stale" }>];
+  indicatorAdded: [ThreatIndicator];
+  indicatorMatched: [ThreatIndicator];
+  actorAdded: [ThreatActor];
+  campaignAdded: [ThreatCampaign];
+  auditLogged: [BlockchainAuditEntry];
+}
+
+export class ThreatIntelligenceSystem extends EventEmitter<ThreatIntelligenceEvents> {
   private static instance: ThreatIntelligenceSystem;
   
   private config: ThreatIntelConfig = {
@@ -137,7 +146,7 @@ export class ThreatIntelligenceSystem extends EventEmitter {
     if (config.enableBlockchainVerification && config.blockchainRpcUrl) {
       this.initializeBlockchain();
     }
-    logger.info("ThreatIntelligenceSystem configured", { 
+    log.info({ module: "ThreatIntelligenceSystem" }, "ThreatIntelligenceSystem configured", { 
       feedsEnabled: this.config.threatFeeds.filter(f => f.enabled).length,
       blockchainEnabled: this.config.enableBlockchainVerification
     });
@@ -179,7 +188,7 @@ export class ThreatIntelligenceSystem extends EventEmitter {
   }
   
   private async initializeBlockchain() {
-    logger.info("Initializing blockchain verification", { 
+    log.info({ module: "ThreatIntelligenceSystem" }, "Initializing blockchain verification", { 
       rpcUrl: this.config.blockchainRpcUrl 
     });
   }
@@ -188,7 +197,7 @@ export class ThreatIntelligenceSystem extends EventEmitter {
     await this.updateAllFeeds();
     this.updateInterval = setInterval(() => this.updateAllFeeds(), this.config.updateInterval);
     this.startCleanupInterval();
-    logger.info("ThreatIntelligenceSystem started");
+    log.info({ module: "ThreatIntelligenceSystem" }, "ThreatIntelligenceSystem started");
   }
   
   private startCleanupInterval() {
@@ -206,7 +215,7 @@ export class ThreatIntelligenceSystem extends EventEmitter {
           status: "ok" 
         });
       } catch (err) {
-        logger.error("Feed update failed", { feedId: feed.id, error: err });
+        log.error({ module: "ThreatIntelligenceSystem" }, "Feed update failed", { feedId: feed.id, error: err });
         this.feedStatus.set(feed.id, { 
           lastUpdate: Date.now(), 
           indicatorsCount: 0, 
@@ -218,7 +227,7 @@ export class ThreatIntelligenceSystem extends EventEmitter {
   }
   
   private async updateFeed(feed: ThreatFeed) {
-    logger.debug("Updating threat feed", { feedId: feed.id });
+    log.debug({ module: "ThreatIntelligenceSystem" }, "Updating threat feed", { feedId: feed.id });
   }
   
   addIndicator(indicator: Omit<ThreatIndicator, "id" | "firstSeen" | "lastSeen" | "blockchainVerified" | "blockchainTxHash">): ThreatIndicator {
@@ -240,7 +249,7 @@ export class ThreatIntelligenceSystem extends EventEmitter {
     }
     
     this.emit("indicatorAdded", fullIndicator);
-    logger.info("Threat indicator added", { id, type: indicator.type, value: indicator.value });
+    log.info({ module: "ThreatIntelligenceSystem" }, "Threat indicator added", { id, type: indicator.type, value: indicator.value });
     
     return fullIndicator;
   }
@@ -259,7 +268,7 @@ export class ThreatIntelligenceSystem extends EventEmitter {
         indicator.blockchainTxHash = tx.hash;
       }
     } catch (err) {
-      logger.error("Blockchain verification failed", { indicatorId: indicator.id, error: err });
+      log.error({ module: "ThreatIntelligenceSystem" }, "Blockchain verification failed", { indicatorId: indicator.id, error: err });
     }
   }
   
@@ -335,7 +344,7 @@ export class ThreatIntelligenceSystem extends EventEmitter {
         auditEntry.blockNumber = tx.blockNumber;
         auditEntry.txHash = tx.hash;
       } catch (err) {
-        logger.error("Blockchain audit failed", { error: err });
+        log.error({ module: "ThreatIntelligenceSystem" }, "Blockchain audit failed", { error: err });
       }
     }
     
@@ -446,7 +455,7 @@ export class ThreatIntelligenceSystem extends EventEmitter {
     }
     
     if (cleaned > 0) {
-      logger.info("Cleaned up old threat indicators", { cleaned });
+      log.info({ module: "ThreatIntelligenceSystem" }, "Cleaned up old threat indicators", { cleaned });
     }
   }
   
@@ -465,7 +474,7 @@ export class ThreatIntelligenceSystem extends EventEmitter {
     this.auditLog.length = 0;
     this.feedStatus.clear();
     this.removeAllListeners();
-    logger.info("ThreatIntelligenceSystem shutdown complete");
+    log.info({ module: "ThreatIntelligenceSystem" }, "ThreatIntelligenceSystem shutdown complete");
   }
 }
 

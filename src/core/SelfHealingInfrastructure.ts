@@ -51,7 +51,7 @@ interface HealingEvents {
   incidentResolved: [Incident];
 }
 
-export class SelfHealingInfrastructure extends EventEmitter {
+export class SelfHealingInfrastructure extends EventEmitter<HealingEvents> {
   private static instance: SelfHealingInfrastructure;
   
   private healthChecks = new Map<string, HealthCheck>();

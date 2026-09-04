@@ -94,7 +94,11 @@ export interface AIInsight {
   timestamp: number;
 }
 
-export class AdvancedAIModerator extends EventEmitter {
+interface AdvancedAIModeratorEvents {
+  moderated: [{ context: ModerationContext; result: ModerationResult }];
+  humanReviewRequired: [{ context: ModerationContext; result: ModerationResult }];
+}
+export class AdvancedAIModerator extends EventEmitter<AdvancedAIModeratorEvents> {
   private static instance: AdvancedAIModerator;
   
   private config: AIModeratorConfig = {
@@ -157,7 +161,7 @@ export class AdvancedAIModerator extends EventEmitter {
     } else {
       this.initializeDefaultPrompt();
     }
-    logger.info("AdvancedAIModerator configured", { model: this.config.model });
+    log.info({ module: "AdvancedAIModerator" }, "AdvancedAIModerator configured", { model: this.config.model });
   }
   
   private initializeDefaultPrompt() {
@@ -182,12 +186,12 @@ Be precise - false positives harm trust, false negatives harm safety.`;
   
   addCustomRule(rule: CustomRule) {
     this.config.customRules.push(rule);
-    logger.info("Custom moderation rule added", { ruleId: rule.id, name: rule.name });
+    log.info({ module: "AdvancedAIModerator" }, "Custom moderation rule added", { ruleId: rule.id, name: rule.name });
   }
   
   removeCustomRule(ruleId: string) {
     this.config.customRules = this.config.customRules.filter(r => r.id !== ruleId);
-    logger.info("Custom moderation rule removed", { ruleId });
+    log.info({ module: "AdvancedAIModerator" }, "Custom moderation rule removed", { ruleId });
   }
   
   async moderate(context: ModerationContext): Promise<ModerationResult> {
@@ -225,7 +229,7 @@ Be precise - false positives harm trust, false negatives harm safety.`;
       return finalResult;
       
     } catch (err) {
-      logger.error("Moderation failed", { error: err, context: context.messageId });
+      log.error({ module: "AdvancedAIModerator" }, "Moderation failed", { error: err, context: context.messageId });
       return {
         action: "none",
         reason: "Moderation system error",
@@ -454,7 +458,7 @@ Be precise - false positives harm trust, false negatives harm safety.`;
     this.cache.clear();
     this.insights.length = 0;
     this.removeAllListeners();
-    logger.info("AdvancedAIModerator shutdown complete");
+    log.info({ module: "AdvancedAIModerator" }, "AdvancedAIModerator shutdown complete");
   }
 }
 

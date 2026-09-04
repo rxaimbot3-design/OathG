@@ -46,7 +46,7 @@ interface CacheEvents {
   revalidate: [{ key: string; entry: CacheEntry }];
 }
 
-export class EdgeCacheSystem extends EventEmitter {
+export class EdgeCacheSystem extends EventEmitter<CacheEvents> {
   private static instance: EdgeCacheSystem;
   
   private cache = new Map<string, CacheEntry>();
