@@ -63,6 +63,144 @@ import { CppNativeEngine } from "./src/CppEngine.js";
 import { TtlMap, LruMap } from "./src/security/MapManager.js";
 import { withSecurityLogging } from "./src/logging/logger.js";
 
+// ==================== IMMUTABLE SECURITY CONFIGURATION ====================
+// These settings are frozen at startup and cannot be changed at runtime
+// They define the core security posture of the bot
+
+export interface SecurityConfig {
+  // Velocity thresholds (actions per time window)
+  velocityThresholds: {
+    channelCreate: { count: number; windowMs: number };
+    channelDelete: { count: number; windowMs: number };
+    roleCreate: { count: number; windowMs: number };
+    roleDelete: { count: number; windowMs: number };
+    roleUpdate: { count: number; windowMs: number };
+    permissionUpdate: { count: number; windowMs: number };
+    massBanKick: { count: number; windowMs: number };
+    webhookCreate: { count: number; windowMs: number };
+    webhookUpdate: { count: number; windowMs: number };
+    botAddition: { count: number; windowMs: number };
+    guildMemberAdd: { count: number; windowMs: number };
+    burst: { count: number; windowMs: number };
+  };
+  
+  // Risk scoring weights
+  riskWeights: {
+    channelCreate: number;
+    channelDelete: number;
+    roleCreate: number;
+    roleUpdate: number;
+    permissionUpdate: number;
+    massBanKick: number;
+    webhookAbuse: number;
+    botAddition: number;
+    massAction: number;
+  };
+  
+  // Thresholds for actions
+  actionThresholds: {
+    quarantine: number;
+    lockdown: number;
+  };
+  
+  // Resource bounds
+  resourceBounds: {
+    maxQueueSize: number;
+    maxCriticalQueue: number;
+    maxConcurrency: number;
+    maxCacheEntries: number;
+    maxDecisionLog: number;
+  };
+  
+  // Timeouts
+  timeouts: {
+    auditLogFetch: number;
+    auditLogRetryDelay: number;
+    auditLogMaxRetries: number;
+    discordRestTimeout: number;
+    circuitBreakerTimeout: number;
+    shutdownDrainTimeout: number;
+  };
+  
+  // Feature flags (set at startup, frozen)
+  features: {
+    enableCircuitBreaker: boolean;
+    enableIdempotency: boolean;
+    enableCorrelationIds: boolean;
+    strictOwnerOnly: boolean;
+  };
+}
+
+// Frozen configuration - populated at startup, then Object.freeze()
+let securityConfig: SecurityConfig;
+
+// Initialize and freeze configuration at startup
+function initializeSecurityConfig(): SecurityConfig {
+  const config: SecurityConfig = {
+    velocityThresholds: {
+      channelCreate: { count: 5, windowMs: 10000 },
+      channelDelete: { count: 3, windowMs: 10000 },
+      roleCreate: { count: 3, windowMs: 10000 },
+      roleDelete: { count: 3, windowMs: 10000 },
+      roleUpdate: { count: 3, windowMs: 10000 },
+      permissionUpdate: { count: 1, windowMs: 60000 },
+      massBanKick: { count: 5, windowMs: 10000 },
+      webhookCreate: { count: 2, windowMs: 10000 },
+      webhookUpdate: { count: 2, windowMs: 10000 },
+      botAddition: { count: 3, windowMs: 10000 },
+      guildMemberAdd: { count: 5, windowMs: 10000 },
+      burst: { count: 10, windowMs: 5000 },
+    },
+    riskWeights: {
+      channelCreate: 40,
+      channelDelete: 40,
+      roleCreate: 50,
+      roleUpdate: 50,
+      permissionUpdate: 40,
+      massBanKick: 50,
+      webhookAbuse: 55,
+      botAddition: 40,
+      massAction: 15,
+    },
+    actionThresholds: {
+      quarantine: 50,
+      lockdown: 80,
+    },
+    resourceBounds: {
+      maxQueueSize: 10000,
+      maxCriticalQueue: 1000,
+      maxConcurrency: 8,
+      maxCacheEntries: 10000,
+      maxDecisionLog: 500,
+    },
+    timeouts: {
+      auditLogFetch: 180000,
+      auditLogRetryDelay: 300,
+      auditLogMaxRetries: 15,
+      discordRestTimeout: 15000,
+      circuitBreakerTimeout: 30000,
+      shutdownDrainTimeout: 10000,
+    },
+    features: {
+      enableCircuitBreaker: true,
+      enableIdempotency: true,
+      enableCorrelationIds: true,
+      strictOwnerOnly: true,
+    },
+  };
+  
+  Object.freeze(config);
+  return config;
+}
+
+// Initialize and freeze configuration
+securityConfig = initializeSecurityConfig();
+
+// Export getter for read-only access
+export function getSecurityConfig(): Readonly<SecurityConfig> {
+  return securityConfig;
+}
+
 // ==================== PERMISSION HELPERS ====================
 
 /**
@@ -106,6 +244,29 @@ function getOrCreateGuildContext(guild: Guild): GuildContext {
 export const userSpamTracker = new TtlMap<string, number[]>({ ttlMs: 60000, maxEntries: 10000, autoCleanupMs: 30000 });
 export const userViolations = new TtlMap<string, { count: number, timestamp: number }>({ ttlMs: 3600000, maxEntries: 10000, autoCleanupMs: 300000 });
 export let presenceRotatorInterval: NodeJS.Timeout | null = null;
+
+// Track in-flight operations for graceful shutdown
+const inFlightOperations = new Set<Promise<any>>();
+
+export function trackOperation(promise: Promise<any>): Promise<any> {
+  inFlightOperations.add(promise);
+  promise.finally(() => inFlightOperations.delete(promise));
+  return promise;
+}
+
+export async function waitForInFlightOperations(timeoutMs = 10000): Promise<void> {
+  const startTime = Date.now();
+  while (inFlightOperations.size > 0) {
+    if (Date.now() - startTime > timeoutMs) {
+      console.warn(`Shutdown timeout: ${inFlightOperations.size} operations still in flight`);
+      break;
+    }
+    // Wait for all current operations to complete
+    await Promise.allSettled(Array.from(inFlightOperations));
+    // Small delay to allow new operations to be tracked
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+}
 
 async function withRetry<T>(op: () => Promise<T>, label: string): Promise<T | undefined> {
   try {
@@ -1296,6 +1457,9 @@ export async function auditAndApplyVerifiedRolePermissions(_guild: Guild, _custo
 }
 
 export async function stopDiscordBot() {
+  // Wait for in-flight operations to complete
+  await waitForInFlightOperations(10000);
+  
   activeIntervals.forEach(clearInterval);
   activeIntervals = [];
   if (presenceRotatorInterval) {

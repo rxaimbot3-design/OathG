@@ -959,6 +959,14 @@ async function gracefulShutdown(signal: string) {
   }, 30000);
 
   try {
+    // Wait for in-flight Discord operations to complete
+    const { waitForInFlightOperations } = await import("./discord-bot.js");
+    await waitForInFlightOperations(10000);
+  } catch (e) {
+    console.warn("Could not wait for in-flight operations:", e);
+  }
+
+  try {
     httpServer?.close(() => console.log("HTTP server stopped accepting new connections."));
   } catch (e) {
     console.error("Error closing HTTP server:", e);
