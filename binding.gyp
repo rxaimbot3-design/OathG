@@ -19,20 +19,23 @@
           "defines": [ "_HAS_EXCEPTIONS=0" ]
         }],
         ["OS=='linux'", {
-          "cflags": [ "-pthread" ],
-          "cflags_cc": [ "-pthread" ]
+          "cflags": [ "-pthread", "-fPIC" ],
+          "cflags_cc": [ "-pthread", "-fPIC" ]
+        }],
+        ["target_arch=='x64'", {
+          "cflags": [ "-msse4.2", "-mpopcnt", "-maes" ],
+          "cflags_cc": [ "-msse4.2", "-mpopcnt", "-maes" ]
+        }],
+        ["target_arch=='arm64'", {
+          "cflags": [ "-march=armv8-a+crc" ],
+          "cflags_cc": [ "-march=armv8-a+crc" ]
         }]
       ],
       "configurations": {
         "Release": {
-          "cflags": [ "-O3", "-DNDEBUG", "-fomit-frame-pointer" ],
-          "cflags_cc": [ "-O3", "-DNDEBUG", "-fomit-frame-pointer" ],
-          "conditions": [
-            ["target_arch=='x64'", {
-              "cflags": [ "-msse4.2" ],
-              "cflags_cc": [ "-msse4.2" ]
-            }]
-          ]
+          "cflags": [ "-O3", "-DNDEBUG", "-fomit-frame-pointer", "-flto" ],
+          "cflags_cc": [ "-O3", "-DNDEBUG", "-fomit-frame-pointer", "-flto" ],
+          "ldflags": [ "-flto" ]
         },
         "Debug": {
           "cflags": [ "-g", "-O0", "-fno-omit-frame-pointer", "-fno-optimize-sibling-calls" ],

@@ -11,6 +11,7 @@ export interface ShardConfig {
   shardsPerWorker: number;
   firstShardId?: number;
   lastShardId?: number;
+  workerScript?: string; // Path to worker script (e.g., "./server-build/ShardWorker.cjs")
 }
 
 export interface WorkerMetrics {
@@ -78,7 +79,8 @@ export class MultiShardCluster extends EventEmitter<ClusterEvents> {
       totalShards,
       shardsPerWorker: config.shardsPerWorker || 1,
       firstShardId: config.firstShardId,
-      lastShardId: config.lastShardId
+      lastShardId: config.lastShardId,
+      workerScript: config.workerScript
     };
     
     this.isMaster = cluster.isPrimary;
@@ -107,6 +109,15 @@ export class MultiShardCluster extends EventEmitter<ClusterEvents> {
     const workerCount = Math.ceil(totalShards / this.config.shardsPerWorker);
     
     log.info({ module: "MultiShardCluster" }, `Spawning ${workerCount} workers for ${totalShards} shards`);
+    
+    // Setup cluster to use custom worker script if provided
+    if (this.config.workerScript) {
+      cluster.setupPrimary({
+        exec: this.config.workerScript,
+        args: [],
+        silent: false
+      });
+    }
     
     for (let i = 0; i < workerCount; i++) {
       const firstShard = i * this.config.shardsPerWorker;
@@ -199,12 +210,17 @@ export class MultiShardCluster extends EventEmitter<ClusterEvents> {
     workerMetrics.status = "restarting";
     log.info({ module: "MultiShardCluster" }, `Respawning worker ${workerId} for shards ${workerMetrics.shardIds.join(",")}`);
     
-    const worker = cluster.fork({
+    // Use custom worker script if configured
+    const workerOptions: any = {
       SHARD_IDS: `${workerMetrics.shardIds[0]}-${workerMetrics.shardIds[workerMetrics.shardIds.length - 1]}`,
       TOTAL_SHARDS: this.config.totalShards.toString(),
       WORKER_ID: workerId.toString(),
       IS_WORKER: "true"
-    });
+    };
+    
+    const worker = this.config.workerScript 
+      ? cluster.fork(workerOptions)
+      : cluster.fork(workerOptions);
     
     this.setupWorkerListeners(worker, workerId, workerMetrics.shardIds);
   }
