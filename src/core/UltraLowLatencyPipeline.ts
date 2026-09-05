@@ -25,6 +25,8 @@ export interface PipelineMetrics {
   throughputPerSec: number;
   queueDepth: number;
   workerUtilization: number;
+  droppedEvents: number;
+  backpressureEvents: number;
 }
 
 interface LatencyBucket {
@@ -42,6 +44,12 @@ interface UltraLowLatencyPipelineEvents {
 export class UltraLowLatencyPipeline extends EventEmitter<UltraLowLatencyPipelineEvents> {
   private static instance: UltraLowLatencyPipeline;
   
+  // Queue bounds - prevent unbounded memory growth
+  static readonly MAX_QUEUE_SIZE = 10000;
+  static readonly MAX_CRITICAL_QUEUE = 1000;
+  static readonly BACKPRESSURE_THRESHOLD = UltraLowLatencyPipeline.MAX_QUEUE_SIZE * 0.8;
+  static readonly BACKPRESSURE_RECOVERY = UltraLowLatencyPipeline.MAX_QUEUE_SIZE * 0.5;
+  
   private criticalQueue: PipelineEvent[] = [];
   private highQueue: PipelineEvent[] = [];
   private normalQueue: PipelineEvent[] = [];
@@ -51,7 +59,10 @@ export class UltraLowLatencyPipeline extends EventEmitter<UltraLowLatencyPipelin
   private workers = 0;
   private maxWorkers = navigator?.hardwareConcurrency || 8;
   
-  private metrics: PipelineMetrics = {
+  // Backpressure state
+  private backpressureActive = false;
+  
+private metrics: PipelineMetrics = {
     processed: 0,
     failed: 0,
     avgLatencyMs: 0,
@@ -60,7 +71,9 @@ export class UltraLowLatencyPipeline extends EventEmitter<UltraLowLatencyPipelin
     p99LatencyMs: 0,
     throughputPerSec: 0,
     queueDepth: 0,
-    workerUtilization: 0
+    workerUtilization: 0,
+    droppedEvents: 0,
+    backpressureEvents: 0
   };
   
   private latencyBuckets = new Map<string, LatencyBucket>();
@@ -111,6 +124,31 @@ export class UltraLowLatencyPipeline extends EventEmitter<UltraLowLatencyPipelin
   }
   
   async enqueue(event: Omit<PipelineEvent, "id" | "timestamp">): Promise<string> {
+    // Check backpressure before enqueueing
+    const totalDepth = this.criticalQueue.length + this.highQueue.length + this.normalQueue.length + this.lowQueue.length;
+    
+    if (totalDepth >= UltraLowLatencyPipeline.MAX_QUEUE_SIZE) {
+      this.metrics.droppedEvents++;
+      this.backpressureActive = true;
+      // Apply backpressure: reject low priority, queue critical/high with warning
+      if (event.priority === "low" || event.priority === "normal") {
+        throw new Error(`BACKPRESSURE: Queue full (${totalDepth}/${UltraLowLatencyPipeline.MAX_QUEUE_SIZE}), dropping ${event.priority} event`);
+      }
+      // For critical/high, allow but warn
+      this.metrics.backpressureEvents++;
+    }
+    
+    // Check critical queue specific bound
+    if (event.priority === "critical" && this.criticalQueue.length >= UltraLowLatencyPipeline.MAX_CRITICAL_QUEUE) {
+      this.metrics.droppedEvents++;
+      throw new Error(`CRITICAL QUEUE FULL: Max ${UltraLowLatencyPipeline.MAX_CRITICAL_QUEUE} critical events`);
+    }
+    
+    // Recovery from backpressure
+    if (this.backpressureActive && totalDepth < UltraLowLatencyPipeline.BACKPRESSURE_RECOVERY) {
+      this.backpressureActive = false;
+    }
+
     const id = crypto.randomUUID();
     const pipelineEvent: PipelineEvent = {
       ...event,

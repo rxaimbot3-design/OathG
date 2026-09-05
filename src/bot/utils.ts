@@ -6,6 +6,9 @@ import {
   EmbedBuilder
 } from "discord.js";
 
+import { DiscordRestCircuitBreaker, withDiscordCircuitBreaker } from "../services/discordCircuitBreaker.js";
+import { log, SecurityFailureContext } from "../logging/logger.js";
+
 // ==================== UTILITY FUNCTIONS ====================
 
 export function getAppBaseUrl(): string {
@@ -216,3 +219,94 @@ export class CommandCooldownManager {
     }
   }
 }
+
+// ==================== DISCORD REST CIRCUIT BREAKER ====================
+
+/**
+ * Unified wrapper for Discord REST operations with:
+ * - Circuit breaker
+ * - Exponential backoff
+ * - Timeout
+ * - Security logging
+ */
+export interface DiscordRestOptions {
+  maxRetries?: number;
+  initialDelay?: number;
+  timeoutMs?: number;
+  circuitBreakerConfig?: {
+    failureThreshold?: number;
+    successThreshold?: number;
+    timeout?: number;
+  };
+  securityContext?: Omit<SecurityFailureContext, "error"> & { fallback?: any };
+}
+
+async function withCircuitBreakerAndRetry<T>(
+  operation: () => Promise<T>,
+  options: DiscordRestOptions = {}
+): Promise<T> {
+  const {
+    maxRetries = 3,
+    initialDelay = 1000,
+    timeoutMs = 15000,
+    circuitBreakerConfig,
+    securityContext,
+  } = options;
+
+  const breaker = DiscordRestCircuitBreaker.getInstance(circuitBreakerConfig);
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    let delay = initialDelay;
+    // Check circuit breaker before each attempt
+    if (!breaker.isAvailable()) {
+      const metrics = breaker.getMetrics();
+      const waitTime = metrics.nextAttempt ? metrics.nextAttempt - Date.now() : 0;
+      throw new Error(`CIRCUIT_BREAKER_OPEN: Discord REST unavailable, retry in ${Math.ceil(waitTime / 1000)}s`);
+    }
+
+    try {
+      const result = await withTimeout(operation(), timeoutMs, "Discord REST operation timed out");
+      breaker.onSuccess();
+      return result;
+    } catch (err: any) {
+      const isRateLimit = err?.status === 429 || err?.code === 429 || err?.message?.includes("429") || err?.message?.includes("rate limit");
+      
+      // Check if circuit breaker should handle this error
+      const status = err?.status || err?.response?.status || err?.statusCode;
+      if (status && ![400, 401, 403, 404].includes(status)) {
+        breaker.onFailure(err);
+      }
+
+      if (isRateLimit && attempt < maxRetries) {
+        const retryAfter = err?.retryAfter || (err?.rawError?.retry_after ? err.rawError.retry_after * 1000 : null) || delay;
+        console.warn(`⏳ Rate Limit Hit (429). Retrying in ${retryAfter}ms (Attempt ${attempt}/${maxRetries})...`);
+        await new Promise(res => setTimeout(res, retryAfter));
+        delay *= 2;
+        continue;
+      }
+
+      // Log security failure if context provided
+      if (securityContext) {
+        log.securityFailure({
+          ...securityContext,
+          error: err as Error,
+        });
+      }
+
+      if (attempt >= maxRetries) {
+        throw err;
+      }
+    }
+  }
+  throw new Error("Max retries exceeded");
+}
+
+export async function withDiscordRest<T>(
+  operation: () => Promise<T>,
+  options: DiscordRestOptions = {}
+): Promise<T> {
+  return withCircuitBreakerAndRetry(operation, options);
+}
+
+// Re-export for backward compatibility
+export { DiscordRestCircuitBreaker, withDiscordCircuitBreaker } from "../services/discordCircuitBreaker.js";

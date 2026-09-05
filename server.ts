@@ -776,7 +776,7 @@ export function trackError(message: string, source = "server", stack?: string, s
 const MAX_HISTORY = 60;
 const latencyHistory: Array<{ timestamp: string; p50: number; p95: number; p99: number; eventType: string }> = [];
 const throughputHistory: Array<{ timestamp: string; eventsPerSecond: number; byType: Record<string, number> }> = [];
-const backupHistory: Array<{ id: string; timestamp: string; status: 'success' | 'failed' | 'in_progress'; size: string; duration: string; type: 'full' | 'incremental' | 'snapshot'; verified: 'pending' | 'integrity-checked' | 'restore-tested' | 'verified' }> = [];
+const backupHistory: Array<{ id: string; timestamp: string; status: 'success' | 'failed' | 'in_progress'; size: string; duration: string; type: 'full' | 'incremental' | 'snapshot'; verified: 'pending' | 'integrity-checked' | 'restore-tested' | 'verified'; dumpFile?: string }> = [];
 const eventTypes = ['security', 'moderation', 'ai', 'voice', 'utility', 'integration'];
 const riskScoreHistory: Array<{ date: string; score: number }> = [];
 const MAX_RISK_HISTORY = 30;
@@ -957,6 +957,14 @@ async function gracefulShutdown(signal: string) {
     console.error("Shutdown timed out, forcing exit.");
     process.exit(1);
   }, 30000);
+
+  try {
+    // Wait for in-flight Discord operations to complete
+    const { waitForInFlightOperations } = await import("./discord-bot.js");
+    await waitForInFlightOperations(10000);
+  } catch (e) {
+    console.warn("Could not wait for in-flight operations:", e);
+  }
 
   try {
     httpServer?.close(() => console.log("HTTP server stopped accepting new connections."));

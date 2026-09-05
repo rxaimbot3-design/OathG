@@ -29,6 +29,7 @@ export interface TokenVaultConfig {
   argon2TimeCost?: number;        // iterations (default: 3)
   argon2Parallelism?: number;     // threads (default: 4)
   redisEnabled?: boolean;
+  fixedSalt?: string;             // For testing: use a fixed salt instead of generating/storing
 }
 
 export interface EncryptedTokenData {
@@ -69,6 +70,7 @@ export class TokenVault {
       argon2TimeCost: config.argon2TimeCost ?? 3,
       argon2Parallelism: config.argon2Parallelism ?? 4,
       redisEnabled: config.redisEnabled ?? true,
+      fixedSalt: config.fixedSalt ?? "",
     };
     this.persistence = RedisPersistence.getInstance();
   }
@@ -124,8 +126,8 @@ export class TokenVault {
         await this.rotateKey();
       }
     } else {
-      // In test mode without Redis, generate a salt
-      this.cachedSalt = crypto.randomBytes(32).toString("hex");
+      // In test mode without Redis, use fixed salt if provided, otherwise generate one
+      this.cachedSalt = this.config.fixedSalt || crypto.randomBytes(32).toString("hex");
     }
 
     this.initialized = true;
