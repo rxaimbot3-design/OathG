@@ -47,6 +47,7 @@ export class UltraLowLatencyPipeline extends EventEmitter<UltraLowLatencyPipelin
   // Queue bounds - prevent unbounded memory growth
   static readonly MAX_QUEUE_SIZE = 10000;
   static readonly MAX_CRITICAL_QUEUE = 1000;
+  static readonly MAX_HIGH_QUEUE = 10000;
   static readonly BACKPRESSURE_THRESHOLD = UltraLowLatencyPipeline.MAX_QUEUE_SIZE * 0.8;
   static readonly BACKPRESSURE_RECOVERY = UltraLowLatencyPipeline.MAX_QUEUE_SIZE * 0.5;
   
@@ -130,11 +131,15 @@ private metrics: PipelineMetrics = {
     if (totalDepth >= UltraLowLatencyPipeline.MAX_QUEUE_SIZE) {
       this.metrics.droppedEvents++;
       this.backpressureActive = true;
-      // Apply backpressure: reject low priority, queue critical/high with warning
+      // Apply backpressure: reject low/normal priority
       if (event.priority === "low" || event.priority === "normal") {
         throw new Error(`BACKPRESSURE: Queue full (${totalDepth}/${UltraLowLatencyPipeline.MAX_QUEUE_SIZE}), dropping ${event.priority} event`);
       }
-      // For critical/high, allow but warn
+      // For high priority, check its own bound
+      if (event.priority === "high" && this.highQueue.length >= UltraLowLatencyPipeline.MAX_HIGH_QUEUE) {
+        throw new Error(`BACKPRESSURE: High queue full (${this.highQueue.length}/${UltraLowLatencyPipeline.MAX_HIGH_QUEUE}), dropping high event`);
+      }
+      // For critical/high (within their bounds), allow but warn
       this.metrics.backpressureEvents++;
     }
     
@@ -142,6 +147,12 @@ private metrics: PipelineMetrics = {
     if (event.priority === "critical" && this.criticalQueue.length >= UltraLowLatencyPipeline.MAX_CRITICAL_QUEUE) {
       this.metrics.droppedEvents++;
       throw new Error(`CRITICAL QUEUE FULL: Max ${UltraLowLatencyPipeline.MAX_CRITICAL_QUEUE} critical events`);
+    }
+    
+    // Check high queue specific bound
+    if (event.priority === "high" && this.highQueue.length >= UltraLowLatencyPipeline.MAX_HIGH_QUEUE) {
+      this.metrics.droppedEvents++;
+      throw new Error(`HIGH QUEUE FULL: Max ${UltraLowLatencyPipeline.MAX_HIGH_QUEUE} high-priority events`);
     }
     
     // Recovery from backpressure
@@ -235,11 +246,31 @@ private metrics: PipelineMetrics = {
       
       const handler = this.eventHandlers.get(processedEvent.type);
       if (handler) {
+        // C++ acceleration: use for fast risk scoring, but ALWAYS call JS handler for enforcement
+        let cppResult: { score?: number; decision?: string; rule?: string } | null = null;
+        
         if (this.useCppAcceleration && this.cppEngine && this.isCppCompatible(processedEvent)) {
-          await this.cppEngine.processEvent(processedEvent);
-        } else {
-          await handler(processedEvent);
+          try {
+            cppResult = await this.cppEngine.processEvent(processedEvent);
+            // Attach C++ risk score to event for JS handler to use
+            if (cppResult && typeof cppResult.score === "number") {
+              (processedEvent as any).cppRiskScore = cppResult.score;
+              (processedEvent as any).cppDecision = cppResult.decision;
+              (processedEvent as any).cppRule = cppResult.rule;
+            }
+          } catch (cppErr) {
+            // C++ engine failed - log but don't block, fall back to JS handler
+            log.warn({ module: "UltraLowLatencyPipeline" }, "C++ engine error, falling back to JS handler", { 
+              eventId: processedEvent.id, 
+              type: processedEvent.type, 
+              error: cppErr 
+            });
+          }
         }
+        
+        // ALWAYS call JS handler for actual enforcement actions
+        // JS handler can access (event as any).cppRiskScore for C++ risk score
+        await handler(processedEvent);
       }
       
       this.emit("processed", processedEvent);

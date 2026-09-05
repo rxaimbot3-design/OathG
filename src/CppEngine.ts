@@ -741,8 +741,18 @@ export class CppNativeEngine {
     await CppNativeEngine.initEngine();
   }
 
-  async processEvent(event: any): Promise<void> {
-    CppNativeEngine.scanSecurityPacket(event.payload?.packetId || 0, event.payload?.riskWeight || 0);
+  async processEvent(event: any): Promise<{ score: number; decision: string; rule: string } | null> {
+    if (!event || !event.payload) {
+      return null;
+    }
+    const packetId = event.payload?.packetId || 0;
+    const riskWeight = event.payload?.riskWeight || 0;
+    const result = CppNativeEngine.scanSecurityPacket(packetId, riskWeight);
+    return {
+      score: result.score,
+      decision: result.passed ? "PASS" : "BLOCK",
+      rule: "native_scan"
+    };
   }
 
   async shutdown(): Promise<void> {

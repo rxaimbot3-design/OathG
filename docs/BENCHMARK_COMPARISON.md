@@ -75,32 +75,62 @@
 
 ### Performance Benchmarks
 
-#### Sustained Load Test (30 seconds)
+#### Important: Synthetic vs Real Discord Throughput Distinction
+
+**ALL BENCHMARKS BELOW ARE SYNTHETIC LOCAL PROCESSING METRICS ONLY.**
+
+These benchmarks measure the bot's internal security pipeline processing capacity using synthetic events generated in-memory. They do NOT include:
+- Discord Gateway WebSocket latency
+- Discord REST API round-trip time
+- Discord rate limiting (429 responses)
+- Network latency
+- Audit log fetch delays
+
+**Real Discord API capacity is significantly lower** and depends entirely on Discord's rate limits (typically ~50 requests/second for most endpoints, with burst allowances).
+
+---
+
+#### Sustained Load Test (30 seconds) - SYNTHETIC
 ```
 Baseline:  61,640 events/sec, 115 MB growth
 Current:   58,436 events/sec, 37 MB growth
 ```
-- Throughput: Stable (~58K events/sec)
+- Throughput: Stable (~58K events/sec synthetic)
 - Memory: **68% reduction** in growth
 
-#### Stress Test (1000 events burst)
+#### Stress Test (1000 events burst) - SYNTHETIC
 ```
 Baseline:  ~400ms for 1000 events
 Current:   ~400ms for 1000 events
 ```
-- Latency: Stable
+- Latency: Stable (local processing only)
 
-#### Concurrency Test (100 concurrent idempotency operations)
+#### Concurrency Test (100 concurrent idempotency operations) - SYNTHETIC
 ```
 Baseline:  N/A (no test)
 Current:   13ms for 100 concurrent operations
 ```
 
-#### Rate Limiting (concurrent)
+#### Rate Limiting (concurrent) - SYNTHETIC
 ```
 Baseline:  N/A
 Current:   1ms for 20 concurrent requests
 ```
+
+#### Real Discord API Latency (NOT MEASURED IN ABOVE BENCHMARKS)
+| Operation | Typical Discord Latency | Notes |
+|-----------|------------------------|-------|
+| Gateway Event Receive | ~50-200ms | Depends on shard/region |
+| Audit Log Fetch | ~200-500ms | With retries: 2-5s |
+| REST Ban/Kick | ~100-300ms | Per request |
+| REST Channel Delete | ~100-300ms | Per request |
+| Rate Limit (429) | Retry-After header | 1s - 60s+ |
+
+**Estimated End-to-End Security Response Time (Real Discord):**
+- Detection only (local): < 5ms (P99)
+- Detection + Audit Log verification: 2-5s
+- Detection + Audit Log + REST action: 3-10s
+- Full incident response with verification: 5-30s
 
 ### Memory Analysis
 
