@@ -469,7 +469,7 @@ export class MongoRedisEngine {
       
       if (result.keys.length > 0) {
         // Filter out internal keys (session, ratelimit, lock)
-        const appKeys = result.keys.filter(key => 
+        const appKeys = result.keys.filter((key: string) => 
           !key.startsWith("session:admin:") &&
           !key.startsWith("ratelimit:") &&
           !key.startsWith("lock:")

@@ -30,6 +30,8 @@ describe("TokenVault", () => {
     // Create and initialize vault
     vault = TokenVault.getInstance({
       masterSecret: "test-master-secret",
+      redisEnabled: false,
+      fixedSalt: "0000000000000000000000000000000000000000000000000000000000000000",
     });
     await vault.initialize();
   });
@@ -84,6 +86,8 @@ describe("TokenVault", () => {
     TokenVault.resetInstance();
     const vault2 = TokenVault.getInstance({
       masterSecret: "test-master-secret",
+      redisEnabled: false,
+      fixedSalt: "0000000000000000000000000000000000000000000000000000000000000000",
     });
     await vault2.initialize();
 

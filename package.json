@@ -15,7 +15,7 @@
     "start": "cross-env NODE_ENV=production node server-build/server.mjs",
     "clean": "rm -rf dist server-build server.js",
     "lint": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "NODE_OPTIONS=--expose-gc vitest run",
     "test:unit": "vitest run tests/security.test.ts tests/pipeline.test.ts tests/backup.test.ts tests/cpp-engine.test.ts",
     "test:integration": "vitest run tests/dashboard.test.ts",
     "test:e2e": "vitest run tests/e2e.test.ts",

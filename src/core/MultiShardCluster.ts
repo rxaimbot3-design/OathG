@@ -179,16 +179,22 @@ export class MultiShardCluster extends EventEmitter<ClusterEvents> {
   }
   
   private handleWorkerExit(worker: any, code: number, signal: string) {
-    const workerId = parseInt(worker.process.env.WORKER_ID || "-1");
-    log.warn({ module: "MultiShardCluster" }, `Worker ${workerId} exited`, { code, signal });
-    
-    const workerMetrics = this.workers.get(workerId);
-    if (workerMetrics) {
-      workerMetrics.status = "crashed";
+    const workerId = parseInt(worker.process?.env?.WORKER_ID || "-1");
+    if (workerId < 0) {
+      log.warn({ module: "MultiShardCluster" }, `Worker exited without WORKER_ID`, { code, signal, pid: worker.process?.pid });
+    } else {
+      log.warn({ module: "MultiShardCluster" }, `Worker ${workerId} exited`, { code, signal });
     }
     
-    if (code !== 0 && !worker.exitedAfterDisconnect) {
-      setTimeout(() => this.respawnWorker(workerId), 5000);
+    if (workerId >= 0) {
+      const workerMetrics = this.workers.get(workerId);
+      if (workerMetrics) {
+        workerMetrics.status = "crashed";
+      }
+      
+      if (code !== 0 && !worker.exitedAfterDisconnect) {
+        setTimeout(() => this.respawnWorker(workerId), 5000);
+      }
     }
   }
   
