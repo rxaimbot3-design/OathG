@@ -73,9 +73,21 @@
 | Shutdown Race | Yes | Fixed | waitForInFlightOperations |
 | Rate Limiter Redis Fallback | Broken | Fixed | In-memory fallback |
 
-### Performance Benchmarks
+### Pipeline Integration Status
 
-#### Important: Synthetic vs Real Discord Throughput Distinction
+**Pipeline Wired into Production**: ✅ YES (as of post-hardening)
+
+All key Discord events are now enqueued into `UltraLowLatencyPipeline` at the start of their handlers:
+- channelCreate, channelDelete, channelUpdate (permission changes)
+- roleCreate, roleDelete, roleUpdate
+- guildBanAdd, guildMemberRemove (kick)
+- messageCreate
+
+The pipeline runs in parallel with the existing `EnhancedEventEngine.intercept()` path, providing C++-accelerated risk scoring and ML/predictive analysis in parallel with the audit-log-based intercept path.
+
+---
+
+### Performance Benchmarks
 
 **ALL BENCHMARKS BELOW ARE SYNTHETIC LOCAL PROCESSING METRICS ONLY.**
 
