@@ -114,6 +114,13 @@ A production-grade Discord security and anti-nuke platform with defense-in-depth
 - Normalized to 0-100 scale
 - Thresholds: LOW(0-20), MEDIUM(21-50), HIGH(51-75), CRITICAL(76-100)
 
+**Pipeline Integration** (`PipelineIntegration.ts`)
+- **Production Wired**: All key Discord events (channelCreate, channelDelete, roleCreate, roleDelete, roleUpdate, channelUpdate, guildBanAdd, guildMemberRemove, messageCreate) are enqueued into `UltraLowLatencyPipeline` at the start of their handlers
+- **Parallel Processing**: Pipeline runs in parallel with `EnhancedEventEngine.intercept()` for C++-accelerated risk scoring
+- **C++ Engine**: Processes events through `CppNativeEngine` for SHA-256/CRC32 hashing and detection rule evaluation
+- **ML/Predictive**: Events trigger `MLAnomalyDetector` and `PredictiveNukeDefense` asynchronously
+- **Bounded Queues**: `MAX_QUEUE_SIZE=10000`, `MAX_CRITICAL_QUEUE=1000`, `MAX_HIGH_QUEUE=10000` with backpressure
+
 ### 3. Action Engine
 
 **Policy Decision** (`EnhancedEventEngine.intercept`)
@@ -175,27 +182,28 @@ A production-grade Discord security and anti-nuke platform with defense-in-depth
 
 ## Data Flow
 
-### Normal Event Flow
+### Normal Event Flow (Production Path - Pipeline Integrated)
 ```
 Discord Gateway Event
     │
     ▼
-EnhancedEventEngine.intercept()
-    │
-    ├──▶ Self-Memory Check (fast path)
-    │
-    ├──▶ Deduplication (crossThreadSyncBus)
-    │
-    ├──▶ Audit Log Fetch (with retry + circuit breaker)
-    │
-    ├──▶ Actor Resolution + Permission Check
-    │
-    ├──▶ Velocity Tracking (TtlMap)
-    │
-    ├──▶ Risk Scoring (SecurityPipeline)
-    │
-    ├──▶ Policy Decision
-    │
+EnhancedEventEngine.intercept()          UltraLowLatencyPipeline.enqueue()
+    │                                          │
+    ├──▶ Self-Memory Check (fast path)       ├──▶ Middleware (Rate Limiting)
+    │                                          │
+    ├──▶ Deduplication (crossThreadSyncBus)  ├──▶ C++ Engine (Risk Scoring)
+    │                                          │
+    ├──▶ Audit Log Fetch (with retry +       ├──▶ ML Anomaly Detection
+    │     circuit breaker)                        │
+    │                                          ├──▶ Predictive Nuke Defense
+    ├──▶ Actor Resolution + Permission Check    │
+    │                                          ├──▶ Event Handlers (ML, Predictive)
+    ├──▶ Velocity Tracking (TtlMap)            │
+    │                                          ▼
+    ├──▶ Risk Scoring (SecurityPipeline)     Pipeline "processed" event
+    │                                              │
+    ├──▶ Policy Decision                       ▼
+    │                                    Incident State Update
     ├──▶ Idempotency Check
     │
     ├──▶ Action Scheduling (Priority Queue)
@@ -209,33 +217,12 @@ EnhancedEventEngine.intercept()
     └──▶ Incident State Update
 ```
 
-### Anti-Nuke Flow (Unauthorized Action)
+### Pipeline-Only Fast Path (C++ Accelerated)
 ```
-Unauthorized Event Detected
+Discord Gateway Event
     │
     ▼
-EnhancedEventEngine.intercept() returns false on selfMemoryCheck
-    │
-    ▼
-fetchAuditLogWithRetry() → Executor ID
-    │
-    ▼
-isOwnerOrWhitelisted() → false
-    │
-    ▼
-checkNukerAttackThreshold()
-    │
-    ▼
-IPBanSystem.banUser()
-    │
-    ▼
-punishRogueAdmin() → Ban + Role Strip + Channel Revert
-    │
-    ▼
-revertAction() → Recursive reversion
-    │
-    ▼
-Incident Logged + Correlation ID
+Pipeline.enqueue() → Middleware → C++ Engine → ML/Predictive Handlers → "processed" event
 ```
 
 ---

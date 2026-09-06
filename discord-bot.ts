@@ -62,6 +62,21 @@ import { validateEnvironmentVariables } from "./src/EnvValidator.js";
 import { CppNativeEngine } from "./src/CppEngine.js";
 import { TtlMap, LruMap } from "./src/security/MapManager.js";
 import { withSecurityLogging } from "./src/logging/logger.js";
+// Pipeline integration
+import { 
+  enqueueChannelDelete,
+  enqueueChannelCreate,
+  enqueueRoleDelete,
+  enqueueRoleCreate,
+  enqueueRoleUpdate,
+  enqueueGuildBanAdd,
+  enqueueGuildMemberRemove,
+  enqueueWebhookCreate,
+  enqueueBotAdd,
+  enqueueMessageCreate,
+  enqueuePermissionUpdate,
+  initializePipelineIntegration
+} from "./src/security/PipelineIntegration.js";
 
 // ==================== IMMUTABLE SECURITY CONFIGURATION ====================
 // These settings are frozen at startup and cannot be changed at runtime
@@ -2383,6 +2398,11 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     client.on("messageCreate", async (message) => {
       if (!message || message.author?.bot) return;
 
+      // Enqueue into UltraLowLatencyPipeline for high-speed security processing
+      if (message.guild) {
+        enqueueMessageCreate(message.guild.id, message.id, message.author.id, message.content);
+      }
+      
       // Use GuildContext for security modules (Phase 2 migration)
       let ctx: GuildContext | undefined;
       if (message.guild) {
@@ -4117,6 +4137,11 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     // ==========================================
     
     client.on("channelCreate", async (channel) => {
+      // Enqueue into UltraLowLatencyPipeline for high-speed security processing
+      if ("guild" in channel && channel.guild) {
+        enqueueChannelCreate(channel.guild.id, channel.id, channel.name, channel.type);
+      }
+      
       addBotLog(`[E++] RAW EVENT: channelCreate for ${channel.id}`, "info");
       if (!("guild" in channel) || !channel.guild) return;
 
@@ -4153,6 +4178,11 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     });
 
     client.on("channelDelete", async (channel) => {
+      // Enqueue into UltraLowLatencyPipeline for high-speed security processing
+      if ("guild" in channel && channel.guild) {
+        enqueueChannelDelete(channel.guild.id, channel.id, channel.name, channel.type);
+      }
+      
       addBotLog(`[E++] RAW EVENT: channelDelete for ${channel.id}`, "info");
       if (!("guild" in channel) || !channel.guild) return;
       const ctx = getOrCreateGuildContext(channel.guild);
@@ -4190,6 +4220,9 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
     });
 
     client.on("roleCreate", async (role) => {
+      // Enqueue into UltraLowLatencyPipeline for high-speed security processing
+      enqueueRoleCreate(role.guild.id, role.id, role.name);
+      
       const ctx = getOrCreateGuildContext(role.guild);
       await EnhancedEventEngine.intercept(
         "Role Creation",
@@ -4222,6 +4255,9 @@ async (executorTag) => {
     });
 
     client.on("roleDelete", async (role) => {
+      // Enqueue into UltraLowLatencyPipeline for high-speed security processing
+      enqueueRoleDelete(role.guild.id, role.id, role.name);
+      
       const ctx = getOrCreateGuildContext(role.guild);
       await EnhancedEventEngine.intercept(
         "Role Deletion",
@@ -4686,6 +4722,10 @@ const webhooks = await targetGuild.fetchWebhooks().catch(() => null);
     client.on("guildMemberRemove", async (member) => {
       const guild = member.guild;
       const ctx = getOrCreateGuildContext(guild);
+      
+      // Enqueue into UltraLowLatencyPipeline for high-speed security processing
+      enqueueGuildMemberRemove(guild.id, member.id);
+      
       const startTime = Date.now();
 
       // Record Leave in Invite Tracker Engine
@@ -4882,6 +4922,15 @@ const webhooks = await targetGuild.fetchWebhooks().catch(() => null);
       const ctx = getOrCreateGuildContext(guild);
       if (activeGuildAudits.has(guild.id)) return;
       
+      // Enqueue into UltraLowLatencyPipeline for high-speed security processing
+      if (oldChannel.permissionOverwrites && newChannel.permissionOverwrites) {
+        const oldPerms = JSON.stringify(Array.from(oldChannel.permissionOverwrites.cache.values()));
+        const newPerms = JSON.stringify(Array.from(newChannel.permissionOverwrites.cache.values()));
+        if (oldPerms !== newPerms) {
+          enqueuePermissionUpdate(guild.id, newChannel.id, "channel");
+        }
+      }
+      
       try {
         let entry = await fetchAuditLogWithRetry(guild, AuditLogEvent.ChannelUpdate, newChannel.id, 1, 300);
         if (!entry) entry = await fetchAuditLogWithRetry(guild, AuditLogEvent.ChannelOverwriteUpdate, newChannel.id, 1, 300);
@@ -4925,6 +4974,12 @@ const webhooks = await targetGuild.fetchWebhooks().catch(() => null);
     client.on("roleUpdate", async (oldRole, newRole) => {
       const guild = newRole.guild;
       const ctx = getOrCreateGuildContext(guild);
+      
+      // Enqueue into UltraLowLatencyPipeline for high-speed security processing
+      const oldPerms = oldRole.permissions.toArray().join(",");
+      const newPerms = newRole.permissions.toArray().join(",");
+      enqueueRoleUpdate(guild.id, newRole.id, oldPerms, newPerms);
+      
       try {
         const dangerousPerms = [PermissionFlagsBits.Administrator, PermissionFlagsBits.ManageRoles, PermissionFlagsBits.ManageGuild, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.BanMembers, PermissionFlagsBits.KickMembers, PermissionFlagsBits.ManageWebhooks];
         const hasDangerous = dangerousPerms.some(p => newRole.permissions.has(p));
@@ -5084,6 +5139,10 @@ const webhooks = await targetGuild.fetchWebhooks().catch(() => null);
     client.on("guildBanAdd", async (ban) => {
       const guild = ban.guild;
       const ctx = getOrCreateGuildContext(guild);
+      
+      // Enqueue into UltraLowLatencyPipeline for high-speed security processing
+      enqueueGuildBanAdd(guild.id, ban.user.id);
+      
       const startTime = Date.now();
 
       try {

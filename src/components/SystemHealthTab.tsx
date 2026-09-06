@@ -12,7 +12,6 @@ import {
   XCircle,
   Loader2
 } from 'lucide-react';
-import os from 'os';
 
 interface DetailedHealth {
   status: string;
