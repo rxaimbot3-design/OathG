@@ -1,8 +1,9 @@
 import { EventEmitter } from "events";
 import { TtlMap } from "../security/MapManager.js";
 import { log, createModuleLogger } from "../logging/logger.js";
-import { Semaphore, WorkerPool } from "./Semaphore.js";
+import { Semaphore } from "./Semaphore.js";
 import { CppNativeEngine } from "../CppEngine.js";
+import { cpus } from "os";
 
 const logger = createModuleLogger("UltraLowLatencyPipeline");
 
@@ -58,8 +59,10 @@ export class UltraLowLatencyPipeline extends EventEmitter<UltraLowLatencyPipelin
   private lowQueue: PipelineEvent[] = [];
   
   private processing = false;
+  private shuttingDown = false;
   private semaphore: Semaphore;
-  private maxWorkers = navigator?.hardwareConcurrency || 8;
+  private metricsInterval: NodeJS.Timeout | null = null;
+  private maxWorkers = cpus().length || 8;
   
   // Backpressure state
   private backpressureActive = false;
@@ -195,11 +198,12 @@ private metrics: PipelineMetrics = {
     if (this.processing) return;
     this.processing = true;
     
-    while (true) {
+    while (!this.shuttingDown) {
       const event = this.dequeueNext();
       if (!event) {
         this.processing = false;
         await new Promise(resolve => setTimeout(resolve, 1));
+        if (this.shuttingDown) break;
         this.processing = true;
         continue;
       }
@@ -210,6 +214,8 @@ private metrics: PipelineMetrics = {
         this.semaphore.release();
       });
     }
+    
+    this.processing = false;
   }
   
   private dequeueNext(): PipelineEvent | null {
@@ -298,8 +304,10 @@ private metrics: PipelineMetrics = {
   }
   
   private startMetricsCollection() {
-    setInterval(() => {
-      this.calculateMetrics();
+    this.metricsInterval = setInterval(() => {
+      if (!this.shuttingDown) {
+        this.calculateMetrics();
+      }
     }, 1000);
   }
   
@@ -341,6 +349,21 @@ private metrics: PipelineMetrics = {
   }
   
   async shutdown() {
+    this.shuttingDown = true;
+    
+    // Clear metrics interval
+    if (this.metricsInterval) {
+      clearInterval(this.metricsInterval);
+      this.metricsInterval = null;
+    }
+    
+    // Wait for processing to complete (with timeout)
+    const startWait = Date.now();
+    const maxWaitMs = 5000;
+    while (this.processing && Date.now() - startWait < maxWaitMs) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    
     this.removeAllListeners();
     this.eventHandlers.clear();
     this.globalMiddleware.length = 0;

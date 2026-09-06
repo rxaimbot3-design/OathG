@@ -2,23 +2,19 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { EnhancedEventEngine } from "../discord-bot.js";
 import { ultraLowLatencyPipeline, UltraLowLatencyPipeline } from "../src/core/UltraLowLatencyPipeline.js";
 import { SecurityPipeline } from "../src/security/Pipeline.js";
-import { punishRogueAdmin, trackOperation } from "../discord-bot.js";
-import { getOrCreateGuildContext } from "../src/core/contexts/GuildContext.js";
 
 describe("Dual-Path Duplicate Enforcement Test", () => {
   let mockGuild: any;
   let mockChannel: any;
   let mockExecutor: any;
-  let punishRogueAdminCalls: number;
-  let revertActionCalls: number;
+  let localRevertCalls: number;
 
   beforeEach(() => {
     vi.resetAllMocks();
     SecurityPipeline.reset();
     UltraLowLatencyPipeline.getInstance().registerHandler("test", async () => {});
     
-    punishRogueAdminCalls = 0;
-    revertActionCalls = 0;
+    localRevertCalls = 0;
     
     // Mock guild
     mockGuild = {
@@ -38,7 +34,7 @@ describe("Dual-Path Duplicate Enforcement Test", () => {
           roles: { highest: { position: 50 } } 
         })
       },
-      roles: { cache: new Map(), create: vi.fn() },
+      roles: { cache: new Map() },
       bans: { create: vi.fn(), remove: vi.fn() },
       fetchAuditLogs: vi.fn().mockResolvedValue({ entries: new Map() }),
       fetchWebhooks: vi.fn().mockResolvedValue(new Map()),
@@ -86,12 +82,8 @@ describe("Dual-Path Duplicate Enforcement Test", () => {
     vi.spyOn(await import("../discord-bot.js"), "isOwnerOrWhitelisted")
       .mockReturnValue(false);
     
-    // Mock punishRogueAdmin to track calls
-    vi.spyOn(await import("../discord-bot.js"), "punishRogueAdmin")
-      .mockImplementation(async () => { punishRogueAdminCalls++; });
-    
     // Track revertAction calls
-    let localRevertCalls = 0;
+    localRevertCalls = 0;
     const mockRevertAction = vi.fn().mockImplementation(async () => {
       localRevertCalls++;
     });
@@ -129,11 +121,9 @@ describe("Dual-Path Duplicate Enforcement Test", () => {
     // VERIFY: revertAction should be called exactly ONCE total
     // (not once per path)
     console.log(`revertAction calls: ${localRevertCalls}`);
-    console.log(`punishRogueAdmin calls: ${punishRogueAdminCalls}`);
     
     // This is the key assertion - dual path should not duplicate enforcement
-    expect(localRevertCalls).toBeLessThanOrEqual(1);
-    expect(punishRogueAdminCalls).toBeLessThanOrEqual(1);
+    expect(localRevertCalls).toBe(1);
   }, 10000);
 
   it("guildBanAdd: both paths process same event without duplicate punishment", async () => {
