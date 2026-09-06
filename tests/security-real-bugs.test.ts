@@ -66,13 +66,13 @@ describe("Resource Bounds: UltraLowLatencyPipeline Queue Bounds", () => {
     const metrics = pipeline.getMetrics();
     expect(metrics.queueDepth).toBe(10000);
     
-    // 10001st event should be dropped with backpressure error
+    // 10001st event should be dropped with global cap error
     await expect(pipeline.enqueue({
       type: "test_event",
       guildId: "guild_1",
       payload: {},
       priority: "normal",
-    })).rejects.toThrow("BACKPRESSURE");
+    })).rejects.toThrow("GLOBAL CAP EXCEEDED");
     
     // Check the pipeline's internal metrics (not the local copy)
     const internalMetrics = (pipeline as any).metrics;
@@ -102,8 +102,8 @@ describe("Resource Bounds: UltraLowLatencyPipeline Queue Bounds", () => {
     })).rejects.toThrow("CRITICAL QUEUE FULL");
   });
 
-  it("high priority events allowed during backpressure", async () => {
-    // Fill queue to trigger backpressure
+  it("high priority events also rejected when global cap reached", async () => {
+    // Fill queue to trigger global cap
     for (let i = 0; i < 10000; i++) {
       await pipeline.enqueue({
         type: "normal_event",
@@ -113,17 +113,17 @@ describe("Resource Bounds: UltraLowLatencyPipeline Queue Bounds", () => {
       });
     }
 
-    // High priority should still be accepted (with warning metric)
-    await pipeline.enqueue({
+    // High priority should also be rejected (global cap is absolute)
+    await expect(pipeline.enqueue({
       type: "high_event",
       guildId: "guild_1",
       payload: {},
       priority: "high",
-    });
+    })).rejects.toThrow("GLOBAL CAP EXCEEDED");
 
     const metrics = pipeline.getMetrics();
-    expect(metrics.backpressureEvents).toBe(1);
-    expect(metrics.queueDepth).toBe(10001);
+    expect(metrics.droppedEvents).toBeGreaterThan(0);
+    expect(metrics.queueDepth).toBe(10000);
   });
 
   it("backpressure recovers when queue drains", async () => {
