@@ -1,6 +1,7 @@
 import { EventEmitter } from "events";
 import { TtlMap } from "../security/MapManager.js";
 import { log, createModuleLogger } from "../logging/logger.js";
+import { Semaphore, WorkerPool } from "./Semaphore.js";
 import { CppNativeEngine } from "../CppEngine.js";
 
 const logger = createModuleLogger("UltraLowLatencyPipeline");
@@ -57,7 +58,7 @@ export class UltraLowLatencyPipeline extends EventEmitter<UltraLowLatencyPipelin
   private lowQueue: PipelineEvent[] = [];
   
   private processing = false;
-  private workers = 0;
+  private semaphore: Semaphore;
   private maxWorkers = navigator?.hardwareConcurrency || 8;
   
   // Backpressure state
@@ -92,6 +93,7 @@ private metrics: PipelineMetrics = {
   
   private constructor() {
     super();
+    this.semaphore = new Semaphore(this.maxWorkers);
     this.initializeCppEngine();
     this.startProcessingLoop();
     this.startMetricsCollection();
@@ -128,28 +130,19 @@ private metrics: PipelineMetrics = {
     // Check backpressure before enqueueing
     const totalDepth = this.criticalQueue.length + this.highQueue.length + this.normalQueue.length + this.lowQueue.length;
     
+    // GLOBAL CAP: Always enforce MAX_QUEUE_SIZE FIRST - no priority can exceed global maximum
     if (totalDepth >= UltraLowLatencyPipeline.MAX_QUEUE_SIZE) {
       this.metrics.droppedEvents++;
       this.backpressureActive = true;
-      // Apply backpressure: reject low/normal priority
-      if (event.priority === "low" || event.priority === "normal") {
-        throw new Error(`BACKPRESSURE: Queue full (${totalDepth}/${UltraLowLatencyPipeline.MAX_QUEUE_SIZE}), dropping ${event.priority} event`);
-      }
-      // For high priority, check its own bound
-      if (event.priority === "high" && this.highQueue.length >= UltraLowLatencyPipeline.MAX_HIGH_QUEUE) {
-        throw new Error(`BACKPRESSURE: High queue full (${this.highQueue.length}/${UltraLowLatencyPipeline.MAX_HIGH_QUEUE}), dropping high event`);
-      }
-      // For critical/high (within their bounds), allow but warn
-      this.metrics.backpressureEvents++;
+      throw new Error(`GLOBAL CAP EXCEEDED: Queue full (${totalDepth}/${UltraLowLatencyPipeline.MAX_QUEUE_SIZE}), dropping ${event.priority} event`);
     }
     
-    // Check critical queue specific bound
+    // Per-priority bounds (WITHIN global cap)
     if (event.priority === "critical" && this.criticalQueue.length >= UltraLowLatencyPipeline.MAX_CRITICAL_QUEUE) {
       this.metrics.droppedEvents++;
       throw new Error(`CRITICAL QUEUE FULL: Max ${UltraLowLatencyPipeline.MAX_CRITICAL_QUEUE} critical events`);
     }
     
-    // Check high queue specific bound
     if (event.priority === "high" && this.highQueue.length >= UltraLowLatencyPipeline.MAX_HIGH_QUEUE) {
       this.metrics.droppedEvents++;
       throw new Error(`HIGH QUEUE FULL: Max ${UltraLowLatencyPipeline.MAX_HIGH_QUEUE} high-priority events`);
@@ -211,14 +204,11 @@ private metrics: PipelineMetrics = {
         continue;
       }
       
-      this.workers++;
+      // Use semaphore for proper concurrency control
+      await this.semaphore.acquire();
       this.processEvent(event).finally(() => {
-        this.workers--;
+        this.semaphore.release();
       });
-      
-      if (this.workers >= this.maxWorkers) {
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
     }
   }
   

@@ -952,7 +952,7 @@ export async function sendLiveAuditAlert(guild: Guild, options: {
 }
 
 // Helper to check if a user is explicitly Whitelisted or the Server Owner.
-function isOwnerOrWhitelisted(memberId: string, guild: Guild, isDestructiveAction: boolean = true): boolean {
+export function isOwnerOrWhitelisted(memberId: string, guild: Guild, isDestructiveAction: boolean = true): boolean {
   if (!memberId) return false;
   
   // Whitelist the bot itself so it doesn't revert its own actions
@@ -1410,7 +1410,7 @@ async function fetchAuditLogsDeduplicated(guild: Guild, type?: AuditLogEvent) {
 }
 
 // Smart Polling Helper to fetch audit logs with retries to handle Discord API eventually consistent delays
-async function fetchAuditLogWithRetry(guild: Guild, type: AuditLogEvent, targetId?: string, retries = 10, delayMs = 300) {
+export async function fetchAuditLogWithRetry(guild: Guild, type: AuditLogEvent, targetId?: string, retries = 10, delayMs = 300) {
   const maxAgeMs = 180000; // 3 minutes window
   for (let i = 0; i < retries; i++) {
     const now = Date.now();
