@@ -6,7 +6,6 @@
  */
 
 import { ultraLowLatencyPipeline, UltraLowLatencyPipeline } from "../core/UltraLowLatencyPipeline.js";
-import { EnhancedEventEngine } from "../../discord-bot.js";
 
 /**
  * Enqueue a security event into the UltraLowLatencyPipeline for high-speed processing.
