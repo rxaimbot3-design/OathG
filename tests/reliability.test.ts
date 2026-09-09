@@ -112,7 +112,7 @@ describe("Reliability: Graceful Degradation", () => {
     const pipeline = UltraLowLatencyPipeline.getInstance();
     
     // Register a handler that succeeds
-    pipeline.registerHandler("success_test", async () => { return { success: true }; });
+    pipeline.registerHandler("success_test", async () => { });
     
     // Should not crash the pipeline
     const id = await pipeline.enqueue({
