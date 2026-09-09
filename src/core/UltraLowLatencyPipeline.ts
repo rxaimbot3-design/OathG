@@ -60,6 +60,7 @@ export class UltraLowLatencyPipeline extends EventEmitter<UltraLowLatencyPipelin
   
   private processing = false;
   private shuttingDown = false;
+  private activeWorkers = 0;
   private semaphore: Semaphore;
   private metricsInterval: NodeJS.Timeout | null = null;
   private maxWorkers = cpus().length || 8;
@@ -210,8 +211,10 @@ private metrics: PipelineMetrics = {
       
       // Use semaphore for proper concurrency control
       await this.semaphore.acquire();
+      this.activeWorkers++;
       this.processEvent(event).finally(() => {
         this.semaphore.release();
+        this.activeWorkers--;
       });
     }
     
@@ -329,7 +332,7 @@ private metrics: PipelineMetrics = {
     }
     
     this.metrics.queueDepth = this.criticalQueue.length + this.highQueue.length + this.normalQueue.length + this.lowQueue.length;
-    this.metrics.workerUtilization = this.workers / this.maxWorkers;
+    this.metrics.workerUtilization = Math.min(1, this.activeWorkers / this.maxWorkers);
   }
   
   private updateQueueDepth() {
@@ -360,7 +363,7 @@ private metrics: PipelineMetrics = {
     // Wait for processing to complete (with timeout)
     const startWait = Date.now();
     const maxWaitMs = 5000;
-    while (this.processing && Date.now() - startWait < maxWaitMs) {
+    while ((this.processing || this.activeWorkers > 0) && Date.now() - startWait < maxWaitMs) {
       await new Promise(resolve => setTimeout(resolve, 10));
     }
     

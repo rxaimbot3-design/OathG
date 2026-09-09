@@ -1362,7 +1362,8 @@ app.get("/api/health/detailed", requireAdminAuth, (req, res) => {
       cpu: os.loadavg()[0] || 0,
       ram: process.memoryUsage().heapUsed / 1024 / 1024,
       uptime: Math.round(process.uptime()),
-      nodeVersion: process.version
+      nodeVersion: process.version,
+      cpuCores: os.cpus().length
     },
     engine: {
       status: cppMetrics.status || "OFFLINE",

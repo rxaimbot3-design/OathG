@@ -20,7 +20,7 @@ interface DetailedHealth {
   bot: { connected: boolean; latency: number; guilds: number; users: number };
   gateway: { latency: number; heartbeat: number; sessionId?: string };
   events: { ratePerSecond: number; lastEventTimestamp: string };
-  system: { cpu: number; ram: number; uptime: number; nodeVersion: string };
+  system: { cpu: number; ram: number; uptime: number; nodeVersion: string; cpuCores?: number };
   engine: { status: string; latencyMicros: number; throughput: number; simd: boolean; nativeLoaded: boolean };
   workers: { active: number; crashed: number; restarts: number };
   errorRate: { last5min: number; last1hour: number };
@@ -208,7 +208,7 @@ export default function SystemHealthTab({ onAddLog }: SystemHealthTabProps) {
             </div>
             <div>
               <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">CPU Cores</span>
-              <span className="text-sm font-black text-zinc-100">{health.workers.active || os?.cpus?.length || 'N/A'}</span>
+              <span className="text-sm font-black text-zinc-100">{health.system.cpuCores ?? "N/A"}</span>
             </div>
           </div>
           <div className="bg-[#18181b] rounded-xl p-4 border border-zinc-800/60 flex items-center gap-3">

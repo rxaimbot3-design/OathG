@@ -259,6 +259,18 @@ function getOrCreateGuildContext(guild: Guild): GuildContext {
 export const userSpamTracker = new TtlMap<string, number[]>({ ttlMs: 60000, maxEntries: 10000, autoCleanupMs: 30000 });
 export const userViolations = new TtlMap<string, { count: number, timestamp: number }>({ ttlMs: 3600000, maxEntries: 10000, autoCleanupMs: 300000 });
 export let presenceRotatorInterval: NodeJS.Timeout | null = null;
+let readyIntervals: NodeJS.Timeout[] = [];
+
+function safeSetReadyInterval(fn: any, delay: number) {
+  const interval = safeSetInterval(fn, delay);
+  readyIntervals.push(interval);
+  return interval;
+}
+
+function clearReadyIntervals() {
+  readyIntervals.forEach(clearInterval);
+  readyIntervals = [];
+}
 
 // Track in-flight operations for graceful shutdown
 const inFlightOperations = new Set<Promise<any>>();
@@ -1472,8 +1484,16 @@ export async function auditAndApplyVerifiedRolePermissions(_guild: Guild, _custo
 }
 
 export async function stopDiscordBot() {
-  // Wait for in-flight operations to complete
-  await waitForInFlightOperations(10000);
+  clearReadyIntervals();
+  if (panicLockdownTimer) {
+    clearTimeout(panicLockdownTimer);
+    panicLockdownTimer = null;
+  }
+  panicLockdownActive = false;
+  botStatus = "offline";
+  isStartingBot = false;
+
+  await waitForInFlightOperations(securityConfig.timeouts.shutdownDrainTimeout);
   
   activeIntervals.forEach(clearInterval);
   activeIntervals = [];
@@ -1486,16 +1506,24 @@ export async function stopDiscordBot() {
   userActionTimestamps.clear();
   guildBurstActions.clear();
   guildPanicBurstActions.clear();
+  activeGuildAudits.clear();
+  EnhancedEventEngine.crossThreadSyncBus.clear();
   CommandCooldownManager.clear();
   if (clientInstance) {
+    const client = clientInstance;
+    clientInstance = null;
     try {
-      clientInstance.destroy();
+      client.destroy();
     } catch (e) {
       console.error("Error destroying client instance:", e);
     }
-    clientInstance = null;
   }
-  botStatus = "offline";
+  try {
+    const { ultimateBotIntegration } = await import("./src/core/UltimateIntegration.js");
+    await ultimateBotIntegration.shutdown();
+  } catch (e) {
+    console.warn("Error shutting down bot integration:", e);
+  }
   botUser = null;
   botGuilds = [];
   addBotLog("Discord bot successfully disconnected and status reset.", "info");
@@ -1629,10 +1657,6 @@ export async function startDiscordBot() {
   CanaryToken.setup();
   CppNativeEngine.initEngine().catch(() => {});
   
-  // 🚀 INITIALIZE ULTIMATE BOT INTEGRATION (World's #1 Discord Bot)
-  const { ultimateBotIntegration } = await import("./src/core/UltimateIntegration.js");
-  await ultimateBotIntegration.initialize();
-  
   BotTokenRotationSystem.setReconnectHandler(async (newToken) => {
     addBotLog("[TOKEN-ROTATION] Reconnecting bot with new token...", "warning");
     await stopDiscordBot();
@@ -1698,6 +1722,9 @@ export async function startDiscordBot() {
 
     clientInstance = client;
 
+    const { ultimateBotIntegration } = await import("./src/core/UltimateIntegration.js");
+    await ultimateBotIntegration.initialize();
+
     
 // 15 Minute Auto Backup (Moved inside 'ready' handler to prevent reconnect interval clearing issues)
 
@@ -1751,20 +1778,18 @@ function startPresenceRotator(client: Client) {
   }, 30000);
 }
 
-client.on("clientReady", async () => {
+client.on("ready", async (readyClient) => {
     console.log("[BOT-READY] ready event fired");
-    // Clear any previous running intervals to prevent leaks on reconnect
-    activeIntervals.forEach(clearInterval);
-    activeIntervals = [];
+    clearReadyIntervals();
     if (presenceRotatorInterval) {
       clearInterval(presenceRotatorInterval);
       presenceRotatorInterval = null;
     }
 
-    startPresenceRotator(client);
-    addBotLog(`🤖 Bot logged in as ${client.user?.tag}! Initializing protection systems across ${client.guilds.cache.size} server(s)...`, "success");
+    startPresenceRotator(readyClient);
+    addBotLog(`🤖 Bot logged in as ${readyClient.user?.tag}! Initializing protection systems across ${readyClient.guilds.cache.size} server(s)...`, "success");
     // 🛡️ Auto-Enforce Channel Security & Verification Matrix for all connected guilds
-    for (const guild of client.guilds.cache.values()) {
+    for (const guild of readyClient.guilds.cache.values()) {
         try {
             const hasVerifyChannel = guild.channels.cache.some(c => c.name.toLowerCase() === "verify" || c.name.toLowerCase() === "verification");
             if (hasVerifyChannel) {
@@ -1787,7 +1812,7 @@ client.on("clientReady", async () => {
     
     // 🛡️ ZERO-TRUST ACTIVE SWEEP ENGINE (Every 10 mins)
     // Scans for malicious integrations, bots, and dangerous permissions
-    safeSetInterval(async () => {
+    safeSetReadyInterval(async () => {
       for (const [_, guild] of client.guilds.cache) {
         try {
           // 1. Scan for malicious OAuth apps & Integrations
@@ -1827,7 +1852,7 @@ client.on("clientReady", async () => {
     }, 600000); // 10 minutes
 
     // 11. Daily Backup (Enterprise Configuration)
-    safeSetInterval(() => {
+    safeSetReadyInterval(() => {
         client.guilds.cache.forEach(guild => {
              ServerSnapshotRestore.createSnapshot(guild).then(snap => {
                if (snap) addBotLog(`📸 [SNAPSHOT] Scheduled daily snapshot created: ${snap.id}`, "info");
@@ -1837,7 +1862,7 @@ client.on("clientReady", async () => {
 
 
     // --- MEMORY LEAK PREVENTION (Periodic Cleanup) ---
-    safeSetInterval(() => {
+      safeSetReadyInterval(() => {
         const now = Date.now();
         
         // Cleanup userActionTimestamps (5 min threshold)
@@ -2324,14 +2349,14 @@ client.on("clientReady", async () => {
           await g.commands.set([]).catch(e => addBotLog(`Guild command cleanup note for ${g.name}: ${e.message}`, "warning"));
         }
         // 15 Minute Auto Backup (Registered inside 'ready' to safely clear/recreate on reconnect)
-        safeSetInterval(() => {
+        safeSetReadyInterval(() => {
             if (client && client.guilds) {
                 client.guilds.cache.forEach(g => createServerBackup(g));
             }
         }, 900000);
 
         // Clear raid counters every 10 seconds (Registered inside 'ready' to safely clear/recreate on reconnect)
-        safeSetInterval(() => {
+        safeSetReadyInterval(() => {
             raidActionCounter.clear();
         }, 10000);
 
@@ -4921,17 +4946,17 @@ const webhooks = await targetGuild.fetchWebhooks().catch(() => null);
       const guild = newChannel.guild;
       const ctx = getOrCreateGuildContext(guild);
       if (activeGuildAudits.has(guild.id)) return;
-      
-      // Enqueue into UltraLowLatencyPipeline for high-speed security processing
-      if (oldChannel.permissionOverwrites && newChannel.permissionOverwrites) {
-        const oldPerms = JSON.stringify(Array.from(oldChannel.permissionOverwrites.cache.values()));
-        const newPerms = JSON.stringify(Array.from(newChannel.permissionOverwrites.cache.values()));
-        if (oldPerms !== newPerms) {
-          enqueuePermissionUpdate(guild.id, newChannel.id, "channel");
-        }
-      }
+      activeGuildAudits.set(guild.id, true);
       
       try {
+        if (oldChannel.type !== ChannelType.DM && newChannel.type !== ChannelType.DM && "permissionOverwrites" in oldChannel && "permissionOverwrites" in newChannel) {
+          const oldPerms = JSON.stringify(Array.from((oldChannel as { permissionOverwrites: { cache: Map<unknown, unknown> } }).permissionOverwrites.cache.values()));
+          const newPerms = JSON.stringify(Array.from((newChannel as { permissionOverwrites: { cache: Map<unknown, unknown> } }).permissionOverwrites.cache.values()));
+          if (oldPerms !== newPerms) {
+            enqueuePermissionUpdate(guild.id, newChannel.id, "channel");
+          }
+        }
+        
         let entry = await fetchAuditLogWithRetry(guild, AuditLogEvent.ChannelUpdate, newChannel.id, 1, 300);
         if (!entry) entry = await fetchAuditLogWithRetry(guild, AuditLogEvent.ChannelOverwriteUpdate, newChannel.id, 1, 300);
         if (!entry) entry = await fetchAuditLogWithRetry(guild, AuditLogEvent.ChannelOverwriteCreate, newChannel.id, 1, 300);
@@ -4967,6 +4992,8 @@ const webhooks = await targetGuild.fetchWebhooks().catch(() => null);
         }
       } catch (err: any) {
         addBotLog(`Error handling channelUpdate event: ${err.message}`, "error");
+      } finally {
+        activeGuildAudits.delete(guild.id);
       }
     });
 
@@ -5547,31 +5574,14 @@ const webhooks = await targetGuild.fetchWebhooks().catch(() => null);
       return;
     }
     console.log("[BOT-STARTUP] Attempting Discord bot login...");
-    const loginTimeoutMs = 90000; // 90s timeout for Railway/CI environments
-    const loginPromise = client.login(tokenToLogin);
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("Login timeout: ready event did not fire within 90s")), loginTimeoutMs)
-    );
+    let loginTimer: NodeJS.Timeout | null = null;
+    const loginTimeout = new Promise<never>((_, reject) => {
+      loginTimer = setTimeout(() => reject(new Error(`Login timeout: ready event did not fire within ${loginTimeoutMs / 1000}s`)), loginTimeoutMs);
+    });
     try {
-      await Promise.race([loginPromise, timeoutPromise]);
-    } catch (err: any) {
-      const errMsg = err?.message || String(err);
-      if (errMsg.includes("Login timeout")) {
-        addBotLog(`Discord bot login timed out after ${loginTimeoutMs/1000}s. This may be due to network latency from Railway to Discord Gateway. Retrying...`, "warning");
-        // Retry once after timeout
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        try {
-          const retryPromise = client.login(tokenToLogin);
-          const retryTimeout = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("Login timeout: ready event did not fire within 90s on retry")), loginTimeoutMs)
-          );
-          await Promise.race([retryPromise, retryTimeout]);
-        } catch (retryErr: any) {
-          throw new Error(`Discord bot login failed after retry: ${retryErr?.message || retryErr}`);
-        }
-      } else {
-        throw err;
-      }
+      await Promise.race([client.login(tokenToLogin), loginTimeout]);
+    } finally {
+      if (loginTimer) clearTimeout(loginTimer);
     }
     console.log("[BOT-STARTUP] client.login() resolved without throwing");
     isStartingBot = false;
@@ -5585,7 +5595,11 @@ const webhooks = await targetGuild.fetchWebhooks().catch(() => null);
       console.error("Failed to initialize Discord client:", err);
     }
     botStatus = "offline";
-    clientInstance = null;
+    if (clientInstance) {
+      const failedClient = clientInstance;
+      clientInstance = null;
+      failedClient.destroy();
+    }
     isStartingBot = false;
   }
 }
