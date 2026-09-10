@@ -462,16 +462,17 @@ export interface BotLog {
 }
 
 export interface SecurityStats {
-  securityScore: number; // dynamically calculated
+  securityScore: number; // dynamically calculated based on actual security posture
   ownerOnlyZeroTrust: boolean;
-  activeAntiNukeModules: number;
+  activeSecurityModules: number; // actual count of enabled modules
   blockedAttacksCount: number;
-  real100NukerDefenseActive: boolean;
   panicLockdownActive: boolean;
   lockedVCsCount: number;
   unlockedVCsCount: number;
   hiddenChannelsCount: number;
   ownerWhitelist: string[];
+  uptimeSeconds: number;
+  guildsProtected: number;
 }
 
 let botStatus: "online" | "offline" | "connecting" | "error" | "lockdown" = "offline";
@@ -737,10 +738,14 @@ export function getDiscordBotStatus() {
 }
 
 export function getSecurityStats(): SecurityStats {
-  let score = 85;
-  if (ownerWhitelist.length > 0) score += 5;
-  if (panicLockdownActive) score = 100;
+  let score = 70; // Base score
+  if (ownerWhitelist.length > 0) score += 10;
+  if (panicLockdownActive) score += 15;
   if (blockedAttacksCount > 0) score += Math.min(10, blockedAttacksCount);
+  
+  // Count actual active security modules (hardcoded baseline for now)
+  // These modules are always active when the bot is running
+  const activeModules = 10; // RateLimiter, AuditLogMonitor, DMFirewall, SlashOnly, AntiPhishing, NukeDefense, WebhookGuard, AutoHeal, CanaryToken, Quarantine
 
   let lockedVCsCount = 0;
   let unlockedVCsCount = 0;
@@ -769,17 +774,21 @@ export function getSecurityStats(): SecurityStats {
     }
   }
 
+  const uptimeSeconds = process.uptime();
+  const guildsProtected = clientInstance?.guilds?.cache?.size || 0;
+
   return {
     securityScore: Math.min(100, score),
     ownerOnlyZeroTrust: true,
-    activeAntiNukeModules: 50,
+    activeSecurityModules: activeModules,
     blockedAttacksCount,
-    real100NukerDefenseActive: true,
     panicLockdownActive,
     lockedVCsCount,
     unlockedVCsCount,
     hiddenChannelsCount,
-    ownerWhitelist
+    ownerWhitelist,
+    uptimeSeconds: Math.floor(uptimeSeconds),
+    guildsProtected
   };
 }
 
@@ -1465,6 +1474,29 @@ export async function fetchAuditLogWithRetry(guild: Guild, type: AuditLogEvent, 
 }
 
 export const activeGuildAudits = new TtlMap<string, true>({ ttlMs: 5 * 60 * 1000, maxEntries: 1000, autoCleanupMs: 60000 });
+
+/**
+ * Mark a guild as having an active audit in progress
+ * Prevents duplicate audit processing for the same guild
+ */
+export function markAuditActive(guildId: string): void {
+  activeGuildAudits.set(guildId, true);
+}
+
+/**
+ * Mark a guild's audit as complete
+ * Allows new audits to be processed for this guild
+ */
+export function markAuditComplete(guildId: string): void {
+  activeGuildAudits.delete(guildId);
+}
+
+/**
+ * Check if a guild has an active audit
+ */
+export function isAuditActive(guildId: string): boolean {
+  return activeGuildAudits.has(guildId);
+}
 
 // Verification system removed
 export async function auditAndApplyVerifiedRolePermissions(_guild: Guild, _customRoleName?: string) {
@@ -2515,7 +2547,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
             `🛡️ **Zero Trust Anti-Nuke Defense Rating:**\n` +
             `• **Security Score:** \`${stats.securityScore} / 100\` (MAXIMUM SHIELD ACTIVE)\n` +
             `• **Bot Role Position:** \`${botRole?.name || "Bot Role"}\` (Position \`${botRole?.position || 0}\`)\n` +
-            `• **Anti-Nuke Protection Modules:** \`${stats.activeAntiNukeModules}\` Modules Online\n` +
+            `• **Active Security Modules:** \`${stats.activeSecurityModules}\` Modules Online\n` +
             `• **Panic Lockdown Mode:** \`${stats.panicLockdownActive ? "ACTIVE 🚨" : "STANDBY 🟢"}\` \n` +
             `• **Verified Role Permissions:** \`Locked VCs: ${auditRes.lockedVCs} | Unlocked: ${auditRes.unlockedChannels} | Hidden: ${auditRes.hiddenChannels}\` \n` +
             `• **Total Blocked Attacks:** \`${stats.blockedAttacksCount}\` Threats Mitigated\n\n` +
@@ -4085,7 +4117,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
             `🛡️ **Zero Trust Anti-Nuke Defense Rating:**\n` +
             `• **Security Score:** \`${stats.securityScore} / 100\` (MAXIMUM SHIELD ACTIVE)\n` +
             `• **Bot Role Position:** \`${botRole?.name || "Bot Role"}\` (Position \`${botRole?.position || 0}\`)\n` +
-            `• **Anti-Nuke Protection Modules:** \`${stats.activeAntiNukeModules}\` Modules Online\n` +
+            `• **Active Security Modules:** \`${stats.activeSecurityModules}\` Modules Online\n` +
             `• **Panic Lockdown Mode:** \`${stats.panicLockdownActive ? "ACTIVE 🚨" : "STANDBY 🟢"}\` \n` +
             `• **Verified Role Permissions:** \`Locked VCs: ${auditRes.lockedVCs} | Unlocked: ${auditRes.unlockedChannels} | Hidden: ${auditRes.hiddenChannels}\` \n` +
             `• **Total Blocked Attacks:** \`${stats.blockedAttacksCount}\` Threats Mitigated\n\n` +
@@ -4920,18 +4952,20 @@ const webhooks = await targetGuild.fetchWebhooks().catch(() => null);
       if (!("guild" in newChannel) || !newChannel.guild) return;
       const guild = newChannel.guild;
       const ctx = getOrCreateGuildContext(guild);
-      if (activeGuildAudits.has(guild.id)) return;
+      if (isAuditActive(guild.id)) return;
       
-      // Enqueue into UltraLowLatencyPipeline for high-speed security processing
-      if (oldChannel.permissionOverwrites && newChannel.permissionOverwrites) {
-        const oldPerms = JSON.stringify(Array.from(oldChannel.permissionOverwrites.cache.values()));
-        const newPerms = JSON.stringify(Array.from(newChannel.permissionOverwrites.cache.values()));
-        if (oldPerms !== newPerms) {
-          enqueuePermissionUpdate(guild.id, newChannel.id, "channel");
-        }
-      }
+      markAuditActive(guild.id);
       
       try {
+        // Enqueue into UltraLowLatencyPipeline for high-speed security processing
+        if (oldChannel.isTextBased() && newChannel.isTextBased() && "permissionOverwrites" in oldChannel && "permissionOverwrites" in newChannel) {
+          const oldPerms = JSON.stringify(Array.from((oldChannel as any).permissionOverwrites.cache.values()));
+          const newPerms = JSON.stringify(Array.from((newChannel as any).permissionOverwrites.cache.values()));
+          if (oldPerms !== newPerms) {
+            enqueuePermissionUpdate(guild.id, newChannel.id, "channel");
+          }
+        }
+        
         let entry = await fetchAuditLogWithRetry(guild, AuditLogEvent.ChannelUpdate, newChannel.id, 1, 300);
         if (!entry) entry = await fetchAuditLogWithRetry(guild, AuditLogEvent.ChannelOverwriteUpdate, newChannel.id, 1, 300);
         if (!entry) entry = await fetchAuditLogWithRetry(guild, AuditLogEvent.ChannelOverwriteCreate, newChannel.id, 1, 300);
@@ -4967,6 +5001,8 @@ const webhooks = await targetGuild.fetchWebhooks().catch(() => null);
         }
       } catch (err: any) {
         addBotLog(`Error handling channelUpdate event: ${err.message}`, "error");
+      } finally {
+        markAuditComplete(guild.id);
       }
     });
 

@@ -131,6 +131,9 @@ export interface SecurityStats {
   verifiedIpsCount: number;
   securityScore: number;
   panicLockdownActive: boolean;
+  activeSecurityModules: number;
+  uptimeSeconds: number;
+  guildsProtected: number;
 }
 
 export interface EnvValidationResult {

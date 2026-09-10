@@ -3,6 +3,19 @@ import path from "path";
 import crypto from "crypto";
 import { atomicWriteJsonSync } from "./utils.js";
 
+/**
+ * IP Ban System
+ * 
+ * IMPORTANT LIMITATION: Discord does NOT expose user IP addresses to bots.
+ * This system can ONLY track IPs that are explicitly provided/associated by:
+ * - Manual admin entry via API/commands
+ * - External systems that correlate user IDs with IPs (e.g., web dashboards, VPN logs)
+ * - User self-reporting during verification flows
+ * 
+ * The system does NOT and CANNOT automatically derive or discover Discord user IPs.
+ * Any IP associations must be explicitly recorded via `recordIP()` or the API endpoints.
+ */
+
 export interface IPBanRecord {
   id: string;
   userId?: string;

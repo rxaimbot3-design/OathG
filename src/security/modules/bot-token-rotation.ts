@@ -1,5 +1,27 @@
 import { TokenVault } from "./token-vault.js";
 
+/**
+ * Bot Token Rotation System
+ * 
+ * IMPORTANT LIMITATION: This system CANNOT rotate the actual Discord application token.
+ * Discord tokens are managed exclusively through the Discord Developer Portal.
+ * 
+ * What this system DOES:
+ * - Updates the token stored in the encrypted TokenVault
+ * - Updates process environment variables (DISCORD_TOKEN, DISCORD_BOT_TOKEN)
+ * - Invokes a reconnect handler to restart the bot with the new token
+ * 
+ * What this system CANNOT do:
+ * - Generate new Discord tokens (must be done manually in Developer Portal)
+ * - Revoke old tokens on Discord's side
+ * - Rotate tokens without a bot restart/reconnect
+ * 
+ * For true token rotation, you must:
+ * 1. Generate a new token in the Discord Developer Portal
+ * 2. Revoke the old token in the Discord Developer Portal
+ * 3. Use this system to update the bot with the new token
+ */
+
 export interface BotTokenRotationSystemConfig {
   reconnectHandler?: (token: string) => Promise<void> | void;
 }
