@@ -208,7 +208,7 @@ export default function SystemHealthTab({ onAddLog }: SystemHealthTabProps) {
             </div>
             <div>
               <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">CPU Cores</span>
-              <span className="text-sm font-black text-zinc-100">{health.workers.active || os?.cpus?.length || 'N/A'}</span>
+              <span className="text-sm font-black text-zinc-100">{health.workers.active || (typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 'N/A')}</span>
             </div>
           </div>
           <div className="bg-[#18181b] rounded-xl p-4 border border-zinc-800/60 flex items-center gap-3">

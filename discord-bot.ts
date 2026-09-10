@@ -1783,7 +1783,7 @@ function startPresenceRotator(client: Client) {
   }, 30000);
 }
 
-client.on("clientReady", async () => {
+client.on("ready", async () => {
     console.log("[BOT-READY] ready event fired");
     // Clear any previous running intervals to prevent leaks on reconnect
     activeIntervals.forEach(clearInterval);

@@ -270,8 +270,8 @@ describe("Chaos Test: Discord 429/5xx Storm", () => {
       for (let i = 0; i < 5; i++) {
         try {
           await breaker.execute(async () => "success");
-        } catch (e) {
-          expect(e.message).toContain("CIRCUIT_BREAKER_OPEN");
+        } catch (e: unknown) {
+          expect((e as Error).message).toContain("CIRCUIT_BREAKER_OPEN");
         }
       }
       const elapsed = Date.now() - start;
