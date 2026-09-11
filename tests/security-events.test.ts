@@ -164,6 +164,7 @@ describe('Security Events - Type Definitions', () => {
       };
 
       const event = createHealthCheckEvent({
+        guildId: '123456789012345678' as any,
         status: 'healthy',
         checks,
         metrics
@@ -271,6 +272,7 @@ describe('Security Event Type Union', () => {
         success: true
       }),
       createHealthCheckEvent({
+        guildId: '123456789012345678' as any,
         status: 'healthy',
         checks: [],
         metrics: {

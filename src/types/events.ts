@@ -143,9 +143,7 @@ export interface ConfigChangeEvent extends BaseSecurityEvent {
 /**
  * Health check event
  */
-export interface HealthCheckEvent {
-  readonly timestamp: Timestamp;
-  readonly guildId: GuildId | null;
+export interface HealthCheckEvent extends BaseSecurityEvent {
   readonly status: 'healthy' | 'degraded' | 'unhealthy';
   readonly checks: HealthCheck[];
   readonly metrics: SystemMetrics;
@@ -424,10 +422,12 @@ export function createPunishmentEvent(params: Omit<PunishmentEvent, 'eventId' | 
   };
 }
 
-export function createHealthCheckEvent(params: Omit<HealthCheckEvent, 'timestamp'>): HealthCheckEvent {
+export function createHealthCheckEvent(params: Omit<HealthCheckEvent, 'eventId' | 'timestamp' | 'correlationId'>): HealthCheckEvent {
   return {
     ...params,
-    timestamp: Date.now() as Timestamp
+    eventId: crypto.randomUUID() as Snowflake,
+    timestamp: Date.now() as Timestamp,
+    correlationId: crypto.randomUUID()
   };
 }
 
