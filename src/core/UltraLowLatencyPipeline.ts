@@ -329,7 +329,7 @@ private metrics: PipelineMetrics = {
     }
     
     this.metrics.queueDepth = this.criticalQueue.length + this.highQueue.length + this.normalQueue.length + this.lowQueue.length;
-    this.metrics.workerUtilization = this.workers / this.maxWorkers;
+    this.metrics.workerUtilization = (this.maxWorkers - this.semaphore.availablePermits()) / this.maxWorkers;
   }
   
   private updateQueueDepth() {

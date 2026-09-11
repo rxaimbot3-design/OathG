@@ -3363,10 +3363,10 @@ app.get("/api/analytics/risk-score", requireAdminAuth, (req, res) => {
   const categories = [
     {
       name: 'Threat Detection',
-      score: Math.min(100, Math.max(20, 40 + (stats.blockedAttacksCount * 2) + (cppMetrics.status === 'ACTIVE_MICROSECOND' ? 25 : 0) + (stats.real100NukerDefenseActive ? 15 : 0))),
+      score: Math.min(100, Math.max(20, 40 + (stats.blockedAttacksCount * 2) + (cppMetrics.status === 'ACTIVE_MICROSECOND' ? 25 : 0) + (stats.panicLockdownActive ? 15 : 0))),
       weight: 0.25,
       trend: stats.blockedAttacksCount > 0 ? 'up' : 'stable',
-      details: `Blocked ${stats.blockedAttacksCount} attacks. C++ engine ${cppMetrics.status}. Defense active: ${stats.real100NukerDefenseActive}`
+      details: `Blocked ${stats.blockedAttacksCount} attacks. C++ engine ${cppMetrics.status}. Panic lockdown: ${stats.panicLockdownActive}`
     },
     {
       name: 'Network Security',
@@ -3398,10 +3398,10 @@ app.get("/api/analytics/risk-score", requireAdminAuth, (req, res) => {
     },
     {
       name: 'Authorization',
-      score: Math.min(100, Math.max(20, 45 + (stats.activeAntiNukeModules * 3) + (stats.panicLockdownActive ? 10 : 0))),
+      score: Math.min(100, Math.max(20, 45 + (stats.activeSecurityModules * 3) + (stats.panicLockdownActive ? 10 : 0))),
       weight: 0.1,
-      trend: stats.activeAntiNukeModules > 0 ? 'up' : 'stable',
-      details: `Active anti-nuke modules: ${stats.activeAntiNukeModules}. Lockdown: ${stats.panicLockdownActive}`
+      trend: stats.activeSecurityModules > 0 ? 'up' : 'stable',
+      details: `Active security modules: ${stats.activeSecurityModules}. Lockdown: ${stats.panicLockdownActive}`
     }
   ];
 
