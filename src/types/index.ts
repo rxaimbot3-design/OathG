@@ -10,6 +10,9 @@ export * from './branded.js';
 // Event types for security monitoring
 export * from './events.js';
 
+// Threat Intelligence types
+export * from '../security/ThreatIntelligence.js';
+
 // Zod validation schemas
 export * from './schemas.js';
 
@@ -162,3 +165,35 @@ export {
   
   EnvSchema,
 } from './schemas.js';
+
+// Branded type constructors
+export {
+  createUserId,
+  createGuildId,
+  createChannelId,
+  createRoleId,
+  createMessageId,
+  createWebhookId,
+  createInviteCode,
+  createIPAddress,
+  createSnowflake,
+  createTimestamp,
+  createUnixTimestamp,
+  createUnixTimestampMs,
+  createDurationMs,
+  createSecurityScore,
+  createThreatLevel,
+  createDiscordColor,
+  
+  isUserId,
+  isGuildId,
+  isChannelId,
+  isRoleId,
+  isMessageId,
+  isIPAddress,
+  
+  ok,
+  err,
+  isOk,
+  isErr,
+} from './branded.js';
