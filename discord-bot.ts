@@ -288,6 +288,7 @@ async function withRetry<T>(op: () => Promise<T>, label: string): Promise<T | un
     return await withExponentialBackoff(op, 3, 1000);
   } catch (err: any) {
     addBotLog(`🚨 CRITICAL: Discord API failure [${label}]: ${err.message}`, "error");
+    return undefined;
   }
 }
 

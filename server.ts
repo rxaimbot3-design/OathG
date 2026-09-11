@@ -1456,9 +1456,11 @@ app.post("/api/auth/discord/login", RateLimiterMiddleware.limit(60000, 10, "logi
     addBotLog(`✅ Authorized Discord login by ${userData.username}`, "success");
 
     res.json({ success: true, user: userData });
+    return;
   } catch (err: any) {
     console.error("Discord login error:", err);
     res.status(500).json({ success: false, error: "Internal server error" });
+    return;
   }
 });
 
@@ -1568,6 +1570,7 @@ app.post("/api/admin/whitelist", requireAdminAuth, (req, res) => {
   const record = AdminWhitelistSystem.addRecord(type, value, "Admin", note);
   logAdminAuditAction("ADD_WHITELIST_RECORD", req, { type, value, note });
   res.json({ success: true, record, whitelist: AdminWhitelistSystem.loadWhitelist() });
+  return;
 });
 
 app.delete("/api/admin/whitelist/:id", requireAdminAuth, (req, res) => {
@@ -1891,13 +1894,16 @@ app.post("/api/bot/lockdown", requireAdminAuth, heavyOpRateLimit, async (req, re
   try {
     const newStatus = await toggleLockdown();
     res.json({ success: true, status: newStatus });
+    return;
   } catch (err: any) {
     res.status(500).json({ error: "Internal server error" });
+    return;
   }
 });
 
 app.get("/api/discord/status", requireAdminAuth, (req, res) => {
   res.json(getDiscordBotStatus());
+  return;
 });
 
 app.post("/api/discord/connect", requireAdminAuth, async (req, res) => {
@@ -1934,8 +1940,10 @@ app.post("/api/discord/connect", requireAdminAuth, async (req, res) => {
       message: "Discord bot connection initiated successfully.",
       status: getDiscordBotStatus()
     });
+    return;
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+    return;
   }
 });
 
@@ -1954,14 +1962,17 @@ app.post("/api/discord/disconnect", requireAdminAuth, async (req, res) => {
     }
 
     res.json({ success: true, message: "Discord bot disconnected and reset." });
+    return;
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+    return;
   }
 });
 
 // Zero Trust Security & 100-Nuker Simulator API Endpoints
 app.get("/api/bot/security-status", requireAdminAuth, (req, res) => {
   res.json(getSecurityStats());
+  return;
 });
 
 app.get("/api/bot/features", requireAdminAuth, (req, res) => {
@@ -2031,6 +2042,7 @@ app.post("/api/cpp-engine/scan", requireAdminAuth, (req, res) => {
     engine: "C++ Native Security Engine",
     result
   });
+  return;
 });
 
 // ==================== ULTRA SECURITY API ENDPOINTS ====================
@@ -2141,9 +2153,11 @@ app.all(["/api/honeypot-trap", "/trap", "/trap/:guildId", "/trap/:guildId/:userI
 </body>
 </html>
   `);
+    return;
   } catch (err: any) {
     console.error("Fatal Honeypot trap handler error:", err);
     res.status(500).json({ error: "Honeypot trap execution encountered an internal error." });
+    return;
   }
 });
 
@@ -2185,6 +2199,7 @@ app.get("/api/security/ultra-stats", requireAdminAuth, async (req, res) => {
     hardwareFingerprint,
     isPremiumActive
   });
+  return;
 });
 
 app.post("/api/security/rotate-token", requireAdminAuth, heavyOpRateLimit, async (req, res) => {
@@ -2204,6 +2219,7 @@ app.post("/api/security/rotate-token", requireAdminAuth, heavyOpRateLimit, async
     return res.status(500).json({ success: false, error: "Token rotation failed: " + err.message });
   }
   res.status(400).json({ success: false, error: "Invalid token format for rotation." });
+  return;
 });
 
 app.post("/api/security/oauth-scan", requireAdminAuth, heavyOpRateLimit, async (req, res) => {
@@ -2241,6 +2257,7 @@ app.get("/api/security/ai-raid-prediction", requireAdminAuth, (req, res) => {
 app.get("/api/security/ai-report", requireAdminAuth, aiRateLimit, async (req, res) => {
   const report = await AISecurityReport.generateReport();
   res.json({ report, generatedAt: new Date().toISOString() });
+  return;
 });
 
 app.post("/api/security/ai-assistant", requireAdminAuth, aiRateLimit, async (req, res) => {
@@ -2249,11 +2266,13 @@ app.post("/api/security/ai-assistant", requireAdminAuth, aiRateLimit, async (req
   if (prompt.length > 10000) return res.status(400).json({ error: "Prompt exceeds maximum allowed length of 10000 characters." });
   const reply = await AICommandAssistant.processNaturalLanguageCommand(prompt);
   res.json({ reply });
+  return;
 });
 
 app.get("/api/security/ai-optimize", requireAdminAuth, aiRateLimit, async (req, res) => {
   const result = await AICommandAssistant.optimizeConfig();
   res.json(result);
+  return;
 });
 
 // ==================== SNAPSHOT & 1-CLICK RESTORE ====================
@@ -2261,6 +2280,7 @@ app.get("/api/security/ai-optimize", requireAdminAuth, aiRateLimit, async (req, 
 app.get("/api/snapshots", requireAdminAuth, (req, res) => {
   const snapshots = ServerSnapshotRestore.getSnapshots("");
   res.json({ snapshots });
+  return;
 });
 
 app.post("/api/snapshots/create", requireAdminAuth, heavyOpRateLimit, async (req, res) => {
@@ -2274,6 +2294,7 @@ app.post("/api/snapshots/create", requireAdminAuth, heavyOpRateLimit, async (req
   const snapshot = await ServerSnapshotRestore.createSnapshot(guild);
   addBotLog(`📸 Created 1-Click Server Snapshot '${snapshot.id}' for ${guild.name}`, "success");
   res.json({ success: true, snapshot });
+  return;
 });
 
 app.post("/api/snapshots/restore", requireAdminAuth, heavyOpRateLimit, async (req, res) => {
@@ -2299,8 +2320,10 @@ app.post("/api/snapshots/restore", requireAdminAuth, heavyOpRateLimit, async (re
     } else {
       res.status(404).json({ success: false, error: "Snapshot not found." });
     }
+    return;
   } catch (err: any) {
     res.status(500).json({ success: false, error: "Internal server error" });
+    return;
   }
 });
 
@@ -2349,6 +2372,7 @@ app.get("/api/analytics/overview", requireAdminAuth, (req, res) => {
       status: "Global Zero-Trust IP Ban Enforced"
     }))
   });
+  return;
 });
 
 // ==================== ECONOMY & LEADERBOARD ====================
@@ -2467,6 +2491,7 @@ app.post("/api/premium/activate", requireAdminAuth, async (req, res) => {
     console.error("License verification error:", err);
   }
   res.status(400).json({ success: false, error: "Invalid license key. Format: PREMIUM-ENT-XXXX-XXXX-XXXX" });
+  return;
 });
 
 app.post("/api/system/restart", requireAdminAuth, heavyOpRateLimit, async (req, res) => {
@@ -2884,10 +2909,12 @@ app.post("/api/github/webhook", async (req, res) => {
     }
     
     res.json({ success, message: "Webhook processed." });
+    return;
 
   } catch (err: any) {
     console.error("Webhook processing error:", err);
     res.status(500).json({ success: false, error: "Internal server error" });
+    return;
   }
 });
 
@@ -3063,11 +3090,13 @@ Your Goal: Server protected + Members active + Owner's income increased.`,
       reply: response.text,
       sources: searchSources,
     });
+    return;
   } catch (error: any) {
     console.error("Gemini Chat Error:", error);
     res.status(500).json({
       error: error.message || "An unexpected error occurred in the Gemini API.",
     });
+    return;
   }
 });
 
@@ -3230,9 +3259,11 @@ app.post("/api/analytics/backups/:id/restore", requireAdminAuth, heavyOpRateLimi
       restoredKeys: restoreResult.restoredKeys,
       restoredAt: new Date().toISOString() 
     });
+    return;
   } catch (err: any) {
     addBotLog(`[ENTERPRISE] Backup restore failed: ${err.message}`, "error");
     res.status(500).json({ success: false, error: "Restore failed" });
+    return;
   }
 });
 
@@ -3345,9 +3376,11 @@ app.post("/api/analytics/backups/:id/test-restore", requireAdminAuth, heavyOpRat
     }
     
     res.json({ success: true, ...testResult });
+    return;
   } catch (err: any) {
     addBotLog(`[ENTERPRISE] Backup test restore failed: ${err.message}`, "error");
     res.status(500).json({ success: false, error: "Test restore failed" });
+    return;
   }
 });
 
@@ -3474,7 +3507,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     });
   }
   
-  next(err);
+  return next(err);
 });
 
 // Setup Vite Dev Server / Static Files Serve
