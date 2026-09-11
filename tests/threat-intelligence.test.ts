@@ -9,15 +9,13 @@ import {
   createThreatIntelManager,
   DEFAULT_THREAT_INTEL_CONFIG,
   DEFAULT_THREAT_INTEL_SOURCES,
-  type ThreatCategory
+  type ThreatCategory,
+  type ThreatIndicator as ThreatIntelIndicator,
+  type IPReputation as ThreatIntelIPReputation,
+  type DomainReputation as ThreatIntelDomainReputation,
+  type ThreatIntelConfig
 } from '../src/security/ThreatIntelligence.js';
-import type { 
-  IPAddress, 
-  ThreatIndicator as ThreatIntelIndicator,
-  IPReputation as ThreatIntelIPReputation,
-  DomainReputation as ThreatIntelDomainReputation,
-  ThreatIntelConfig 
-} from '../src/security/ThreatIntelligence.js';
+import type { IPAddress } from '../src/types/index.js';
 import { 
   createDurationMs, 
   createUnixTimestampMs,

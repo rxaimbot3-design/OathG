@@ -12,8 +12,7 @@ import type {
   AsyncResult,
   IPAddress,
   UnixTimestampMs,
-  DurationMs,
-  ThreatCategory
+  DurationMs
 } from '../types/index.js';
 import { 
   ok, 
@@ -27,15 +26,6 @@ import {
 // ============================================================================
 // Threat Intelligence Types
 // ============================================================================
-
-export interface ThreatIntelSource {
-  readonly name: string;
-  readonly url: string;
-  readonly apiKey?: string;
-  readonly updateInterval: DurationMs;
-  readonly weight: number; // 0-1, higher = more trusted
-  readonly categories: ThreatCategory[];
-}
 
 export type ThreatCategory = 
   | 'malware'
@@ -51,56 +41,13 @@ export type ThreatCategory =
   | 'ransomware'
   | 'crypto_miner';
 
-export interface ThreatIndicator {
-  readonly indicator: string; // IP, domain, URL, hash
-  readonly type: 'ip' | 'domain' | 'url' | 'hash';
+export interface ThreatIntelSource {
+  readonly name: string;
+  readonly url: string;
+  readonly apiKey?: string;
+  readonly updateInterval: DurationMs;
+  readonly weight: number; // 0-1, higher = more trusted
   readonly categories: ThreatCategory[];
-  readonly confidence: number; // 0-1
-  readonly severity: 'low' | 'medium' | 'high' | 'critical';
-  readonly source: string;
-  readonly firstSeen: UnixTimestampMs;
-  readonly lastSeen: UnixTimestampMs;
-  readonly metadata: Record<string, unknown>;
-}
-
-export interface IPReputation {
-  readonly ip: IPAddress;
-  readonly score: number; // 0-100, higher = more malicious
-  readonly categories: ThreatCategory[];
-  readonly isTor: boolean;
-  readonly isVpn: boolean;
-  readonly isProxy: boolean;
-  readonly isHosting: boolean;
-  readonly country: string;
-  readonly asn: number;
-  readonly asnName: string;
-  readonly lastUpdated: number; // UnixTimestampMs
-  readonly sources: string[];
-}
-
-export interface DomainReputation {
-  readonly domain: string;
-  readonly score: number;
-  readonly categories: ThreatCategory[];
-  readonly isPhishing: boolean;
-  readonly isMalware: boolean;
-  readonly age: number; // DurationMs
-  readonly registrar: string;
-  readonly lastUpdated: number; // UnixTimestampMs
-  readonly sources: string[];
-}
-
-export interface ThreatIntelConfig {
-  readonly enabled: boolean;
-  readonly sources: ThreatIntelSource[];
-  readonly cacheEnabled: boolean;
-  readonly cacheTtl: number; // DurationMs
-  readonly minConfidence: number;
-  readonly blockThreshold: number; // score threshold for blocking
-  readonly alertThreshold: number; // score threshold for alerting
-  readonly updateInterval: number; // DurationMs
-  readonly timeout: number; // DurationMs
-  readonly retryAttempts: number;
 }
 
 export interface ThreatIndicator {
@@ -351,6 +298,7 @@ export class ThreatIntelManager extends EventEmitter {
   constructor(config: Partial<ThreatIntelConfig> = {}) {
     super();
     this.config = { ...DEFAULT_THREAT_INTEL_CONFIG, ...config };
+    // Use the branded type from the config
     this.cache = new ThreatIntelCache(this.config.cacheTtl);
   }
 
@@ -753,7 +701,7 @@ export class ThreatIntelManager extends EventEmitter {
 }
 
 // ============================================================================
-// Factory Function
+// Factory Functions
 // ============================================================================
 
 let threatIntelManager: ThreatIntelManager | null = null;
