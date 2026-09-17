@@ -3531,8 +3531,8 @@ async function setupServer() {
       console.error("❌ Ultimate integration failed:", err);
     }
     
-    // 🏆 EXPOSE BENCHMARK/PROOF ENDPOINT
-    app.get("/api/benchmark/proof", async (req, res) => {
+    // 🏆 EXPOSE BENCHMARK/PROOF ENDPOINT (Admin-only)
+    app.get("/api/benchmark/proof", requireAdminAuth, async (req, res) => {
       try {
         const proof = benchmarkEvidenceSystem.generateProofOfPerformance();
         res.json(proof);
@@ -3541,7 +3541,7 @@ async function setupServer() {
       }
     });
     
-    app.get("/api/benchmark/realtime", async (req, res) => {
+    app.get("/api/benchmark/realtime", requireAdminAuth, async (req, res) => {
       try {
         const metrics = benchmarkEvidenceSystem.getRealTimeMetrics();
         res.json(metrics);
@@ -3550,7 +3550,7 @@ async function setupServer() {
       }
     });
     
-    app.get("/api/benchmark/run", async (req, res) => {
+    app.get("/api/benchmark/run", requireAdminAuth, heavyOpRateLimit, async (req, res) => {
       try {
         const results = await benchmarkEvidenceSystem.runBenchmarks();
         res.json(results);
@@ -3559,7 +3559,7 @@ async function setupServer() {
       }
     });
     
-    app.get("/api/ultimate/status", async (req, res) => {
+    app.get("/api/ultimate/status", requireAdminAuth, async (req, res) => {
       try {
         const dashboard = ultimateBotIntegration.getRealTimeDashboard();
         res.json(dashboard);
