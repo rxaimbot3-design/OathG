@@ -59,7 +59,8 @@ const execFileAsync = promisify(execFile);
 
 const serverLogger = createModuleLogger("server");
 
-
+// Track server-level intervals for clean shutdown
+const serverIntervals: NodeJS.Timeout[] = [];
 
 try {
   if (fs.existsSync("./discord_config.json")) {
@@ -334,9 +335,10 @@ async function purgeRevokedSessionsFromRedis(): Promise<void> {
 }
 
 // Periodic cleanup of revoked sessions from Redis (every 2 minutes)
-setInterval(() => {
+const revokedSessionCleanupInterval = setInterval(() => {
   purgeRevokedSessionsFromRedis().catch(() => {});
 }, 2 * 60 * 1000);
+serverIntervals.push(revokedSessionCleanupInterval);
 
 // Periodic cleanup of revoked session hashes - handled by TtlMap auto-cleanup
 
@@ -445,7 +447,7 @@ loadAdminSessions();
 
 // Cleanup expired sessions every 10 minutes - also cleans up Redis
 // TtlMap handles in-memory cleanup automatically via TTL
-setInterval(async () => {
+const sessionCleanupInterval = setInterval(async () => {
   const now = Date.now();
   let changed = false;
   for (const [tokenHash, session] of activeAdminSessions.entries()) {
@@ -457,6 +459,7 @@ setInterval(async () => {
   }
   if (changed) saveAdminSessions();
 }, 10 * 60 * 1000);
+serverIntervals.push(sessionCleanupInterval);
 
 async function requireAdminAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
@@ -867,7 +870,7 @@ function loadBackupHistory() {
 
 // Automatic backup scheduler: runs every 6 hours
 function startBackupScheduler() {
-  setInterval(async () => {
+  const backupInterval = setInterval(async () => {
     try {
       const startTime = Date.now();
       const result = await MongoRedisEngine.performCacheBackup();
@@ -901,6 +904,7 @@ function startBackupScheduler() {
       addBotLog(`[ENTERPRISE] Scheduled Cache Backup failed: ${err.message}`, "error");
     }
   }, 6 * 60 * 60 * 1000); // every 6 hours
+  serverIntervals.push(backupInterval);
 }
 
 interface CppMetrics {
@@ -988,6 +992,14 @@ async function gracefulShutdown(signal: string) {
     }
   } catch (e) {
     console.error("Error closing Redis during shutdown:", e);
+  }
+
+  try {
+    for (const id of serverIntervals) clearInterval(id);
+    serverIntervals.length = 0;
+    console.log("Server intervals cleared.");
+  } catch (e) {
+    console.error("Error clearing server intervals during shutdown:", e);
   }
 
   try {

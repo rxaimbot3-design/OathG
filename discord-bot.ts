@@ -497,6 +497,7 @@ let panicLockdownTimer: NodeJS.Timeout | null = null;
 
 export function setPanicLockdown(active: boolean, autoResetMs = 15 * 60 * 1000) {
   panicLockdownActive = active;
+  invalidateSecurityStatsCache();
   if (panicLockdownTimer) {
     clearTimeout(panicLockdownTimer);
     panicLockdownTimer = null;
@@ -506,6 +507,7 @@ export function setPanicLockdown(active: boolean, autoResetMs = 15 * 60 * 1000) 
     panicLockdownTimer = setTimeout(() => {
       if (panicLockdownActive) {
         panicLockdownActive = false;
+        invalidateSecurityStatsCache();
         botStatus = clientInstance ? "online" : "offline";
         addBotLog("🟢 [AUTO-SAFETY] Panic Lockdown status auto-reset back to normal after cooldown duration.", "success");
         if (clientInstance?.user) {
@@ -608,80 +610,6 @@ const recentWhitelistedActions: TtlMap<string, {
   timestamp: number;
 }[]> = new TtlMap({ ttlMs: 30000, maxEntries: 500, autoCleanupMs: 30000 });
 
-// Periodic cleanup for unbounded global trackers (prevents memory leaks in long-running bots)
-safeSetInterval(() => {
-  const now = Date.now();
-  const maxAge = 30 * 60 * 1000; // 30 minutes
-
-  for (const [guildId, actions] of globalBanActions) {
-    const filtered = actions.filter(a => now - a.timestamp < maxAge);
-    if (filtered.length === 0) globalBanActions.delete(guildId);
-    else globalBanActions.set(guildId, filtered);
-  }
-
-  for (const [guildId, timestamps] of globalJoinHistory) {
-    const filtered = timestamps.filter(t => now - t < maxAge);
-    if (filtered.length === 0) globalJoinHistory.delete(guildId);
-    else globalJoinHistory.set(guildId, filtered);
-  }
-
-  for (const [guildId, timestamps] of globalLeaveHistory) {
-    const filtered = timestamps.filter(t => now - t < maxAge);
-    if (filtered.length === 0) globalLeaveHistory.delete(guildId);
-    else globalLeaveHistory.set(guildId, filtered);
-  }
-
-  for (const [guildId, actions] of recentWhitelistedActions) {
-    const filtered = actions.filter(a => now - a.timestamp < 30000);
-    if (filtered.length === 0) recentWhitelistedActions.delete(guildId);
-    else recentWhitelistedActions.set(guildId, filtered);
-  }
-
-  for (const [userId, times] of whitelistActionTimestamps) {
-    const filtered = times.filter(t => now - t < 10000);
-    if (filtered.length === 0) whitelistActionTimestamps.delete(userId);
-    else whitelistActionTimestamps.set(userId, filtered);
-  }
-
-  for (const [userId, data] of userSpamTracker) {
-    const filtered = data.filter(t => now - t < 60000);
-    if (filtered.length === 0) userSpamTracker.delete(userId);
-    else userSpamTracker.set(userId, filtered);
-  }
-
-  for (const [userId, data] of userViolations) {
-    if (now - data.timestamp > 3600000) userViolations.delete(userId);
-  }
-
-  // Cleanup sequentialKickBanTracker (remove entries with no recent timestamps)
-  for (const [executorId, timestamps] of sequentialKickBanTracker.entries()) {
-    const recent = timestamps.filter(t => now - t < 60000);
-    if (recent.length === 0) sequentialKickBanTracker.delete(executorId);
-    else sequentialKickBanTracker.set(executorId, recent);
-  }
-
-  // Cleanup channelSnapshots and roleSnapshots (remove entries for deleted channels/roles)
-  // Keep snapshots for 1 hour to allow rollback
-  const snapshotMaxAge = 60 * 60 * 1000;
-  for (const [id, snapshot] of channelSnapshots.entries()) {
-    if (now - (snapshot.timestamp || 0) > snapshotMaxAge) {
-      channelSnapshots.delete(id);
-    }
-  }
-  for (const [id, snapshot] of roleSnapshots.entries()) {
-    if (now - (snapshot.timestamp || 0) > snapshotMaxAge) {
-      roleSnapshots.delete(id);
-    }
-  }
-
-  // Cleanup EnhancedEventEngine crossThreadSyncBus
-  for (const [key, timestamp] of EnhancedEventEngine.crossThreadSyncBus.entries()) {
-    if (now - timestamp > 30000) {
-      EnhancedEventEngine.crossThreadSyncBus.delete(key);
-    }
-  }
-}, 5 * 60 * 1000);
-
 export function addBotLog(message: string, type: BotLog["type"] = "info") {
   const timestamp = new Date().toLocaleTimeString();
   botLogs.unshift({ timestamp, type, message });
@@ -738,6 +666,14 @@ export function getDiscordBotStatus() {
 }
 
 export function getSecurityStats(): SecurityStats {
+  // Cache security stats for 30s to avoid expensive full guild/channel scan on every call.
+  const now = Date.now();
+  const CACHE_TTL_MS = 30_000;
+  const cached = (getSecurityStats as any)._cache;
+  if (cached && now - cached.ts < CACHE_TTL_MS) {
+    return cached.stats;
+  }
+
   let score = 70; // Base score
   if (ownerWhitelist.length > 0) score += 10;
   if (panicLockdownActive) score += 15;
@@ -777,7 +713,7 @@ export function getSecurityStats(): SecurityStats {
   const uptimeSeconds = process.uptime();
   const guildsProtected = clientInstance?.guilds?.cache?.size || 0;
 
-  return {
+  const stats: SecurityStats = {
     securityScore: Math.min(100, score),
     ownerOnlyZeroTrust: true,
     activeSecurityModules: activeModules,
@@ -790,6 +726,13 @@ export function getSecurityStats(): SecurityStats {
     uptimeSeconds: Math.floor(uptimeSeconds),
     guildsProtected
   };
+
+  (getSecurityStats as any)._cache = { stats, ts: now };
+  return stats;
+}
+
+export function invalidateSecurityStatsCache(): void {
+  (getSecurityStats as any)._cache = null;
 }
 
 // 🛡️ BOT ACTION MEMORY SETS (Prevents Infinite Feedback Loops with Bot's Own Actions)
@@ -1090,11 +1033,14 @@ async function notifyServerOwner(guild: Guild, executorId: string, actionType: s
 
 export async function punishRogueAdmin(guild: Guild, executorId: string, actionType: string, victimDetails: string) {
   if (!executorId || executorId === guild.client.user?.id) return;
-  // PERMANENT EXEMPTION: Never punish the Owner or explicitly Whitelisted members
-  if (executorId === guild.ownerId || ownerWhitelist.includes(executorId) || approvedBots.includes(executorId)) {
-    addBotLog(`🛡️ [WHITELIST EXEMPTION] Skipped punishment for Whitelisted User/Owner ${executorId}`, "info");
+  // Owner and approved bots are permanently exempt from punishment.
+  // Whitelisted users are exempt only if they are NOT flagged as compromised
+  // (compromise = 3+ destructive actions within 10s).
+  if (executorId === guild.ownerId || approvedBots.includes(executorId)) {
+    addBotLog(`🛡️ [WHITELIST EXEMPTION] Skipped punishment for Owner/Approved Bot ${executorId}`, "info");
     return;
   }
+  // For explicitly whitelisted users, check compromise velocity before exempting.
   if (isOwnerOrWhitelisted(executorId, guild, true)) return;
 
   const me = guild.members.me;
@@ -1241,33 +1187,7 @@ export async function punishRogueAdmin(guild: Guild, executorId: string, actionT
 
 
 
-// 🚨 REAL GOD MODE: EVENT VELOCITY TRACKING 🚨
-const eventVelocity = {
-  channelCreate: { count: 0, lastReset: Date.now() },
-  channelDelete: { count: 0, lastReset: Date.now() },
-  roleCreate: { count: 0, lastReset: Date.now() },
-  roleDelete: { count: 0, lastReset: Date.now() }
-};
-
 let isQuarantineActive = false;
-
-function checkVelocity(eventType: keyof typeof eventVelocity): boolean {
-  const now = Date.now();
-  const tracker = eventVelocity[eventType];
-  
-  if (now - tracker.lastReset > 2000) { // Reset every 2 seconds
-    tracker.count = 0;
-    tracker.lastReset = now;
-  }
-  
-  tracker.count++;
-  
-  // If more than 5 events in 2 seconds, it's a script/botnet attack
-  if (tracker.count > 5) {
-    return true;
-  }
-  return false;
-}
 
 async function emergencyQuarantine(guild: Guild): Promise<void> {
     if (isQuarantineActive) return;
@@ -1326,6 +1246,7 @@ function checkNukerAttackThreshold(userId: string, guildId: string, actionType: 
     if (panicLockdownActive) return true;
     addBotLog(`🚨 [100-NUKER SIMULTANEOUS ATTACK DETECTED] High burst action velocity for '${actionType}' by user ID ${userId}! Triggering Emergency Auto-Defenses.`, "error");
     blockedAttacksCount++;
+    invalidateSecurityStatsCache();
     saveWhitelistState();
     setPanicLockdown(true, 600000); // Engage Panic Lockdown with 10-minute auto-lift timer
     const guild = clientInstance?.guilds.cache.get(guildId);
@@ -1871,7 +1792,39 @@ client.on("ready", async () => {
     // --- MEMORY LEAK PREVENTION (Periodic Cleanup) ---
     safeSetInterval(() => {
         const now = Date.now();
-        
+        const maxAge = 30 * 60 * 1000; // 30 minutes
+
+        // Cleanup global ban/join/leave trackers
+        for (const [guildId, actions] of globalBanActions) {
+          const filtered = actions.filter(a => now - a.timestamp < maxAge);
+          if (filtered.length === 0) globalBanActions.delete(guildId);
+          else globalBanActions.set(guildId, filtered);
+        }
+
+        for (const [guildId, timestamps] of globalJoinHistory) {
+          const filtered = timestamps.filter(t => now - t < maxAge);
+          if (filtered.length === 0) globalJoinHistory.delete(guildId);
+          else globalJoinHistory.set(guildId, filtered);
+        }
+
+        for (const [guildId, timestamps] of globalLeaveHistory) {
+          const filtered = timestamps.filter(t => now - t < maxAge);
+          if (filtered.length === 0) globalLeaveHistory.delete(guildId);
+          else globalLeaveHistory.set(guildId, filtered);
+        }
+
+        for (const [guildId, actions] of recentWhitelistedActions) {
+          const filtered = actions.filter(a => now - a.timestamp < 30000);
+          if (filtered.length === 0) recentWhitelistedActions.delete(guildId);
+          else recentWhitelistedActions.set(guildId, filtered);
+        }
+
+        for (const [userId, times] of whitelistActionTimestamps) {
+          const filtered = times.filter(t => now - t < 10000);
+          if (filtered.length === 0) whitelistActionTimestamps.delete(userId);
+          else whitelistActionTimestamps.set(userId, filtered);
+        }
+
         // Cleanup userActionTimestamps (5 min threshold)
         for (const [id, times] of userActionTimestamps.entries()) {
             const recent = times.filter(t => now - t < 5 * 60 * 1000);
@@ -1905,6 +1858,33 @@ client.on("ready", async () => {
             if (now - record.timestamp > 10 * 60 * 1000) {
                 userViolations.delete(id);
             }
+        }
+        
+        // Cleanup sequentialKickBanTracker
+        for (const [executorId, timestamps] of sequentialKickBanTracker.entries()) {
+          const recent = timestamps.filter(t => now - t < 60000);
+          if (recent.length === 0) sequentialKickBanTracker.delete(executorId);
+          else sequentialKickBanTracker.set(executorId, recent);
+        }
+
+        // Cleanup channelSnapshots and roleSnapshots (keep for 1 hour)
+        const snapshotMaxAge = 60 * 60 * 1000;
+        for (const [id, snapshot] of channelSnapshots.entries()) {
+          if (now - (snapshot.timestamp || 0) > snapshotMaxAge) {
+            channelSnapshots.delete(id);
+          }
+        }
+        for (const [id, snapshot] of roleSnapshots.entries()) {
+          if (now - (snapshot.timestamp || 0) > snapshotMaxAge) {
+            roleSnapshots.delete(id);
+          }
+        }
+
+        // Cleanup EnhancedEventEngine crossThreadSyncBus
+        for (const [key, timestamp] of EnhancedEventEngine.crossThreadSyncBus.entries()) {
+          if (now - timestamp > 30000) {
+            EnhancedEventEngine.crossThreadSyncBus.delete(key);
+          }
         }
         
         CommandCooldownManager.cleanup();
@@ -2466,6 +2446,42 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
       }
 
       if (!message.guild || message.author.bot) return;
+
+      // 16. Anti-Invite Link Monitor (Shield)
+      if (ctx && ctx.antiInviteShield.isEnabled()) {
+        const member = message.member;
+        if (member && !isOwnerOrWhitelisted(member.id, message.guild, false)) {
+          const isLink = ctx.antiInviteShield.containsInvite(message.content) || 
+                         /(https?:\/\/[^\s]+|discord\.gg\/[a-zA-Z0-9]+|discord\.com\/invite\/[a-zA-Z0-9]+|t\.me\/[a-zA-Z0-9_]+)/i.test(message.content);
+
+          if (isLink) {
+            try {
+              const violatorId = message.author.id;
+              const violatorTag = message.author.tag;
+              
+              addBotLog(`🚨 [LINK & SPAM SHIELD] User ${violatorTag} (${violatorId}) sent an unauthorized link/invite. Executing 1-hour TIMEOUT.`, "warning");
+              
+              await message.delete().catch(() => {});
+
+              if (message.member && message.member.moderatable) {
+                await message.member.timeout(60 * 60 * 1000, "Zero Trust Shield: Unauthorized link detected (Timeout policy enforced)").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
+              }
+
+              await sendLiveAuditAlert(message.guild, {
+                title: "🤐 LINK & SPAM PROTECTION: TIMEOUT APPLIED (1 HOUR)",
+                description: `🚨 **User placed on 1-Hour Timeout for sending a link!**\n\n` +
+                             `• **User:** <@${violatorId}> (${violatorTag})\n` +
+                             `• **User ID:** \`${violatorId}\`\n` +
+                             `• **Action Taken:** Message deleted and user placed on **1-Hour Timeout** (Muted).\n\n` +
+                             `*Note: As per system configuration, link & spam violations result ONLY in a timeout.*`,
+                color: 0xF59E0B
+              });
+            } catch (err: any) {
+              console.error("Error executing Anti-Link timeout:", err.message);
+            }
+          }
+        }
+      }
 
       const member = message.member;
       if (!member) return;
@@ -3586,6 +3602,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         }
 
         blockedAttacksCount++;
+        invalidateSecurityStatsCache();
         addBotLog(`🚨 EMERGENCY PANIC LOCKDOWN ${panicLockdownActive ? "ACTIVATED" : "DEACTIVATED"} by Owner ${interaction.user.tag}!`, "warning");
 
         await interaction.editReply(
@@ -3636,6 +3653,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
         if (!ownerWhitelist.includes(targetUser.id)) {
           ownerWhitelist.push(targetUser.id);
         }
+        invalidateSecurityStatsCache();
         await interaction.reply({ content: `✅ **WHITELISTED:** <@${targetUser.id}> is now explicitly whitelisted and can bypass Zero Trust restrictions.` });
         return;
       }
@@ -3651,6 +3669,7 @@ const linkRegex = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(discord\.gg\/[a-zA-Z0-9]+)
           return;
         }
         ownerWhitelist = ownerWhitelist.filter(id => id !== targetUser.id);
+        invalidateSecurityStatsCache();
         await interaction.reply({ content: `🛡️ **REMOVED:** <@${targetUser.id}> has been removed from the whitelist and is now subject to strict Zero Trust policies.` });
         return;
       }
@@ -5214,51 +5233,6 @@ const webhooks = await targetGuild.fetchWebhooks().catch(() => null);
       }
     });
 
-    // 16. Anti-Invite Link Monitor (Shield)
-    client.on("messageCreate", async (message) => {
-      if (!message.guild || message.author.bot) return;
-      const ctx = getOrCreateGuildContext(message.guild);
-      if (!ctx.antiInviteShield.isEnabled()) return;
-
-      // Exempt Owner and Whitelist
-      if (message.author.id === message.guild.ownerId || isOwnerOrWhitelisted(message.author.id, message.guild, false)) {
-        return;
-      }
-
-      const isLink = ctx.antiInviteShield.containsInvite(message.content) || 
-                     /(https?:\/\/[^\s]+|discord\.gg\/[a-zA-Z0-9]+|discord\.com\/invite\/[a-zA-Z0-9]+|t\.me\/[a-zA-Z0-9_]+)/i.test(message.content);
-
-      if (isLink) {
-        try {
-          const violatorId = message.author.id;
-          const violatorTag = message.author.tag;
-          
-          addBotLog(`🚨 [LINK & SPAM SHIELD] User ${violatorTag} (${violatorId}) sent an unauthorized link/invite. Executing 1-hour TIMEOUT.`, "warning");
-          
-          // Delete violation message
-          await message.delete().catch(() => {});
-
-          // Execute 1-Hour Timeout ONLY (No Ban!)
-          if (message.member && message.member.moderatable) {
-            await message.member.timeout(60 * 60 * 1000, "Zero Trust Shield: Unauthorized link detected (Timeout policy enforced)").catch((err: any) => addBotLog(`[SECURITY] Operation failed: ${err.message}`, "error"));
-          }
-
-          // Audit Alert
-          await sendLiveAuditAlert(message.guild, {
-            title: "🤐 LINK & SPAM PROTECTION: TIMEOUT APPLIED (1 HOUR)",
-            description: `🚨 **User placed on 1-Hour Timeout for sending a link!**\n\n` +
-                         `• **User:** <@${violatorId}> (${violatorTag})\n` +
-                         `• **User ID:** \`${violatorId}\`\n` +
-                         `• **Action Taken:** Message deleted and user placed on **1-Hour Timeout** (Muted).\n\n` +
-                         `*Note: As per system configuration, link & spam violations result ONLY in a timeout.*`,
-            color: 0xF59E0B
-          });
-        } catch (err: any) {
-          console.error("Error executing Anti-Link timeout:", err.message);
-        }
-      }
-    });
-
     // 17. Final Verification
     client.on("guildMemberAdd", async (member) => {
       const guild = member.guild;
@@ -5808,6 +5782,7 @@ export async function triggerHoneypotTrap(options: {
 
   // 3. Log to Bot logs
   blockedAttacksCount++;
+  invalidateSecurityStatsCache();
   addBotLog(`🚨 [HONEYPOT TRAP TRIGGERED] Visitor IP ${ipAddress} clicked canary link '${trapName || "Decoy URL"}'. IP Blacklisted & User(s) Banned!`, "error");
 
   // 4. Ban from Discord server and dispatch audit alert
