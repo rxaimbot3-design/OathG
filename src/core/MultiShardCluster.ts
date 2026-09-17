@@ -192,7 +192,11 @@ export class MultiShardCluster extends EventEmitter<ClusterEvents> {
         workerMetrics.status = "crashed";
       }
       
-      if (code !== 0 && !worker.exitedAfterDisconnect) {
+      // Only respawn workers that previously reached "ready" status.
+      // Workers that crash during startup (e.g., missing ADMIN_SECRET) are
+      // not automatically respawned to avoid tight crash loops.
+      const wasReady = workerMetrics?.status === "ready";
+      if (code !== 0 && !worker.exitedAfterDisconnect && wasReady) {
         setTimeout(() => this.respawnWorker(workerId), 5000);
       }
     }
