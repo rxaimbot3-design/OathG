@@ -223,7 +223,11 @@ export class MongoRedisEngine {
           this.useUpstash = false;
           this.redisClient = RedisClient({ url: redisUrl });
           this.redisClient.on("error", (err: any) => {
-            console.warn("[REDIS] Client error:", err.message);
+            // Only log on state transition from connected to disconnected to avoid
+            // log spam when Redis is unreachable and the client retries internally.
+            if (this.redisAvailable) {
+              console.warn("[REDIS] Client error:", err.message);
+            }
             this.redisAvailable = false;
           });
           this.redisClient.on("connect", () => {

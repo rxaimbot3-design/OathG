@@ -15,6 +15,7 @@ import crypto from "crypto";
 import { exec, execFile } from "child_process";
 import { promisify } from "util";
 import { createServer as createViteServer } from "vite";
+import cluster from "cluster";
 import { GoogleGenAI } from "@google/genai";
 import { startDiscordBot, stopDiscordBot, getDiscordBotStatus, toggleLockdown , addBotLog, sendGitHubAlert, getSecurityStats, runNukeDefenseDrill, triggerHoneypotTrap, getClient, saveWhitelistState } from "./discord-bot";
 import { 
@@ -3509,8 +3510,15 @@ async function setupServer() {
     });
   }
 
-   httpServer = app.listen(PORT, "0.0.0.0", async () => {
-    console.log(`Server running on port ${PORT}`);
+   // Only the master process should bind the HTTP port.
+   // In cluster mode, workers initialize the app/routes but the master
+   // owns the listener; otherwise workers hit EADDRINUSE on the same port.
+   const isWorker = cluster.isWorker;
+   if (!isWorker) {
+     httpServer = app.listen(PORT, "0.0.0.0", async () => {
+       console.log(`Server running on port ${PORT}`);
+     });
+   }
     // Initialize Redis connection if configured
     await MongoRedisEngine.initRedis().catch((err) => {
       console.warn("Redis initialization failed:", err);
@@ -3578,8 +3586,7 @@ async function setupServer() {
     startDiscordBot().catch((err) => {
       console.error("Failed to auto-start Discord bot:", err);
     });
-  });
-}
+  }
 
 export { app };
 
