@@ -607,6 +607,7 @@ class RateLimiterMiddleware {
         // Redis still unavailable, will retry on next interval
       }
     }, 30000); // Check every 30 seconds
+    serverIntervals.push(RateLimiterMiddleware.recoveryTimer);
   }
 
   public static limit(windowMs: number, maxRequests: number, keyPrefix = "") {
