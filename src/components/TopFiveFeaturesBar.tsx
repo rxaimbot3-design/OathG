@@ -18,10 +18,10 @@ import {
 
 export default function TopFiveFeaturesBar() {
   const [raidPrediction, setRaidPrediction] = useState({
-    predictedRaidProbability: 12,
-    riskLevel: 'LOW',
-    timeToImpactSeconds: 120,
-    recommendation: 'Monitoring join velocity. Zero Trust Active.'
+    predictedRaidProbability: 0,
+    riskLevel: 'UNKNOWN',
+    timeToImpactSeconds: 0,
+    recommendation: 'Awaiting scan...'
   });
 
   const [snapshots, setSnapshots] = useState<any[]>([]);
@@ -113,7 +113,10 @@ export default function TopFiveFeaturesBar() {
       const res = await apiFetch('/api/security/oauth-scan', { method: 'POST' });
       const data = await res.json();
       setOauthStatus(data);
-      setActionMessage('🔐 OAuth Audit Complete: 0 Malicious Integrations Found.');
+      const maliciousCount = data?.maliciousCount ?? data?.malicious ?? 0;
+      setActionMessage(maliciousCount > 0
+        ? `🔐 OAuth Audit Complete: ${maliciousCount} Malicious Integration(s) Found.`
+        : '🔐 OAuth Audit Complete: No Malicious Integrations Found.');
     } catch (e) {
       setActionMessage('OAuth scan failed.');
     } finally {

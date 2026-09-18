@@ -51,7 +51,7 @@ import BackupStatusTab from './components/BackupStatusTab';
 import TrustSystemTab from './components/TrustSystemTab';
 import HealthCheck from './components/HealthCheck';
 import SecurityAlertsPanel from './components/SecurityAlertsPanel';
-import { apiFetch, checkSession, loginWithAdminKey, logoutAdmin, getAdminToken, loginWithDiscordToken } from './services/apiClient';
+import { apiFetch, checkSession, loginWithAdminKey, logoutAdmin, loginWithDiscordToken } from './services/apiClient';
 
 import { AuditLog, SecuritySetting, LeaderboardUser } from './types';
 
@@ -105,19 +105,23 @@ export default function App() {
       if (accessToken) {
         // Clear hash
         window.history.replaceState(null, "", window.location.pathname);
-        loginWithDiscordToken(accessToken).then(res => {
-          if (res.success && res.user) {
-            setIsAuthenticated(true);
-            setDiscordUser({
-              username: res.user.username,
-              discriminator: res.user.discriminator || "0000",
-              id: res.user.id,
-              avatarUrl: res.user.avatar ? `https://cdn.discordapp.com/avatars/${res.user.id}/${res.user.avatar}.png` : 'https://cdn.discordapp.com/embed/avatars/0.png'
-            });
-          } else {
-            setLoginError(res.error || "Discord authentication failed");
-          }
-        });
+        loginWithDiscordToken(accessToken)
+          .then(res => {
+            if (res.success && res.user) {
+              setIsAuthenticated(true);
+              setDiscordUser({
+                username: res.user.username,
+                discriminator: res.user.discriminator || "0000",
+                id: res.user.id,
+                avatarUrl: res.user.avatar ? `https://cdn.discordapp.com/avatars/${res.user.id}/${res.user.avatar}.png` : 'https://cdn.discordapp.com/embed/avatars/0.png'
+              });
+            } else {
+              setLoginError(res.error || "Discord authentication failed");
+            }
+          })
+          .catch(err => {
+            setLoginError(err.message || "Discord authentication failed");
+          });
       }
     }
   }, []);
@@ -171,12 +175,16 @@ export default function App() {
   const [adminAuthError, setAdminAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    checkSession().then(res => {
-      setAdminAuthenticated(res.authenticated);
-      if (res.authenticated) {
-        setIsAuthenticated(true);
-      }
-    });
+    checkSession()
+      .then(res => {
+        setAdminAuthenticated(res.authenticated);
+        if (res.authenticated) {
+          setIsAuthenticated(true);
+        }
+      })
+      .catch(err => {
+        console.error("Session check failed:", err);
+      });
 
     const handleUnauthorized = (e: Event) => {
       setAdminAuthenticated(false);

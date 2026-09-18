@@ -43,89 +43,7 @@ export default function SecurityTab({ settings, onToggleSetting, onSimulateRaid,
   const [searchTerm, setSearchTerm] = useState('');
 
   // 6 Layers Ultimate Defense Architecture State
-  const [defenseLayers, setDefenseLayers] = useState([
-    {
-      layer: 1,
-      title: "Layer 1 – Prevention",
-      desc: "Proactive security policies and strict access boundaries before any event occurs.",
-      items: [
-        { name: "Zero Trust Permission Model", status: "ACTIVE", desc: "No administrative user is trusted by default. All actions require explicit whitelist verification." },
-        { name: "Default Deny Policy", status: "ENFORCED", desc: "All sensitive API endpoints and discord bot actions denied unless specifically allowed." },
-        { name: "Whitelist Only Sensitive Actions", status: "ACTIVE", desc: "Only owner-approved user IDs can modify roles, channels, or server settings." },
-        { name: "Continuous Permission Validation", status: "ACTIVE", desc: "Continuous gateway auditing verifying role permission hierarchy every second." },
-        { name: "Risk-Based Access Control", status: "ACTIVE", desc: "Dynamic trust scoring based on member account age, MFA status, and past behavior." }
-      ]
-    },
-    {
-      layer: 2,
-      title: "Layer 2 – Detection",
-      desc: "Real-time threat monitoring and multi-vector attack signal correlation.",
-      items: [
-        { name: "Real-Time Audit Log Monitoring", status: "ACTIVE", desc: "Stream audit log events via HTTP polling (5-second intervals)." },
-        { name: "Multi-Event Correlation", status: "ACTIVE", desc: "Correlate simultaneous channel deletes, role edits, and webhook triggers across admins." },
-        { name: "Burst Action Detection", status: "ACTIVE", desc: "Flag velocity bursts (>2 destructive actions in 3 seconds) instantly." },
-        { name: "Mass Delete Detection", status: "ACTIVE", desc: "Intercept mass channel/role deletion attacks in < 5ms." },
-        { name: "Mass Permission Change Detection", status: "ACTIVE", desc: "Detect bulk role hierarchy or admin permission additions." },
-        { name: "Webhook Abuse Detection", status: "ACTIVE", desc: "Monitor unauthorized webhook creations and automated token spam." },
-        { name: "Bot Addition Detection", status: "ACTIVE", desc: "Identify unverified bot additions and kick unapproved bots immediately." },
-        { name: "Suspicious Role Escalation Detection", status: "ACTIVE", desc: "Detect self-granting or rogue elevation of Administrator permissions." }
-      ]
-    },
-    {
-      layer: 3,
-      title: "Layer 3 – Containment",
-      desc: "Immediate neutralization and lockdown procedures during detected security incidents.",
-      items: [
-        { name: "Automatic Quarantine", status: "ARMED", desc: "Isolate hostile attacker accounts and suspected raid bots into restricted jail roles." },
-        { name: "Automatic Role Removal", status: "ARMED", desc: "Instantly strip Administrator and Manage Roles perms from rogue admins." },
-        { name: "Automatic Lockdown", status: "ARMED", desc: "Revoke SEND_MESSAGES permissions across public channels upon burst detection." },
-        { name: "Temporary Channel Freeze", status: "ARMED", desc: "Freeze target text channels during active raid flood events." },
-        { name: "Emergency Safe Mode", status: "ARMED", desc: "One-click server isolation mode restricting server invites and new member joins." },
-        { name: "Dynamic Rate Limiting", status: "ARMED", desc: "Apply dynamic slowmodes and gateway throttle rules during high traffic." }
-      ]
-    },
-    {
-      layer: 4,
-      title: "Layer 4 – Recovery",
-      desc: "Automated snapshot restoration and 1-click channel/role recreation.",
-      items: [
-        { name: "Automatic Channel Recreation", status: "READY", desc: "Instantly recreate deleted channels with exact names, topic, and category placement." },
-        { name: "Automatic Role Restoration", status: "READY", desc: "Restore deleted roles, colors, hoist settings, and position rankings." },
-        { name: "Permission Rollback", status: "READY", desc: "Revert altered permission overwrites to last verified clean snapshot." },
-        { name: "Configuration Rollback", status: "READY", desc: "Restore server icon, name, vanity URL, and verification settings." },
-        { name: "Versioned Backups", status: "READY", desc: "Automated hourly encrypted snapshot backups saved to secure storage." },
-        { name: "One-Click Recovery", status: "READY", desc: "Single button trigger to restore server structure from snapshot. Restoration time depends on server size." },
-        { name: "Backup Integrity Verification", status: "READY", desc: "Cryptographic sha256 checksum validation for all saved server snapshots." }
-      ]
-    },
-    {
-      layer: 5,
-      title: "Layer 5 – Monitoring",
-      desc: "Live visibility, health metrics, breach alerts, and executive threat reporting.",
-      items: [
-        { name: "Live Security Dashboard", status: "ONLINE", desc: "Real-time web control panel with polling-based event feed." },
-        { name: "Security Health Score", status: "Calculated", desc: "Algorithmic security index evaluating active defenses and permission risks." },
-        { name: "Threat Timeline", status: "RECORDING", desc: "Chronological event ledger recording all security breaches and automated responses." },
-        { name: "Incident Reports", status: "GENERATING", desc: "Detailed post-incident audit breakdown for server owners and security staff." },
-        { name: "Security Analytics", status: "ONLINE", desc: "Visual graphs tracking attack frequency, threat origins, and defense latency." },
-        { name: "Real-Time Alerts", status: "CONFIGURED", desc: "Instant webhook notifications sent to staff channels and Discord DMs." }
-      ]
-    },
-    {
-      layer: 6,
-      title: "Layer 6 – Reliability",
-      desc: "Single-instance reliability, automatic restart, health monitoring and encrypted state persistence.",
-      items: [
-        { name: "Single-Instance Gateway", status: "ACTIVE", desc: "Single Discord gateway connection for this deployment." },
-        { name: "Process Resilience", status: "ACTIVE", desc: "Single-process execution with automatic restart on failure." },
-        { name: "HTTP-Preserving Restart", status: "ACTIVE", desc: "Discord gateway connection restart while keeping dashboard/API online." },
-        { name: "Crash Recovery", status: "ACTIVE", desc: "State preservation system ensuring bot resumes without losing threat state." },
-        { name: "Health Monitoring", status: "ONLINE", desc: "Continuous latency, memory usage, and gateway heartbeat ping checks." },
-        { name: "State Persistence", status: "LOCAL", desc: "Whitelist and session state persisted to local encrypted storage." },
-        { name: "Encrypted Backups", status: "ENCRYPTED", desc: "AES-256 encrypted server snapshot backups with secure key storage." }
-      ]
-    }
-  ]);
+  const [defenseLayers, setDefenseLayers] = useState<any[]>([]);
 
   // Zero Trust Whitelist State (Connected to Backend Whitelist System)
   const [whitelistRecords, setWhitelistRecords] = useState<any[]>([]);
@@ -200,10 +118,7 @@ export default function SecurityTab({ settings, onToggleSetting, onSimulateRaid,
   };
 
   // Auto Recovery State
-  const [backupHistory, setBackupHistory] = useState([
-    { id: 'b1', time: '2026-07-21 10:00 AM', channels: 42, roles: 18, webhooks: 5, status: 'Encrypted Snapshot' },
-    { id: 'b2', time: '2026-07-20 08:00 PM', channels: 42, roles: 18, webhooks: 5, status: 'Encrypted Snapshot' }
-  ]);
+  const [backupHistory, setBackupHistory] = useState<any[]>([]);
   const [recoveryStatus, setRecoveryStatus] = useState<string | null>(null);
   const [isSimulating100Nukers, setIsSimulating100Nukers] = useState(false);
   const [nukerSimResult, setNukerSimResult] = useState<string | null>(null);
@@ -221,8 +136,8 @@ export default function SecurityTab({ settings, onToggleSetting, onSimulateRaid,
         setNukerSimResult("Simulation completed with warnings.");
       }
     } catch (e: any) {
-      setNukerSimResult("🎉 Drill Success! Zero Trust Shield neutralized all 100 parallel attack threads.");
-      onSimulateRaid("Executed 100-Nuker Stress Test Drill. Defended successfully.");
+      setNukerSimResult("Drill failed: " + (e.message || "Network error"));
+      onSimulateRaid("Executed 100-Nuker Stress Test Drill. Failed.");
     } finally {
       setIsSimulating100Nukers(false);
     }

@@ -30,6 +30,7 @@ beforeEach(async () => {
     runNukeDefenseDrill: vi.fn().mockResolvedValue({ neutralized: 100 }),
     triggerHoneypotTrap: vi.fn(),
     getClient: vi.fn(() => null),
+    waitForInFlightOperations: vi.fn().mockResolvedValue(undefined),
   }));
 
   vi.mock("../src/SecurityFeatures", async () => {

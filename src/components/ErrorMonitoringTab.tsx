@@ -5,6 +5,7 @@ import {
   XCircle, 
   RefreshCw,
   TrendingUp,
+  TrendingDown,
   Clock,
   ShieldX,
   Code
@@ -79,6 +80,18 @@ export default function ErrorMonitoringTab({ onAddLog }: ErrorMonitoringTabProps
       default: return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
     }
   };
+
+  const typeCounts = errors.reduce<Record<string, number>>((acc, e) => {
+    acc[e.type] = (acc[e.type] || 0) + 1;
+    return acc;
+  }, {});
+  const mostCommonType = errors.length > 0 ? Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0][0] : 'N/A';
+  const peakHour = rateHistory.length > 0 ? rateHistory.reduce((max, curr) => curr.errors > max.errors ? curr : max, rateHistory[0]).hour : null;
+  const peakErrorTime = peakHour !== null ? `${peakHour}:00` : 'N/A';
+  const errorsDecreasing = stats.last1hour > 0 ? stats.last5min < (stats.last1hour / 12) : false;
+  const errorTrend = errorsDecreasing ? 'Improving' : 'Worsening';
+  const trendIcon = errorsDecreasing ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />;
+  const trendColor = errorsDecreasing ? 'text-emerald-400' : 'text-rose-400';
 
   return (
     <div className="space-y-6" id="error-monitoring-tab">
@@ -176,20 +189,20 @@ export default function ErrorMonitoringTab({ onAddLog }: ErrorMonitoringTabProps
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-zinc-400">Errors decreasing</span>
-                <span className="text-xs font-black text-emerald-400">Yes</span>
+                <span className={`text-xs font-black ${errorsDecreasing ? 'text-emerald-400' : 'text-rose-400'}`}>{errorsDecreasing ? 'Yes' : 'No'}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-zinc-400">Peak error time</span>
-                <span className="text-xs font-black text-zinc-100">14:00 - 16:00 UTC</span>
+                <span className="text-xs font-black text-zinc-100">{peakErrorTime}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-zinc-400">Most common error</span>
-                <span className="text-xs font-black text-zinc-100">TypeError</span>
+                <span className="text-xs font-black text-zinc-100">{mostCommonType}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-zinc-400">Error trend</span>
-                <span className="text-xs font-black text-emerald-400 flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" /> Improving
+                <span className={`text-xs font-black ${trendColor} flex items-center gap-1`}>
+                  {trendIcon} {errorTrend}
                 </span>
               </div>
             </div>

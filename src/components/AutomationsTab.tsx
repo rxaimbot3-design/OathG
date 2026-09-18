@@ -26,9 +26,9 @@ export default function AutomationsTab({ onAddLog }: AutomationsTabProps) {
 
   // Workflows state
   const [workflows, setWorkflows] = useState<WorkflowRule[]>([
-    { id: 'w1', name: 'New Member Auto-Welcome & Verification Embed', trigger: 'On Member Join', action: 'Assign "Unverified" role & send DM verification link', enabled: true, executionsToday: 48 },
-    { id: 'w2', name: 'Anti-Spam Rapid Link Quarantine', trigger: 'On Message Send (contains URL)', action: 'Check via Gemini AI -> Timeout user if scam score > 85%', enabled: true, executionsToday: 12 },
-    { id: 'w3', name: 'Daily Morning Server Health Summary', trigger: 'Scheduled Task (Cron: 0 8 * * *)', action: 'Generate AI activity digest & post to #staff-announcements', enabled: true, executionsToday: 1 }
+    { id: 'w1', name: 'New Member Auto-Welcome & Verification Embed', trigger: 'On Member Join', action: 'Assign "Unverified" role & send DM verification link', enabled: true, executionsToday: 0 },
+    { id: 'w2', name: 'Anti-Spam Rapid Link Quarantine', trigger: 'On Message Send (contains URL)', action: 'Check via Gemini AI -> Timeout user if scam score > 85%', enabled: true, executionsToday: 0 },
+    { id: 'w3', name: 'Daily Morning Server Health Summary', trigger: 'Scheduled Task (Cron: 0 8 * * *)', action: 'Generate AI activity digest & post to #staff-announcements', enabled: true, executionsToday: 0 }
   ]);
 
   // Slash commands state

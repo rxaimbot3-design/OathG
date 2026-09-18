@@ -55,14 +55,7 @@ export default function TrustSystemTab({ onAddLog }: TrustSystemTabProps) {
               role: u.role,
               joinedAt: u.joinedAt,
               lastActive: u.lastActive,
-              history: Array.from({ length: 5 }, (_, j) => {
-                const baseChange = Math.max(1, Math.floor(u.trustScore / 20));
-                return {
-                  timestamp: new Date(Date.now() - j * 604800000).toISOString(),
-                  action: ['Positive interaction', 'Helpful contribution', 'Rule adherence', 'Community engagement'][j % 4],
-                  scoreChange: baseChange
-                };
-              })
+              history: u.history || []
             }));
             setUsers(mapped);
             setIsDemo(data.demo || false);
