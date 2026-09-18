@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { TtlMap } from "../MapManager.js";
@@ -42,7 +43,7 @@ export class MongoRedisEngine {
   private circuitBreakerResetMs = 30000;
   private lastCircuitOpenTime = 0;
   // Process ID for distributed lock identification
-  private readonly processId = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  private readonly processId = `${process.pid}-${Date.now()}-${crypto.randomUUID().split("-")[0]}`;
   // Local locks map for cross-process coordination (in-memory fallback)
   private localLocks = new TtlMap<string, LockEntry>({ ttlMs: 10000, maxEntries: 1000, autoCleanupMs: 5000 });
   // Upstash REST API config

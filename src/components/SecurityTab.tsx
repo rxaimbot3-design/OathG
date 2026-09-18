@@ -777,7 +777,7 @@ export default function SecurityTab({ settings, onToggleSetting, onSimulateRaid,
             <div className="text-zinc-500 text-[10px]"># Cryptographic Log Verification Hash: 8f9a2b71c402...</div>
             <div className="leading-relaxed">[10:14:02 AM] [ANTI-NUKE] Blocked unauthorized channel deletion attempt by unverified admin. Reverted channel #general.</div>
             <div className="leading-relaxed">[10:15:18 AM] [AI THREAT] Threat score normalized. No raid activity detected.</div>
-            <div className="leading-relaxed">[10:22:45 AM] [ZERO TRUST] Verified Owner bypass token override for rxaimbot3#0001.</div>
+            <div className="leading-relaxed">[10:22:45 AM] [ZERO TRUST] Verified Owner bypass token override for Admin#0001.</div>
           </div>
         </div>
       )}

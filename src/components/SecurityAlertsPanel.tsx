@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldAlert, AlertTriangle, XCircle, Info, RefreshCw } from 'lucide-react';
+import { apiFetch } from '../services/apiClient';
 
 interface SecurityAlert {
   id: string;
@@ -30,7 +31,7 @@ export default function SecurityAlertsPanel({ onAddLog }: SecurityAlertsPanelPro
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch('/api/health/detailed');
+      const res = await apiFetch('/api/health/detailed');
       if (!res.ok) throw new Error('Failed to fetch security alerts');
       const data = await res.json();
 

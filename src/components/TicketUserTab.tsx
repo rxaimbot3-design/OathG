@@ -26,15 +26,15 @@ export default function TicketUserTab({ onAddLog, serverStatus, onToggleLockdown
 
   // Tickets state
   const [tickets, setTickets] = useState<TicketType[]>([
-    { id: 'TICK-101', user: 'cyber_ninja#1002', department: 'Billing & Subscriptions', priority: 'high', status: 'open', time: '10 mins ago' },
-    { id: 'TICK-102', user: 'dev_alex#8891', department: 'Technical Support', priority: 'medium', status: 'claimed', time: '25 mins ago', claimedBy: 'Staff_Aiman' },
-    { id: 'TICK-103', user: 'gamer_pro#4412', department: 'General Inquiry', priority: 'low', status: 'closed', time: '2 hours ago' }
+    { id: 'TICK-101', user: 'User#1002', department: 'Billing & Subscriptions', priority: 'high', status: 'open', time: '10 mins ago' },
+    { id: 'TICK-102', user: 'User#8891', department: 'Technical Support', priority: 'medium', status: 'claimed', time: '25 mins ago', claimedBy: 'Staff_Aiman' },
+    { id: 'TICK-103', user: 'User#4412', department: 'General Inquiry', priority: 'low', status: 'closed', time: '2 hours ago' }
   ]);
 
   // Users state
   const [users, setUsers] = useState([
-    { id: 'u1', name: 'spammer_account#9911', status: 'Flagged (Spam Risk)', warns: 2, level: 1 },
-    { id: 'u2', name: 'rxaimbot3#0001', status: 'Server Owner / Executive', warns: 0, level: 99 }
+    { id: 'u1', name: 'User#9911', status: 'Flagged (Spam Risk)', warns: 2, level: 1 },
+    { id: 'u2', name: 'Admin#0001', status: 'Server Owner / Executive', warns: 0, level: 99 }
   ]);
 
   const [lockdownActive, setLockdownActive] = useState(false);

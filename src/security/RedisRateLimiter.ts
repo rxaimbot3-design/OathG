@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { MongoRedisEngine } from "../security/modules/mongo-redis-engine.js";
 
 export interface RedisRateLimiterConfig {
@@ -68,7 +69,7 @@ export class RedisRateLimiter {
         const windowStart = now - windowMs;
         const redisKey = `ratelimit:${key}`;
         const ttlSec = Math.ceil(windowMs / 1000);
-        const member = `${now}:${Math.random()}`;
+        const member = `${now}:${crypto.randomUUID()}`;
 
         const count = await client.eval(RATE_LIMIT_LUA_SCRIPT, 1, redisKey, windowStart, now, ttlSec, member) as number;
         return count < maxRequests;

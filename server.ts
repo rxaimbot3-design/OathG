@@ -623,7 +623,7 @@ class RateLimiterMiddleware {
             const windowStart = now - windowMs;
             const redisKey = `ratelimit:${key}`;
             const ttlSec = Math.ceil(windowMs / 1000);
-            const member = `${now}:${Math.random()}`;
+            const member = `${now}:${crypto.randomUUID()}`;
 
             // Atomic sliding window rate limit check
             const count = await client.eval(
@@ -1706,32 +1706,7 @@ app.get("/api/admin/audit-logs", requireAdminAuth, (req, res) => {
   res.json({ success: true, logs: adminAuditLogs });
 });
 
-// Direct Download Route for Elden Ring Skript & server.properties
-app.get(["/eldenring.sk", "/api/download/eldenring.sk"], (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Content-Disposition", 'attachment; filename="eldenring.sk"');
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-  const filePath = path.join(process.cwd(), "public", "eldenring.sk");
-  if (fs.existsSync(filePath)) {
-    res.sendFile(filePath);
-  } else {
-    res.send(`# Elden Ring Skript Script v2.4 (ASHTRON Enterprise Edition)\n# Auto-Generated Dynamic Skript\n\non join:\n\tsend "Welcome to Elden Ring Server!" to player\n`);
-  }
-});
-
-app.get(["/server.properties", "/api/download/server.properties"], (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Content-Disposition", 'attachment; filename="server.properties"');
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-  const filePath = path.join(process.cwd(), "public", "server.properties");
-  if (fs.existsSync(filePath)) {
-    res.sendFile(filePath);
-  } else {
-    res.send(`# Minecraft Server Properties (ASHTRON Zero-Trust Configured)\nserver-port=25565\nonline-mode=true\nmotd=ASHTRON Protected Minecraft Server\n`);
-  }
-});
+// Legacy direct download routes removed (unrelated Minecraft files were publicly accessible)
 
 // Single Instance Status API
 app.get("/api/enterprise/status", requireAdminAuth, (req, res) => {
@@ -2367,30 +2342,7 @@ app.get("/api/analytics/overview", requireAdminAuth, (req, res) => {
 // ==================== ECONOMY & LEADERBOARD ====================
 
 app.get("/api/economy/leaderboard", requireAdminAuth, (req, res) => {
-  const client = getClient();
-  const guild = client?.guilds.cache.first();
-  const memberCount = guild ? guild.memberCount : 0;
-
-  const demoUsers = [
-    { username: "rxaimbot3", level: 99, xp: 142500, coins: 45000 },
-    { username: "cyber_ninja", level: 87, xp: 98700, coins: 32100 },
-    { username: "dev_alex", level: 76, xp: 65400, coins: 21800 },
-    { username: "gamer_pro", level: 65, xp: 43200, coins: 15600 },
-    { username: "mod_queen", level: 58, xp: 38900, coins: 12400 },
-    { username: "night_hawk", level: 52, xp: 29800, coins: 9800 },
-    { username: "pixel_master", level: 45, xp: 21500, coins: 7200 },
-    { username: "shadow_clan", level: 38, xp: 16400, coins: 5400 },
-    { username: "nova_star", level: 31, xp: 11200, coins: 3800 },
-    { username: "zen_coder", level: 24, xp: 7800, coins: 2100 }
-  ].map((u, idx) => ({
-    rank: idx + 1,
-    username: u.username,
-    level: u.level,
-    xp: u.xp + Math.floor(Math.random() * 500),
-    coins: u.coins + Math.floor(Math.random() * 200)
-  }));
-
-  res.json({ success: true, leaderboard: demoUsers, isDemo: true });
+  res.json({ success: true, leaderboard: [], isDemo: false, note: "No economy data available" });
 });
 
 // ==================== CACHE & REDIS STATUS ====================
@@ -3451,21 +3403,13 @@ app.get("/api/analytics/risk-score", requireAdminAuth, (req, res) => {
   });
 });
 
-// Trust System Demo Data Endpoint
+// Trust System Data Endpoint
 app.get("/api/analytics/trust-system", requireAdminAuth, (req, res) => {
-  const demoUsers = [
-    { username: 'admin_user', userId: 'user_10001', trustScore: 92, role: 'Admin', joinedAt: '2024-01-15T00:00:00Z', lastActive: new Date().toISOString() },
-    { username: 'moderator_1', userId: 'user_10002', trustScore: 87, role: 'Moderator', joinedAt: '2024-02-20T00:00:00Z', lastActive: new Date(Date.now() - 3600000).toISOString() },
-    { username: 'trusted_member', userId: 'user_10003', trustScore: 78, role: 'VIP', joinedAt: '2024-03-10T00:00:00Z', lastActive: new Date(Date.now() - 7200000).toISOString() },
-    { username: 'vip_user', userId: 'user_10004', trustScore: 71, role: 'VIP', joinedAt: '2024-04-05T00:00:00Z', lastActive: new Date(Date.now() - 86400000).toISOString() },
-    { username: 'helper_bot', userId: 'user_10005', trustScore: 65, role: 'Helper', joinedAt: '2024-05-12T00:00:00Z', lastActive: new Date(Date.now() - 172800000).toISOString() }
-  ];
-
   res.json({
     success: true,
-    users: demoUsers,
-    demo: true,
-    note: 'Trust system data is demonstration data. Real implementation requires Discord guild member activity integration.'
+    users: [],
+    demo: false,
+    note: "Trust system data not available. Real implementation requires Discord guild member activity integration."
   });
 });
 

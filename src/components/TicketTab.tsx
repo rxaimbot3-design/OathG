@@ -33,7 +33,7 @@ export default function TicketTab({ tickets: initialTickets, onAddLog }: TicketT
 
     const newTicket: Ticket = {
       id: `#T-${Date.now().toString().slice(-4)}`,
-      user: 'rxaimbot3',
+      user: 'User',
       department,
       priority,
       status: 'open',
@@ -69,7 +69,7 @@ export default function TicketTab({ tickets: initialTickets, onAddLog }: TicketT
     setTranscript([
       `[System] Ticket channel created for ${t.user}. Department: ${t.department}`,
       `[System] Current priority level: ${t.priority.toUpperCase()}`,
-      `[rxaimbot3] Hello, I need assistance with this server's premium features config. Thanks!`
+      `[User] Hello, I need assistance with this server's premium features config. Thanks!`
     ]);
   };
 
@@ -78,7 +78,7 @@ export default function TicketTab({ tickets: initialTickets, onAddLog }: TicketT
     e.preventDefault();
     if (!chatInput.trim()) return;
 
-    setTranscript(prev => [...prev, `[rxaimbot3] ${chatInput.trim()}`]);
+    setTranscript(prev => [...prev, `[User] ${chatInput.trim()}`]);
     const userMsg = chatInput.trim();
     setChatInput('');
 

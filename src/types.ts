@@ -1,9 +1,9 @@
 export interface DiscordServer {
-  id: string;
+  id: string | null;
   name: string;
-  icon: string;
-  memberCount: number;
-  activeTickets: number;
+  icon: string | null;
+  memberCount: number | null;
+  activeTickets: number | null;
   latency?: number;
   status: 'online' | 'offline' | 'lockdown';
   region?: string;

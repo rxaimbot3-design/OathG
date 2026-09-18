@@ -11,13 +11,14 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - UV_THREADPOOL_SIZE=128
+      - REDIS_URL=redis://redis:6379
     volumes:
       - ./data:/app/data
       - ./backups:/app/backups
       - ./snapshots:/app/snapshots
       - ./logs:/app/logs
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -34,14 +35,23 @@ services:
         reservations:
           cpus: '0.5'
           memory: 1G
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
 
   redis:
     image: redis:7-alpine
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-changeme}
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 3

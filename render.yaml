@@ -2,7 +2,7 @@ services:
   - type: web
     name: enterprise-discord-ai-bot
     env: node
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci && npm run build:native && npm run build:worker && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
@@ -14,4 +14,12 @@ services:
       - key: DISCORD_CLIENT_ID
         sync: false
       - key: GEMINI_API_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: DISCORD_OWNER_ID
+        sync: false
+      - key: ALLOWED_OWNERS
+        sync: false
+      - key: GITHUB_WEBHOOK_SECRET
         sync: false

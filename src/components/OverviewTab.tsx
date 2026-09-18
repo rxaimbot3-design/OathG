@@ -54,9 +54,9 @@ export default function OverviewTab({ server, onToggleLockdown, logs, onRefreshL
                   {server.status === 'lockdown' ? '🔒 LOCKDOWN ACTIVE' : '● Operational'}
                 </span>
               </div>
-              <p className="text-sm text-indigo-100 mt-1">
-                Ultimate Discord Bot is guarding <strong>{server.memberCount.toLocaleString()}</strong> active community members.
-              </p>
+               <p className="text-sm text-indigo-100 mt-1">
+                 {server.memberCount != null ? `Guarding ${server.memberCount.toLocaleString()} active community members.` : 'Awaiting Discord connection data.'}
+               </p>
             </div>
           </div>
 
@@ -90,7 +90,7 @@ export default function OverviewTab({ server, onToggleLockdown, logs, onRefreshL
           </div>
           <div>
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Total Members</span>
-            <span className="text-2xl font-black text-zinc-100">{server.memberCount.toLocaleString()}</span>
+            <span className="text-2xl font-black text-zinc-100">{server.memberCount != null ? server.memberCount.toLocaleString() : '—'}</span>
           </div>
         </div>
 
@@ -100,7 +100,7 @@ export default function OverviewTab({ server, onToggleLockdown, logs, onRefreshL
           </div>
           <div>
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Active Tickets</span>
-            <span className="text-2xl font-black text-zinc-100">{server.activeTickets}</span>
+            <span className="text-2xl font-black text-zinc-100">{server.activeTickets != null ? server.activeTickets : '—'}</span>
           </div>
         </div>
 
@@ -120,7 +120,7 @@ export default function OverviewTab({ server, onToggleLockdown, logs, onRefreshL
           </div>
           <div>
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Bot Latency</span>
-            <span className="text-2xl font-black text-zinc-100">{(server.latency ?? 18)}ms</span>
+            <span className="text-2xl font-black text-zinc-100">{server.latency != null ? `${server.latency}ms` : '—'}</span>
           </div>
         </div>
       </div>
@@ -134,99 +134,66 @@ export default function OverviewTab({ server, onToggleLockdown, logs, onRefreshL
             </div>
             <div>
               <h3 className="text-sm font-black text-zinc-100 uppercase tracking-wider flex items-center gap-2">
-                ⚡ Ultra-Low Latency & Region Optimization
+                Gateway & Latency
                 <span className="px-2 py-0.5 text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-md">
-                  128 Threadpool & WS Compression Active
+                  Live
                 </span>
               </h3>
               <p className="text-xs text-zinc-400">
-                bot-er latency ebong response speed optimized kora hoyeche.
+                Discord gateway latency and connection status.
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2 bg-[#18181b] px-3 py-1.5 rounded-lg border border-zinc-800">
             <span className="text-[11px] font-bold text-zinc-400">Gateway Ping:</span>
-            <span className="text-sm font-black text-emerald-400">{(server.latency ?? 16)} ms</span>
-            <span className="text-[10px] font-extrabold text-emerald-500/80 uppercase bg-emerald-500/10 px-1.5 py-0.5 rounded">Ultra-Fast</span>
+            <span className="text-sm font-black text-emerald-400">{server.latency != null ? `${server.latency} ms` : 'Awaiting data'}</span>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
           <div className="bg-[#18181b] p-3 rounded-lg border border-zinc-800/60">
-            <span className="font-bold text-indigo-400 block mb-1">🌏 Singapore Region Edge</span>
+            <span className="font-bold text-indigo-400 block mb-1">Connection State</span>
             <p className="text-zinc-400 text-[11px] leading-relaxed">
-              Selecting <strong>Singapore</strong> in Discord Server Settings &gt; Voice Region ensures lowest latency (~15-20ms) for South Asia and global routing.
+              {server.status === 'online' ? 'Discord gateway connected and operational.' : server.status === 'lockdown' ? 'Server is in lockdown mode.' : 'Not connected to Discord.'}
             </p>
           </div>
 
           <div className="bg-[#18181b] p-3 rounded-lg border border-zinc-800/60">
-            <span className="font-bold text-emerald-400 block mb-1">⚡ Multithreaded Engine</span>
+            <span className="font-bold text-emerald-400 block mb-1">System Health</span>
             <p className="text-zinc-400 text-[11px] leading-relaxed">
-              Node.js libuv 128-threadpool & HTTP polling enabled. All events execute within measured latency.
+              View CPU, memory, and engine metrics in the System Health tab.
             </p>
           </div>
 
           <div className="bg-[#18181b] p-3 rounded-lg border border-zinc-800/60">
-            <span className="font-bold text-amber-400 block mb-1">🛡️ Anti-Bypass Protection</span>
+            <span className="font-bold text-amber-400 block mb-1">Security Modules</span>
             <p className="text-zinc-400 text-[11px] leading-relaxed">
-              Zero Trust Shield prevents unauthorized server invites or admin bypasses, ensuring maximum guild security.
+              Active security policies and module status are listed in the Security tab.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Main Grid: Server Health + Live Audit Logs */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="overview-subgrid">
-        {/* Server Health Status */}
-        <div className="lg:col-span-1 bg-[#121212] rounded-xl p-5 border border-zinc-800/80 space-y-4 shadow-xs">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-zinc-100 uppercase tracking-wider">🤖 Server Health report</h3>
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <div className="flex justify-between text-xs font-bold text-zinc-400 mb-1">
-                <span>Memory Allocation</span>
-                <span className="text-zinc-100">42% (210MB/512MB)</span>
-              </div>
-              <div className="w-full bg-[#27272a] h-2 rounded-full overflow-hidden">
-                <div className="bg-indigo-500 h-full w-[42%] rounded-full"></div>
-              </div>
+        {/* Main Grid: Server Health + Live Audit Logs */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="overview-subgrid">
+          {/* Server Health Status */}
+          <div className="lg:col-span-1 bg-[#121212] rounded-xl p-5 border border-zinc-800/80 space-y-4 shadow-xs">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-zinc-100 uppercase tracking-wider">Server Health</h3>
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
             </div>
 
-            <div>
-              <div className="flex justify-between text-xs font-bold text-zinc-400 mb-1">
-                <span>CPU Usage</span>
-                <span className="text-zinc-100">2.4%</span>
+            <div className="space-y-3">
+              <div className="bg-[#18181b] p-3 rounded-lg border border-zinc-800/60">
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">System Metrics</span>
+                <p className="text-xs text-zinc-500">View real-time CPU, memory, and engine metrics in the System Health tab.</p>
               </div>
-              <div className="w-full bg-[#27272a] h-2 rounded-full overflow-hidden">
-                <div className="bg-emerald-500 h-full w-[2.4%] rounded-full"></div>
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs font-bold text-zinc-400 mb-1">
-                <span>API Connection State</span>
-                <span className="text-zinc-100">Uptime monitoring</span>
-              </div>
-              <div className="w-full bg-[#27272a] h-2 rounded-full overflow-hidden">
-                <div className="bg-indigo-500 h-full w-full rounded-full"></div>
+              <div className="bg-[#18181b] p-3 rounded-lg border border-zinc-800/60">
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">Security Modules</span>
+                <p className="text-xs text-zinc-500">Active security policies and module status are listed in the Security tab.</p>
               </div>
             </div>
           </div>
-
-          <div className="pt-4 border-t border-zinc-100">
-            <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">⚡ Active Security & GOD AI Modules</h4>
-            <div className="flex flex-wrap gap-1.5">
-               {['GOD AI Brain', 'Anti-Nuke Shield', 'RAID_DREAM', 'CODE_DOCTOR', 'VC_GOD', 'SALES_CLOSER', 'VIRAL_CONTENT', 'AI_JUDGE'].map((mod, idx) => (
-                <span key={idx} className="text-[10px] font-black bg-indigo-500/10 text-indigo-400 px-2 py-1 rounded-md border border-indigo-500/30">
-                  👑 {mod}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
 
         {/* Live Audit Logs */}
         <div className="lg:col-span-2 bg-[#121212] rounded-xl p-5 border border-zinc-800/80 flex flex-col justify-between shadow-xs">

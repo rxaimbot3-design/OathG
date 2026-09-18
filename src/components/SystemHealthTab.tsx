@@ -12,6 +12,7 @@ import {
   XCircle,
   Loader2
 } from 'lucide-react';
+import { apiFetch } from '../services/apiClient';
 
 interface DetailedHealth {
   status: string;
@@ -40,7 +41,7 @@ export default function SystemHealthTab({ onAddLog }: SystemHealthTabProps) {
   const fetchHealth = async () => {
     try {
       setError(null);
-      const res = await fetch('/api/health/detailed');
+      const res = await apiFetch('/api/health/detailed');
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const data = await res.json();
       setHealth(data);

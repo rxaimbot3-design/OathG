@@ -132,7 +132,7 @@ export default function App() {
         setIsAuthenticated(true);
         setDiscordUser({ username: 'Admin', discriminator: '0000', id: 'admin', avatarUrl: '' });
       } else {
-        setLoginError('Invalid Admin Secret');
+        setLoginError(res.error || 'Invalid Admin Secret');
       }
     } catch (err) {
       setLoginError('Login failed');
@@ -141,14 +141,22 @@ export default function App() {
 
 
   
-  const [server, setServer] = useState({
-    id: '709581762663',
-    name: 'Enterprise Ultra Cluster Node #1',
-    icon: '🚀',
-    memberCount: 18420,
-    activeTickets: 3,
-    latency: 0,
-    status: 'online' as 'online' | 'offline' | 'lockdown'
+  const [server, setServer] = useState<{
+    id: string | null;
+    name: string;
+    icon: string | null;
+    memberCount: number | null;
+    activeTickets: number | null;
+    latency: number | undefined;
+    status: 'online' | 'offline' | 'lockdown'
+  }>({
+    id: null,
+    name: 'Not connected',
+    icon: null,
+    memberCount: null,
+    activeTickets: null,
+    latency: undefined,
+    status: 'offline'
   });
 
   const [enterpriseStatus, setEnterpriseStatus] = useState<{
@@ -200,6 +208,7 @@ export default function App() {
   const handleAdminLogout = async () => {
     await logoutAdmin();
     setAdminAuthenticated(false);
+    setIsAuthenticated(false);
     handleAddLog('Admin session terminated.', 'low');
   };
 
@@ -285,11 +294,7 @@ export default function App() {
   }, []);
 
 
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([
-    { id: '1', time: new Date().toLocaleTimeString(), user: 'System', action: 'Security engine initialized.', severity: 'low' },
-    { id: '2', time: new Date().toLocaleTimeString(), user: 'Gemini-AI', action: 'Google Search Live Grounding & Anti-Scam Shield online.', severity: 'low' },
-    { id: '3', time: new Date().toLocaleTimeString(), user: 'SecurityCenter', action: 'Immutable audit trail cryptographically verified.', severity: 'low' }
-  ]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
   // AI Chat System State
   const [aiMessages, setAiMessages] = useState<Array<{ sender: 'user' | 'assistant'; text: string; sources?: Array<{ title: string; uri: string }>; isError?: boolean }>>([

@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { atomicWriteJsonSync } from "./utils.js";
@@ -97,7 +98,7 @@ export class AdminWhitelistSystem {
     if (existing) return existing;
 
     const newRecord: WhitelistRecord = {
-      id: `wl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id: `wl_${Date.now()}_${crypto.randomUUID().split("-")[0]}`,
       type,
       value: value.trim(),
       addedBy,

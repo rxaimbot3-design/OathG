@@ -11,6 +11,7 @@ import {
   Clock,
   RefreshCw
 } from 'lucide-react';
+import { apiFetch } from '../services/apiClient';
 
 interface HealthCheckData {
   status: 'healthy' | 'degraded' | 'unhealthy';
@@ -33,7 +34,7 @@ export default function HealthCheck({ onRefresh }: { onRefresh?: () => void }) {
 
   const fetchHealth = async () => {
     try {
-      const res = await fetch('/api/health');
+      const res = await apiFetch('/api/health');
       if (res.ok) {
         const data = await res.json();
         setHealth(data);
