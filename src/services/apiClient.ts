@@ -7,25 +7,12 @@ try {
   }
 } catch {}
 
-export function getAdminToken(): string | null {
-  return inMemoryToken;
-}
-
-export function setAdminToken(token: string): void {
-  inMemoryToken = token;
-}
-
 export function clearAdminToken(): void {
   inMemoryToken = null;
 }
 
 export async function apiFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
-  const token = getAdminToken();
   const headers = new Headers(init?.headers || {});
-
-  if (token && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
 
   const response = await fetch(input, {
     ...init,
@@ -34,7 +21,6 @@ export async function apiFetch(input: string | URL | Request, init?: RequestInit
   });
 
   if (response.status === 401 || response.status === 403) {
-    // Notify application if unauthorized on protected routes
     const urlString = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     if (!urlString.includes("/api/auth/session") && !urlString.includes("/api/auth/login")) {
       window.dispatchEvent(new CustomEvent("auth:unauthorized", { detail: { status: response.status, url: urlString } }));
@@ -67,8 +53,7 @@ export async function loginWithAdminKey(adminKey: string): Promise<{ success: bo
     });
 
     const data = await res.json();
-    if (res.ok && data.success && data.token) {
-      setAdminToken(data.token);
+    if (res.ok && data.success) {
       return { success: true };
     }
     return { success: false, error: data.error || "Invalid Admin Key" };
@@ -98,9 +83,6 @@ export async function loginWithDiscordToken(accessToken: string): Promise<{ succ
       body: JSON.stringify({ accessToken }),
     });
     const data = await res.json();
-    if (data.success && data.token) {
-      setAdminToken(data.token);
-    }
     return data;
   } catch (err: any) {
     return { success: false, error: err.message };

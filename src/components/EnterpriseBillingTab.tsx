@@ -73,8 +73,8 @@ export default function EnterpriseBillingTab({ onAddLog }: EnterpriseBillingTabP
             securityIncidents: stats.blockedCount || 0
           });
         }
-      } catch {
-        // Silently fail - defaults will show
+      } catch (err) {
+        console.error('Failed to fetch billing/analytics data:', err);
       }
     };
     fetchData();

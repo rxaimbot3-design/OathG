@@ -32,13 +32,7 @@ export default function PluginsDeveloperTab({ onAddLog }: PluginsDeveloperTabPro
   const [activeSection, setActiveSection] = useState<'marketplace' | 'sdk' | 'apis' | 'flags' | 'devconsole'>('marketplace');
 
   // Plugins state
-  const [plugins, setPlugins] = useState<PluginItem[]>([
-    { id: 'p1', name: 'Gemini Auto Moderator Pro', author: 'Google DeepMind Community', version: '2.4.0', description: 'Real-time toxicity, spam detection, and crypto scam link check powered by Gemini 3.6 Flash.', category: 'ai', installed: true, enabled: true, rating: 4.9, downloads: 12450 },
-    { id: 'p2', name: 'Cross-Server Global Chat', author: 'Discord Core Labs', version: '1.2.0', description: 'Bridge chat channels across multiple guilds with instant message relaying and moderation.', category: 'utility', installed: true, enabled: true, rating: 4.7, downloads: 8900 },
-    { id: 'p3', name: 'Crypto & NFT Price Ticker', author: 'FinTech Devs', version: '3.1.0', description: 'Live crypto prices and alert notifications directly inside server channel headers.', category: 'utility', installed: false, enabled: false, rating: 4.5, downloads: 4300 },
-    { id: 'p4', name: 'Advanced Leveling & RPG Minigames', author: 'GameCraft Studio', version: '4.0.1', description: 'Dungeon quests, coin gambling, level rewards, and customizable card backgrounds.', category: 'fun', installed: false, enabled: false, rating: 4.8, downloads: 15600 },
-    { id: 'p5', name: 'Enterprise Analytics Exporter', author: 'Enterprise Suite', version: '1.0.0', description: 'Stream server engagement and voice channel retention metrics directly to Datadog/Grafana.', category: 'analytics', installed: true, enabled: false, rating: 5.0, downloads: 2100 }
-  ]);
+  const [plugins, setPlugins] = useState<PluginItem[]>([]);
 
   // Feature Flags
   const [featureFlags, setFeatureFlags] = useState<FeatureFlag[]>([
@@ -50,10 +44,7 @@ export default function PluginsDeveloperTab({ onAddLog }: PluginsDeveloperTabPro
   ]);
 
   // API Keys
-  const [apiKeys, setApiKeys] = useState<ApiKey[]>([
-    { id: 'k1', name: 'Production Mobile App Key', prefix: 'ent_live_9a8f...', created: '2026-07-15', type: 'REST' },
-    { id: 'k2', name: 'Realtime Telemetry Monitor', prefix: 'ent_evt_4b2c...', created: '2026-07-18', type: 'REST' }
-  ]);
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [newKeyName, setNewKeyName] = useState('');
   const [newKeyType, setNewKeyType] = useState<'REST' | 'Query'>('REST');
 
@@ -120,7 +111,7 @@ export default function initPlugin(bot) {
     const newKey: ApiKey = {
       id: `k-${Date.now()}`,
       name: newKeyName.trim(),
-      prefix: `ent_${newKeyType.toLowerCase()}_${Math.random().toString(36).substring(2, 8)}...`,
+      prefix: `ent_${newKeyType.toLowerCase()}_${Date.now().toString(36).slice(-6)}...`,
       created: new Date().toISOString().split('T')[0],
       type: newKeyType
     };

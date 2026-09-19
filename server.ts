@@ -2752,7 +2752,7 @@ app.post("/api/github/push", requireAdminAuth, async (req, res) => {
 
     // Use temporary .netrc with strict permissions instead of env variables
     // to avoid token exposure in /proc/<pid>/environ
-    const netrcPath = path.join(process.cwd(), `.netrc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+    const netrcPath = path.join(process.cwd(), `.netrc_${Date.now()}`);
     try {
       fs.writeFileSync(netrcPath, `machine github.com\nlogin x-access-token\npassword ${token.trim()}\n`, { mode: 0o600 });
       const { stdout, stderr } = await execFileAsync("git", ["push", "-u", "origin", cleanBranch], {

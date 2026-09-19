@@ -67,9 +67,7 @@ export default function TicketTab({ tickets: initialTickets, onAddLog }: TicketT
   const handleSelectTicket = (t: Ticket) => {
     setActiveTicketId(t.id);
     setTranscript([
-      `[System] Ticket channel created for ${t.user}. Department: ${t.department}`,
-      `[System] Current priority level: ${t.priority.toUpperCase()}`,
-      `[User] Hello, I need assistance with this server's premium features config. Thanks!`
+      `[System] Ticket channel created for ${t.user}. Department: ${t.department}`
     ]);
   };
 
@@ -81,11 +79,6 @@ export default function TicketTab({ tickets: initialTickets, onAddLog }: TicketT
     setTranscript(prev => [...prev, `[User] ${chatInput.trim()}`]);
     const userMsg = chatInput.trim();
     setChatInput('');
-
-    // Simulate agent response
-    setTimeout(() => {
-      setTranscript(prev => [...prev, `[Bot Assistant] Thank you for your inquiry. A staff agent has been alerted and will review: "${userMsg}"`]);
-    }, 1000);
   };
 
   return (
