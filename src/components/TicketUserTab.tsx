@@ -15,6 +15,14 @@ import {
 } from 'lucide-react';
 import { Ticket as TicketType } from '../types';
 
+interface TicketUserTabUser {
+  id: string;
+  name: string;
+  status: string;
+  warns: number;
+  level: number;
+}
+
 interface TicketUserTabProps {
   onAddLog: (action: string, severity: 'low' | 'medium' | 'high') => void;
   serverStatus?: string;
@@ -28,7 +36,7 @@ export default function TicketUserTab({ onAddLog, serverStatus, onToggleLockdown
   const [tickets, setTickets] = useState<TicketType[]>([]);
 
   // Users state
-  const [users, setUsers] = useState([]);
+  const [users, setUsers] = useState<TicketUserTabUser[]>([]);
 
   const [lockdownActive, setLockdownActive] = useState(false);
 

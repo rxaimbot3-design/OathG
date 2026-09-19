@@ -26,6 +26,13 @@ import { Globe, Activity, Database,
 } from 'lucide-react';
 import { SecuritySetting } from '../types';
 
+interface DefenseLayer {
+  layer: number;
+  title: string;
+  desc: string;
+  items: Array<{ name: string; status: string; desc: string }>;
+}
+
 interface SecurityTabProps {
   settings: any[];
   onToggleSetting: (id: string) => void;
@@ -43,7 +50,7 @@ export default function SecurityTab({ settings, onToggleSetting, onSimulateRaid,
   const [searchTerm, setSearchTerm] = useState('');
 
   // 6 Layers Ultimate Defense Architecture State
-  const [defenseLayers, setDefenseLayers] = useState<any[]>([]);
+  const [defenseLayers, setDefenseLayers] = useState<DefenseLayer[]>([]);
 
   // Zero Trust Whitelist State (Connected to Backend Whitelist System)
   const [whitelistRecords, setWhitelistRecords] = useState<any[]>([]);
