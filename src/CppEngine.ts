@@ -668,12 +668,12 @@ export class CppNativeEngine {
 
   static async batchScanPackets(requests: ScanRequest[]): Promise<Array<{ passed: boolean; latencyMicros: number; score: number }>> {
     if (this.engineMode === "native" && (!nativeInstance || this.nativeRuntimeFailed)) {
-      this.engineMode = "worker";
+      this.engineMode = workerEngine['workerReady'] ? "worker" : "sync";
     }
 
     if (this.engineMode === "native" && nativeInstance) {
       try {
-        const payload = requests.map(r => ({ packetId: r.packetId, event: buildScanEvent(r) }));
+        const payload = requests.map(r => ({ packetId: r.packetId, ...buildScanEvent(r) }));
         const result = nativeInstance.scanBatch(payload);
         const arr: Array<{ passed: boolean; latencyMicros: number; score: number }> = [];
         for (let i = 0; i < result.length; i++) {
@@ -686,18 +686,27 @@ export class CppNativeEngine {
         }
         return arr;
       } catch {
-        this.engineMode = "worker";
         this.nativeRuntimeFailed = true;
         nativeInstance = null;
         nativeAvailable = false;
+        this.engineMode = workerEngine['workerReady'] ? "worker" : "sync";
       }
     }
+
+    if (this.engineMode === "worker" && !workerEngine['workerReady']) {
+      this.engineMode = "sync";
+    }
+
+    if (this.engineMode === "worker") {
+      return workerEngine.batchScanPackets(requests);
+    }
+
     return workerEngine.batchScanPackets(requests);
   }
 
   static async batchComputeHashes(requests: HashRequest[]): Promise<Array<{ hash: string; latencyMicros: number }>> {
     if (this.engineMode === "native" && (!nativeInstance || this.nativeRuntimeFailed)) {
-      this.engineMode = "worker";
+      this.engineMode = workerEngine['workerReady'] ? "worker" : "sync";
     }
 
     if (this.engineMode === "native" && nativeInstance) {
@@ -712,9 +721,17 @@ export class CppNativeEngine {
         }
         return arr;
       } catch {
-        // fallback to worker
+        this.nativeRuntimeFailed = true;
+        nativeInstance = null;
+        nativeAvailable = false;
+        this.engineMode = workerEngine['workerReady'] ? "worker" : "sync";
       }
     }
+
+    if (this.engineMode === "worker" && !workerEngine['workerReady']) {
+      this.engineMode = "sync";
+    }
+
     return workerEngine.batchComputeHashes(requests);
   }
 
