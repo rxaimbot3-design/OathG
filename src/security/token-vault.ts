@@ -56,7 +56,9 @@ export class TokenVaultInstance implements SecurityModule {
       const freshSalt = crypto.randomBytes(16).toString("hex");
       try {
         fs.writeFileSync(this.saltFile, freshSalt, "utf8");
-      } catch {}
+      } catch (err) {
+        console.error("[TokenVault] Failed to write fresh salt to disk:", err);
+      }
       this.cachedSalt = freshSalt;
     }
     return this.cachedSalt;
@@ -152,7 +154,9 @@ export class TokenVaultInstance implements SecurityModule {
     this.isCompromised = true;
     try {
       if (fs.existsSync(this.vaultFile)) fs.unlinkSync(this.vaultFile);
-    } catch {}
+    } catch (err) {
+      console.error("[TokenVault] Self-destruct failed to delete vault file:", err);
+    }
     throw new Error(`[TOKEN VAULT DENIED] Access denied: ${reason}`);
   }
 }

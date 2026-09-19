@@ -28,6 +28,7 @@ export default function TopFiveFeaturesBar() {
   const [oauthStatus, setOauthStatus] = useState<any>(null);
   const [shardingStatus, setShardingStatus] = useState<any>(null);
   const [securityStats, setSecurityStats] = useState<{ blockedAttacksCount: number } | null>(null);
+  const [engineStatus, setEngineStatus] = useState<{ mode: string; status: string } | null>(null);
   const [isScanningOAuth, setIsScanningOAuth] = useState(false);
   const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -60,6 +61,13 @@ export default function TopFiveFeaturesBar() {
       if (resSec.ok) {
         const dataSec = await resSec.json();
         setSecurityStats({ blockedAttacksCount: dataSec.blockedAttacksCount || 0 });
+      }
+
+      // 5. Engine status
+      const resEngine = await apiFetch('/api/cpp-engine/stats');
+      if (resEngine.ok) {
+        const dataEngine = await resEngine.json();
+        setEngineStatus({ mode: dataEngine.engineMode || 'sync', status: dataEngine.status || 'OFFLINE' });
       }
     } catch (e) {
       // Fail silently for background polls
@@ -129,13 +137,33 @@ export default function TopFiveFeaturesBar() {
     try {
       const res = await apiFetch('/api/enterprise/zero-downtime-restart', { method: 'POST' });
       const data = await res.json();
-      setActionMessage('🔄 Cluster workers reloaded with Zero Downtime!');
+      if (data.success) {
+        setActionMessage('🔄 Cluster workers reloaded with Zero Downtime!');
+      } else {
+        setActionMessage(data.error || 'Hot restart failed.');
+      }
     } catch (e) {
       setActionMessage('Hot restart failed.');
     } finally {
       setTimeout(() => setActionMessage(null), 4000);
     }
   };
+
+  const engineLabel = engineStatus
+    ? engineStatus.mode === 'native'
+      ? '⚡ C++ Native Engine Active'
+      : engineStatus.mode === 'worker'
+        ? 'Worker Engine Active'
+        : 'Sync Fallback Engine'
+    : 'Engine Status Unavailable';
+
+  const engineBadgeColor = engineStatus
+    ? engineStatus.mode === 'native'
+      ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+      : engineStatus.mode === 'worker'
+        ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
+        : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+    : 'bg-zinc-500/10 text-zinc-400 border-zinc-500/30';
 
   return (
     <div className="bg-[#121212] border border-zinc-800 rounded-2xl p-5 shadow-lg space-y-4 mb-6">
@@ -144,13 +172,13 @@ export default function TopFiveFeaturesBar() {
           <Flame className="w-5 h-5 text-amber-500 animate-pulse" />
           <h3 className="text-sm font-black text-white tracking-wide uppercase flex items-center gap-2">
             Top 5 Flagship Security Engine Highlights
-            <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 px-2 py-0.5 rounded-full normal-case font-bold flex items-center gap-1">
-               ⚡ C++ Native Engine Active
+            <span className={`text-[10px] px-2 py-0.5 rounded-full normal-case font-bold flex items-center gap-1 border ${engineBadgeColor}`}>
+              {engineLabel}
             </span>
           </h3>
         </div>
         <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-full uppercase">
-          Real-time Engine Synchronized
+          {engineStatus ? 'Engine Status Loaded' : 'Loading Engine Status...'}
         </span>
       </div>
 
@@ -233,8 +261,10 @@ export default function TopFiveFeaturesBar() {
               <span className="text-[11px] font-black text-amber-400 uppercase flex items-center gap-1">
                 🔐 3. OAuth Detector
               </span>
-              <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                Clean
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                oauthStatus?.threatsFound ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+              }`}>
+                {oauthStatus?.threatsFound ? 'Threats Found' : oauthStatus ? 'Clean' : 'Not Scanned'}
               </span>
             </div>
             <p className="text-[10px] text-zinc-400 mb-2">
@@ -250,7 +280,7 @@ export default function TopFiveFeaturesBar() {
           </div>
           <div className="mt-3 pt-2 border-t border-zinc-800/60 text-[10px] text-zinc-400 flex items-center justify-between">
             <span>OAuth Guard</span>
-            <span className="text-amber-400 font-bold">Active</span>
+            <span className="text-amber-400 font-bold">{oauthStatus ? 'Scanned' : 'Ready'}</span>
           </div>
         </div>
 
@@ -259,14 +289,16 @@ export default function TopFiveFeaturesBar() {
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-[11px] font-black text-cyan-400 uppercase flex items-center gap-1">
-                📊 4. Live Security Graph
+                📊 4. Security Analytics
               </span>
-              <span className="text-[9px] font-bold text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">
-                Live
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                securityStats ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30' : 'bg-zinc-500/10 text-zinc-400 border border-zinc-500/30'
+              }`}>
+                {securityStats ? 'Loaded' : 'Unavailable'}
               </span>
             </div>
             <div className="text-xl font-black text-white mb-1">
-              {securityStats?.blockedAttacksCount ?? 0} <span className="text-xs font-normal text-zinc-400">Threats Blocked</span>
+              {securityStats?.blockedAttacksCount ?? '—'} <span className="text-xs font-normal text-zinc-400">Threats Blocked</span>
             </div>
             <p className="text-[10px] text-zinc-400">
               Real-time attack timeline, join heatmap & threat intelligence feed.
@@ -274,7 +306,7 @@ export default function TopFiveFeaturesBar() {
           </div>
           <div className="mt-3 pt-2 border-t border-zinc-800/60 text-[10px] text-zinc-400 flex items-center justify-between">
             <span>Audit Stream</span>
-            <span className="text-cyan-400 font-bold">{shardingStatus?.shards?.[0]?.ping ?? 0}ms</span>
+            <span className="text-cyan-400 font-bold">{shardingStatus?.shards?.[0]?.ping != null ? `${shardingStatus.shards[0].ping}ms` : 'N/A'}</span>
           </div>
         </div>
 
@@ -286,21 +318,21 @@ export default function TopFiveFeaturesBar() {
                 🌍 5. Cluster & Sharding
               </span>
                <span className="text-[9px] font-bold text-purple-300 bg-purple-500/20 px-1.5 py-0.5 rounded">
-                 {shardingStatus?.gatewayCount || 1} Gateway{(shardingStatus?.gatewayCount || 1) !== 1 ? 's' : ''}
-               </span>
-             </div>
-             <p className="text-[10px] text-zinc-400 mb-2">
-               Single-instance deployment with automatic restart on failure.
-             </p>
-            <button
-              onClick={handleHotRestart}
-              className="w-full bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-[10px] font-bold py-1.5 rounded-lg transition-all"
-            >
-               🔄 HTTP-Preserving Gateway Restart
-            </button>
+                  {shardingStatus?.gatewayCount != null ? `${shardingStatus.gatewayCount} Gateway${shardingStatus.gatewayCount !== 1 ? 's' : ''}` : 'N/A'}
+                </span>
+              </div>
+              <p className="text-[10px] text-zinc-400 mb-2">
+                Single-instance deployment with automatic restart on failure.
+              </p>
+             <button
+               onClick={handleHotRestart}
+               className="w-full bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-[10px] font-bold py-1.5 rounded-lg transition-all"
+             >
+                🔄 HTTP-Preserving Gateway Restart
+             </button>
           </div>
           <div className="mt-3 pt-2 border-t border-zinc-800/60 text-[10px] text-zinc-400 flex items-center justify-between">
-            <span>Ping: {shardingStatus?.gateways?.[0]?.ping ?? 0}ms</span>
+            <span>Ping: {shardingStatus?.gateways?.[0]?.ping != null ? `${shardingStatus.gateways[0].ping}ms` : 'N/A'}</span>
             <span className="text-purple-400 font-bold">
               {shardingStatus?.gateways?.[0]?.uptimeMinutes ? `${Math.round(shardingStatus.gateways[0].uptimeMinutes / 60 * 100) / 100}h uptime` : 'Uptime monitoring'}
             </span>

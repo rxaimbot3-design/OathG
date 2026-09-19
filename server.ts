@@ -336,7 +336,9 @@ async function purgeRevokedSessionsFromRedis(): Promise<void> {
 
 // Periodic cleanup of revoked sessions from Redis (every 2 minutes)
 const revokedSessionCleanupInterval = setInterval(() => {
-  purgeRevokedSessionsFromRedis().catch(() => {});
+  purgeRevokedSessionsFromRedis().catch((err) => {
+    console.error("[Redis] Failed to purge revoked sessions:", err);
+  });
 }, 2 * 60 * 1000);
 serverIntervals.push(revokedSessionCleanupInterval);
 
@@ -365,7 +367,9 @@ async function loadAdminSessions() {
     console.error("Failed to load admin sessions from disk:", err);
   }
   if (MongoRedisEngine.isRedisConnected) {
-    syncSessionsToRedis().catch(() => {});
+    syncSessionsToRedis().catch((err) => {
+      console.error("[Redis] Failed to sync sessions to Redis:", err);
+    });
   }
 }
 
@@ -1605,11 +1609,21 @@ app.post("/api/auth/logout", requireAdminAuth, (req, res) => {
     if (tokenStr) {
       revokeAdminSessionByToken(tokenStr);
     }
-    res.clearCookie("admin_session_token", { path: "/" });
+    res.clearCookie("admin_session_token", {
+      path: "/",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax"
+    });
     logAdminAuditAction("ADMIN_LOGOUT", req);
     return res.json({ success: true, message: "Logged out successfully." });
   } catch (err) {
-    res.clearCookie("admin_session_token", { path: "/" });
+    res.clearCookie("admin_session_token", {
+      path: "/",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax"
+    });
     return res.json({ success: true });
   }
 });
@@ -2012,7 +2026,7 @@ app.get("/api/cpp-engine/stats", requireAdminAuth, (req, res) => {
 });
 
 app.post("/api/cpp-engine/scan", requireAdminAuth, (req, res) => {
-  const { packetId = Math.floor(Math.random() * 10000), riskWeight = 1.2 } = req.body || {};
+  const { packetId = 0, riskWeight = 1.2 } = req.body || {};
   const result = CppNativeEngine.scanSecurityPacket(packetId, riskWeight);
   res.json({
     success: true,

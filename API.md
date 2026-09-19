@@ -4,15 +4,16 @@ Base URL: `http://localhost:3000/api`
 
 ## Authentication
 
-Most endpoints require authentication via one of:
-- `Authorization: Bearer <token>` header
+Browser-based authentication uses an HttpOnly `admin_session_token` cookie. After login, the browser sends the cookie automatically on same-origin requests.
+
+For CLI/admin API tooling, the server also accepts:
+- `Authorization: Bearer <ADMIN_SECRET>` header
 - `x-admin-key: <secret>` header
-- `admin_session_token` cookie
 
 **Authentication Methods:**
-1. **Direct Secret**: Provide `ADMIN_SECRET` (32+ chars) as token
-2. **Session Token**: Login to obtain a session token (24h expiry)
-3. **Discord OAuth**: Discord access token for owner accounts
+1. **Browser Session**: POST `/api/auth/login` with `adminKey`, then rely on the HttpOnly session cookie.
+2. **Direct Secret**: Provide `ADMIN_SECRET` (32+ chars) via `Authorization: Bearer` or `x-admin-key` header.
+3. **Discord OAuth**: Discord access token for owner accounts via `/api/auth/discord/login`, which also sets the HttpOnly session cookie.
 
 ## Rate Limits
 
@@ -140,13 +141,14 @@ Admin authentication with secret key.
 ```json
 {
   "success": true,
-  "token": "session_abc123...",
   "username": "Admin",
   "mode": "admin-secret",
   "clientIp": "127.0.0.1",
   "expiresAt": 1234567890000
 }
 ```
+
+> Note: The session token is set as an HttpOnly cookie and is not returned in the JSON body.
 
 ### POST /api/auth/discord/login
 Discord OAuth login for server owners.
@@ -162,7 +164,6 @@ Discord OAuth login for server owners.
 ```json
 {
   "success": true,
-  "token": "session_abc123...",
   "user": {
     "id": "123456789",
     "username": "owner",
@@ -170,6 +171,8 @@ Discord OAuth login for server owners.
   }
 }
 ```
+
+> Note: The session token is set as an HttpOnly cookie and is not returned in the JSON body.
 
 ### POST /api/auth/logout
 Logout and invalidate session.

@@ -22,7 +22,7 @@ npm run benchmark
 ```bash
 # Native engine scan benchmark
 for i in {1..1000}; do
-  curl -s -H "Authorization: Bearer $TOKEN" \
+  curl -s -H "Authorization: Bearer $ADMIN_SECRET" \
     http://localhost:3000/api/cpp-engine/scan \
     -X POST \
     -H "Content-Type: application/json" \
@@ -31,17 +31,19 @@ for i in {1..1000}; do
 done | awk '{sum+=$1; count++} END {print "Avg:", sum/count, "us"}'
 ```
 
+> Note: CLI/admin API examples use `Authorization: Bearer` with `ADMIN_SECRET`. Browser dashboard authentication uses an HttpOnly session cookie.
+
 #### API Response Time
 
 ```bash
 # Health endpoint benchmark
-ab -n 1000 -c 50 -H "Authorization: Bearer $TOKEN" \
+ab -n 1000 -c 50 -H "Authorization: Bearer $ADMIN_SECRET" \
   http://localhost:3000/api/health
 
 # With curl timing
 for i in {1..100}; do
   curl -o /dev/null -s -w "%{time_total}\n" \
-    -H "Authorization: Bearer $TOKEN" \
+    -H "Authorization: Bearer $ADMIN_SECRET" \
     http://localhost:3000/api/health
 done | awk '{sum+=$1; count++} END {print "Avg:", sum/count, "s"}'
 ```
@@ -51,7 +53,7 @@ done | awk '{sum+=$1; count++} END {print "Avg:", sum/count, "s"}'
 ```bash
 # Simulate 100 nukers drill
 curl -X POST http://localhost:3000/api/bot/simulate-100-nukers \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $ADMIN_SECRET" \
   -H "Content-Type: application/json"
 ```
 
@@ -60,7 +62,7 @@ curl -X POST http://localhost:3000/api/bot/simulate-100-nukers \
 ```bash
 # Batch scan benchmark
 curl -X POST http://localhost:3000/api/cpp-engine/scan \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $ADMIN_SECRET" \
   -H "Content-Type: application/json" \
   -d '{"packetId": 1, "riskWeight": 1.2, "batchSize": 1000}'
 ```
@@ -232,7 +234,7 @@ k6 run -e TOKEN=$TOKEN load-test.js
 ### wrk
 
 ```bash
-wrk -t4 -c100 -d30s -H "Authorization: Bearer $TOKEN" \
+wrk -t4 -c100 -d30s -H "Authorization: Bearer $ADMIN_SECRET" \
   http://localhost:3000/api/health
 ```
 
@@ -262,7 +264,7 @@ node --inspect server-build/server.mjs
 ```bash
 # Take heap snapshot via API
 curl -X POST http://localhost:3000/api/debug/heap-snapshot \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $ADMIN_SECRET"
 ```
 
 ## Benchmark Results Template

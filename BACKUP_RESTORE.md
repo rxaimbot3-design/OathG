@@ -45,7 +45,7 @@ BACKUP_COMPRESSION=true
 ### Run Backup via API
 ```bash
 curl -X POST http://localhost:3000/api/enterprise/mongo-backup \
-  -H "Authorization: Bearer <token>"
+  -H "Authorization: Bearer $ADMIN_SECRET"
 ```
 
 ### Run Backup via CLI
@@ -56,14 +56,16 @@ npm run backup
 ### List Backups
 ```bash
 curl http://localhost:3000/api/snapshots \
-  -H "Authorization: Bearer <token>"
+  -H "Authorization: Bearer $ADMIN_SECRET"
 ```
 
 ### Create Snapshot
 ```bash
 curl -X POST http://localhost:3000/api/snapshots/create \
-  -H "Authorization: Bearer <token>"
+  -H "Authorization: Bearer $ADMIN_SECRET"
 ```
+
+> Note: These CLI examples use the `Authorization: Bearer` header with `ADMIN_SECRET` as an admin API compatibility mechanism. Browser-based dashboard authentication uses an HttpOnly session cookie set by `/api/auth/login`.
 
 ## Restore Procedures
 
@@ -102,7 +104,7 @@ npm run restore -- --type=state --backup-id=<id>
 ### Snapshot Restore
 ```bash
 curl -X POST http://localhost:3000/api/snapshots/restore \
-  -H "Authorization: Bearer <token>" \
+  -H "Authorization: Bearer $ADMIN_SECRET" \
   -H "Content-Type: application/json" \
   -d '{"snapshotId": "snap_123"}'
 ```
@@ -113,7 +115,7 @@ curl -X POST http://localhost:3000/api/snapshots/restore \
 ```bash
 # Via API
 curl -X POST http://localhost:3000/api/admin/backup-integrity-test \
-  -H "Authorization: Bearer <token>"
+  -H "Authorization: Bearer $ADMIN_SECRET"
 
 # Via CLI
 npm run verify
@@ -190,7 +192,7 @@ BACKUP_CLOUD_SECRET=<secret>
 ```bash
 # Check backup history
 curl http://localhost:3000/api/enterprise/mongo-redis \
-  -H "Authorization: Bearer <token>"
+  -H "Authorization: Bearer $ADMIN_SECRET"
 ```
 
 ### Alerts

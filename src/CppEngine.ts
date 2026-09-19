@@ -373,7 +373,9 @@ class WorkerEngine {
       try {
         this.worker.removeAllListeners();
         this.worker.terminate();
-      } catch {}
+      } catch (err: any) {
+        console.warn("[ENGINE WORKER] Failed to terminate worker during reset:", err.message);
+      }
       this.worker = null;
     }
     this.pendingRequests.clear();
@@ -697,9 +699,13 @@ export class CppNativeEngine {
     this.totalAuditsProcessed = 0;
     this.metricsStartTime = Date.now();
     syncEngine.resetMetrics();
-    workerEngine.resetMetrics().catch(() => {});
+    workerEngine.resetMetrics().catch((err) => {
+      console.warn("[ENGINE] Worker metrics reset failed:", err.message);
+    });
     if (nativeInstance) {
-      try { nativeInstance.resetMetrics(); } catch {}
+      try { nativeInstance.resetMetrics(); } catch (err: any) {
+        console.warn("[ENGINE] Native metrics reset failed:", err.message);
+      }
     }
   }
 

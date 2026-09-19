@@ -132,8 +132,10 @@ Navigate to `http://localhost:3000` and log in with your `ADMIN_SECRET`.
 ### 4. Verify C++ Engine
 
 ```bash
-curl -H "Authorization: Bearer <admin-token>" http://localhost:3000/api/cpp-engine/stats
+curl -H "Authorization: Bearer $ADMIN_SECRET" http://localhost:3000/api/cpp-engine/stats
 ```
+
+> Note: The dashboard browser login uses an HttpOnly session cookie set by `/api/auth/login`. CLI/admin API examples may use the `Authorization: Bearer` header with `ADMIN_SECRET` as a compatibility mechanism.
 
 ## Configuration
 

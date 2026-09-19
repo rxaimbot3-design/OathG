@@ -190,8 +190,9 @@ export class DistributedRateLimiter extends EventEmitter {
         return {0, max_requests - current, now + window_ms, current + cost, 0, 0}
       end
       
+      local seq = redis.call('INCR', key .. ':counter')
       for i = 1, cost do
-        redis.call('ZADD', key, now, now .. ':' .. i .. ':' .. math.random())
+        redis.call('ZADD', key, now, now .. ':' .. (seq + i - 1))
       end
       redis.call('PEXPIRE', key, window_ms)
       

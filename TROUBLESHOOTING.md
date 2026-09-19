@@ -285,7 +285,7 @@
 
 3. **Monitor heap**
    ```bash
-   curl -H "Authorization: Bearer $TOKEN" \
+   curl -H "Authorization: Bearer $ADMIN_SECRET" \
      http://localhost:3000/api/health | jq '.checks.cppEngine'
    ```
 
@@ -340,9 +340,11 @@ curl -X POST http://localhost:3000/api/auth/login \
   -d '{"adminKey": "your_secret"}'
 
 # C++ engine test
-curl -H "Authorization: Bearer $TOKEN" \
+curl -H "Authorization: Bearer $ADMIN_SECRET" \
   http://localhost:3000/api/cpp-engine/stats
 ```
+
+> Note: The dashboard browser login uses an HttpOnly session cookie. CLI/admin API examples may use the `Authorization: Bearer` header with `ADMIN_SECRET` as a compatibility mechanism.
 
 ### Check Logs
 
@@ -384,7 +386,7 @@ rm admin_sessions.json
 ```bash
 # Via API
 curl -X DELETE http://localhost:3000/api/admin/ip-bans/all \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $ADMIN_SECRET"
 
 # Via file
 echo '[]' > ip_bans.json
@@ -405,7 +407,7 @@ npm run restore -- --backup-id=latest
 ```bash
 # Via API
 curl -X POST http://localhost:3000/api/enterprise/zero-downtime-restart \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $ADMIN_SECRET"
 ```
 
 ## Getting Help

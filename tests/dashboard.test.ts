@@ -152,3 +152,74 @@ describe("Dashboard API: Bot Features", () => {
     expect(featureIds).not.toContain("verification");
   });
 });
+
+describe("Dashboard API: Discord OAuth Flow", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("rejects invalid Discord token", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) }) as any;
+    const res = await request(app).post("/api/auth/discord/login").send({ accessToken: "invalid_token" });
+    expect(res.status).toBe(401);
+    expect(res.body.success).toBe(false);
+  });
+
+  it("rejects unauthorized Discord account", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: "999999999", username: "unauthorized" })
+    }) as any;
+    const res = await request(app).post("/api/auth/discord/login").send({ accessToken: "valid_token_unauthorized_user" });
+    expect(res.status).toBe(403);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toContain("Unauthorized");
+  });
+
+  it("accepts authorized Discord account and sets session cookie", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: process.env.DISCORD_OWNER_ID, username: "owner", discriminator: "0" })
+    }) as any;
+    const res = await request(app).post("/api/auth/discord/login").send({ accessToken: "valid_token_authorized_user" });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.user).toBeDefined();
+    expect(res.headers["set-cookie"]).toBeDefined();
+    const cookieHeader = res.headers["set-cookie"];
+    const sessionCookie = Array.isArray(cookieHeader) ? cookieHeader.find((c: string) => c.startsWith("admin_session_token=")) : undefined;
+    expect(sessionCookie).toBeDefined();
+  });
+});
+
+describe("Dashboard API: Session Cookie Persistence", () => {
+  it("checks session using cookie after login", async () => {
+    const loginRes = await request(app).post("/api/auth/login").send({ adminKey: process.env.ADMIN_SECRET });
+    expect(loginRes.status).toBe(200);
+    const cookieHeader = loginRes.headers["set-cookie"];
+    const sessionCookie = Array.isArray(cookieHeader) ? cookieHeader.find((c: string) => c.startsWith("admin_session_token=")) : undefined;
+    const token = sessionCookie ? sessionCookie.split(";")[0].split("=")[1] : "";
+    expect(token).toBeTruthy();
+
+    const sessionRes = await request(app).get("/api/auth/session").set("Cookie", `admin_session_token=${token}`);
+    expect(sessionRes.status).toBe(200);
+    expect(sessionRes.body.authenticated).toBe(true);
+  });
+
+  it("rejects revoked session", async () => {
+    const loginRes = await request(app).post("/api/auth/login").send({ adminKey: process.env.ADMIN_SECRET });
+    const cookieHeader = loginRes.headers["set-cookie"];
+    const sessionCookie = Array.isArray(cookieHeader) ? cookieHeader.find((c: string) => c.startsWith("admin_session_token=")) : undefined;
+    const token = sessionCookie ? sessionCookie.split(";")[0].split("=")[1] : "";
+
+    await request(app).post("/api/auth/logout").set("Cookie", `admin_session_token=${token}`);
+
+    const sessionRes = await request(app).get("/api/auth/session").set("Cookie", `admin_session_token=${token}`);
+    expect(sessionRes.status).toBe(200);
+    expect(sessionRes.body.authenticated).toBe(false);
+  });
+});

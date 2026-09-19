@@ -89,8 +89,10 @@ Run repeated native engine scans to test worker thread stability.
 ```bash
 # Use the built-in drill endpoint
 curl -X POST "http://localhost:3000/api/bot/simulate-100-nukers" \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
+  -H "Authorization: Bearer $ADMIN_SECRET"
 ```
+
+> Note: CLI/admin API examples use `Authorization: Bearer` with `ADMIN_SECRET`. Browser dashboard authentication uses an HttpOnly session cookie.
 
 Run this in a loop for 30-60 minutes.
 

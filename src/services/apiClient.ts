@@ -5,7 +5,9 @@ try {
   if (typeof localStorage !== "undefined") {
     localStorage.removeItem("admin_session_token");
   }
-} catch {}
+} catch (err) {
+  console.error("Failed to clear legacy localStorage token:", err);
+}
 
 export function clearAdminToken(): void {
   inMemoryToken = null;
