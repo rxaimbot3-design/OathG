@@ -33,6 +33,7 @@ export interface CppEngineMetrics {
   simdAcceleration: boolean;
   activeThreads: number;
   totalAuditsProcessed: number;
+  engineMode: "native" | "worker" | "sync";
 }
 
 interface ScanRequest {
@@ -173,7 +174,8 @@ class WorkerEngine {
       throughputPerSecond: 0,
       simdAcceleration: false,
       activeThreads: 1,
-      totalAuditsProcessed: 0
+      totalAuditsProcessed: 0,
+      engineMode: "sync"
     };
     try {
       const buf = new ArrayBuffer(16 * 1024 * 1024);
@@ -494,7 +496,8 @@ class SyncEngine {
       throughputPerSecond: 0,
       simdAcceleration: false,
       activeThreads: os.cpus().length || 1,
-      totalAuditsProcessed: 0
+      totalAuditsProcessed: 0,
+      engineMode: "sync"
     };
   }
 
@@ -542,7 +545,8 @@ class SyncEngine {
       memoryUsedMB: parseFloat(((memUsage.heapUsed + (memUsage.arrayBuffers || 0)) / 1024 / 1024).toFixed(2)),
       averageLatencyMicroseconds: this.lastLatencyMicros,
       throughputPerSecond: calculatedThroughput,
-      totalAuditsProcessed: this.auditCounter
+      totalAuditsProcessed: this.auditCounter,
+      engineMode: "sync"
     };
   }
 
@@ -562,6 +566,7 @@ tryLoadNativeModule();
 export class CppNativeEngine {
   private static initialized = false;
   private static engineMode: "native" | "worker" | "sync" = "sync";
+  private static nativeRuntimeFailed = false;
   private static totalAuditsProcessed = 0;
   private static metricsStartTime = Date.now();
 
@@ -572,6 +577,7 @@ export class CppNativeEngine {
   static reset(): void {
     this.initialized = false;
     this.engineMode = "sync";
+    this.nativeRuntimeFailed = false;
     this.totalAuditsProcessed = 0;
     this.metricsStartTime = Date.now();
     workerEngine.reset();
@@ -626,6 +632,10 @@ export class CppNativeEngine {
     const safePacketId = Number.isFinite(packetId) ? Math.floor(packetId) : 0;
     const safeRiskWeight = Number.isFinite(riskWeight) ? Math.max(0, Math.min(1000, riskWeight)) : 0;
 
+    if (this.engineMode === "native" && (!nativeInstance || this.nativeRuntimeFailed)) {
+      this.engineMode = "sync";
+    }
+
     if (this.engineMode === "native" && nativeInstance) {
       const startTime = process.hrtime.bigint();
       try {
@@ -644,6 +654,10 @@ export class CppNativeEngine {
           score: pipelineResult.score
         };
       } catch (err) {
+        this.engineMode = "sync";
+        nativeInstance = null;
+        nativeAvailable = false;
+        this.nativeRuntimeFailed = true;
         const latencyMicros = Math.max(1, Math.round(Number(process.hrtime.bigint() - startTime) / 1000));
         return syncEngine.scanSecurityPacket(safePacketId, safeRiskWeight);
       }
@@ -653,6 +667,10 @@ export class CppNativeEngine {
   }
 
   static async batchScanPackets(requests: ScanRequest[]): Promise<Array<{ passed: boolean; latencyMicros: number; score: number }>> {
+    if (this.engineMode === "native" && (!nativeInstance || this.nativeRuntimeFailed)) {
+      this.engineMode = "worker";
+    }
+
     if (this.engineMode === "native" && nativeInstance) {
       try {
         const payload = requests.map(r => ({ packetId: r.packetId, event: buildScanEvent(r) }));
@@ -668,13 +686,20 @@ export class CppNativeEngine {
         }
         return arr;
       } catch {
-        // fallback to worker
+        this.engineMode = "worker";
+        this.nativeRuntimeFailed = true;
+        nativeInstance = null;
+        nativeAvailable = false;
       }
     }
     return workerEngine.batchScanPackets(requests);
   }
 
   static async batchComputeHashes(requests: HashRequest[]): Promise<Array<{ hash: string; latencyMicros: number }>> {
+    if (this.engineMode === "native" && (!nativeInstance || this.nativeRuntimeFailed)) {
+      this.engineMode = "worker";
+    }
+
     if (this.engineMode === "native" && nativeInstance) {
       try {
         const arr: Array<{ hash: string; latencyMicros: number }> = [];
@@ -718,7 +743,8 @@ export class CppNativeEngine {
           throughputPerSecond: throughput,
           simdAcceleration: Boolean(nativeInstance.getMetrics().simdAcceleration),
           activeThreads: typeof nativeInstance.getMetrics().activeThreads === 'number' ? nativeInstance.getMetrics().activeThreads : Number(nativeInstance.getMetrics().activeThreads || 1),
-          totalAuditsProcessed: this.totalAuditsProcessed
+          totalAuditsProcessed: this.totalAuditsProcessed,
+          engineMode: this.engineMode
         };
       } catch {
         // fallback

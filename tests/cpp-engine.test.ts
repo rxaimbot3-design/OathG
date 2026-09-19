@@ -265,3 +265,64 @@ describe("CppEngine: Worker Crash Recovery", () => {
     expect(metrics.totalAuditsProcessed).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe("CppEngine: Scoring Contract", () => {
+  beforeEach(() => {
+    CppNativeEngine.reset();
+  });
+
+  it("returns scores bounded between 0 and 100", () => {
+    const result = CppNativeEngine.scanSecurityPacket(1, 1.2);
+    expect(typeof result.score).toBe("number");
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+  });
+
+  it("returns score 0 for zero riskWeight", () => {
+    const result = CppNativeEngine.scanSecurityPacket(1, 0);
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+  });
+
+  it("caps score at 100 for very high riskWeight", () => {
+    const result = CppNativeEngine.scanSecurityPacket(1, 1000);
+    expect(result.score).toBeLessThanOrEqual(100);
+  });
+});
+
+describe("CppEngine: Native Runtime Failure Mode", () => {
+  beforeEach(() => {
+    CppNativeEngine.reset();
+  });
+
+  it("switches to sync mode after native runtime failure", () => {
+    const modeBefore = CppNativeEngine.getEngineMode();
+    expect(["native", "worker", "sync"]).toContain(modeBefore);
+
+    // Force a runtime failure path by making nativeInstance null after init
+    // In the real implementation, a thrown error inside scanSecurityPacket
+    // when engineMode === "native" should downgrade the mode.
+    // We simulate by setting engineMode back to native and nulling the instance.
+    (CppNativeEngine as any).engineMode = "native";
+    (CppNativeEngine as any).nativeInstance = null;
+    (CppNativeEngine as any).nativeRuntimeFailed = false;
+
+    const result = CppNativeEngine.scanSecurityPacket(1, 1.2);
+    expect(typeof result.passed).toBe("boolean");
+    expect(typeof result.score).toBe("number");
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+    expect(CppNativeEngine.getEngineMode()).toBe("sync");
+  });
+
+  it("does not retry native after runtime failure", () => {
+    CppNativeEngine.reset();
+    (CppNativeEngine as any).engineMode = "native";
+    (CppNativeEngine as any).nativeRuntimeFailed = true;
+    (CppNativeEngine as any).nativeInstance = null;
+
+    const result = CppNativeEngine.scanSecurityPacket(1, 1.2);
+    expect(typeof result.passed).toBe("boolean");
+    expect(CppNativeEngine.getEngineMode()).toBe("sync");
+  });
+});

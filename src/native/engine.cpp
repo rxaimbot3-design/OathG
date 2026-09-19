@@ -732,9 +732,11 @@ Napi::Value SecurityEngine::ScanBatch(const Napi::CallbackInfo& info) {
     double score = ruleScore;
     Decision decision;
     if (ruleScore < 1.0) {
-      score = std::max(0.0, 100.0 - risk_weight * 10.0);
+      // No specific rule triggered; derive score directly from riskWeight
+      score = std::min(100.0, risk_weight / 10.0);
       decision = MakeDecision(score);
     } else {
+      // Rule triggered; blend in riskWeight as amplification
       score += risk_weight * 0.5;
       if (score > 100.0) score = 100.0;
       decision = MakeDecision(score);

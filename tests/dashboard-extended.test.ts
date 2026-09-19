@@ -129,4 +129,37 @@ describe("Dashboard API: Extended Coverage", () => {
     const res = await request(app).post("/api/system/restart").send({});
     expect(res.status).toBe(401);
   });
+
+  it("requires valid packetId for cpp engine scan", async () => {
+    const loginRes = await request(app).post("/api/auth/login").send({ adminKey: process.env.ADMIN_SECRET });
+    const cookieHeader = loginRes.headers["set-cookie"];
+    const sessionCookie = Array.isArray(cookieHeader) ? cookieHeader.find((c: string) => c.startsWith("admin_session_token=")) : undefined;
+    const token = sessionCookie ? sessionCookie.split(";")[0].split("=")[1] : "";
+
+    const res = await request(app).post("/api/cpp-engine/scan").set("Cookie", `admin_session_token=${token}`).send({ packetId: -1, riskWeight: 1.2 });
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty("error");
+  });
+
+  it("requires valid riskWeight for cpp engine scan", async () => {
+    const loginRes = await request(app).post("/api/auth/login").send({ adminKey: process.env.ADMIN_SECRET });
+    const cookieHeader = loginRes.headers["set-cookie"];
+    const sessionCookie = Array.isArray(cookieHeader) ? cookieHeader.find((c: string) => c.startsWith("admin_session_token=")) : undefined;
+    const token = sessionCookie ? sessionCookie.split(";")[0].split("=")[1] : "";
+
+    const res = await request(app).post("/api/cpp-engine/scan").set("Cookie", `admin_session_token=${token}`).send({ packetId: 1, riskWeight: -5 });
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty("error");
+  });
+
+  it("returns engineMode in cpp engine stats", async () => {
+    const loginRes = await request(app).post("/api/auth/login").send({ adminKey: process.env.ADMIN_SECRET });
+    const cookieHeader = loginRes.headers["set-cookie"];
+    const sessionCookie = Array.isArray(cookieHeader) ? cookieHeader.find((c: string) => c.startsWith("admin_session_token=")) : undefined;
+    const token = sessionCookie ? sessionCookie.split(";")[0].split("=")[1] : "";
+
+    const res = await request(app).get("/api/cpp-engine/stats").set("Cookie", `admin_session_token=${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("engineMode");
+  });
 });

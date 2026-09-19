@@ -2013,6 +2013,12 @@ app.get("/api/cpp-engine/stats", requireAdminAuth, (req, res) => {
 
 app.post("/api/cpp-engine/scan", requireAdminAuth, (req, res) => {
   const { packetId = Math.floor(Math.random() * 10000), riskWeight = 1.2 } = req.body || {};
+  if (!Number.isFinite(packetId) || Math.floor(packetId) !== packetId || packetId <= 0) {
+    return res.status(400).json({ success: false, error: "Invalid packetId; must be a positive integer." });
+  }
+  if (!Number.isFinite(riskWeight) || riskWeight < 0) {
+    return res.status(400).json({ success: false, error: "Invalid riskWeight; must be a non-negative number." });
+  }
   const result = CppNativeEngine.scanSecurityPacket(packetId, riskWeight);
   res.json({
     success: true,
