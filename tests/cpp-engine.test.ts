@@ -272,3 +272,136 @@ describe("CppEngine: Worker Crash Recovery", () => {
     expect(metrics.totalAuditsProcessed).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe("CppEngine: Scoring Contract Consistency", () => {
+  beforeEach(async () => {
+    CppNativeEngine.reset();
+    vi.resetModules();
+  });
+
+  const riskWeights = [0, 1.2, 10, 50, 100, 1000];
+  const singleScores: Record<number, number> = {};
+
+  riskWeights.forEach((rw) => {
+    const single = CppNativeEngine.scanSecurityPacket(1, rw);
+    singleScores[rw] = single.score;
+  });
+
+  it("single scan produces scores in valid range", () => {
+    riskWeights.forEach((rw) => {
+      expect(singleScores[rw]).toBeGreaterThanOrEqual(0);
+      expect(singleScores[rw]).toBeLessThanOrEqual(100);
+    });
+  });
+
+  it("batch scan produces scores in valid range", async () => {
+    const requests = riskWeights.map((rw) => ({ packetId: 1, riskWeight: rw }));
+    const results = await CppNativeEngine.batchScanPackets(requests);
+    expect(results).toHaveLength(riskWeights.length);
+    results.forEach((r) => {
+      expect(r.score).toBeGreaterThanOrEqual(0);
+      expect(r.score).toBeLessThanOrEqual(100);
+    });
+  });
+
+  it("score is bounded for zero riskWeight", () => {
+    const result = CppNativeEngine.scanSecurityPacket(1, 0);
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+  });
+
+  it("score clamps to 100 for very large riskWeight", () => {
+    const result = CppNativeEngine.scanSecurityPacket(1, 10000);
+    expect(result.score).toBeLessThanOrEqual(100);
+  });
+
+  it("score clamps to valid range for negative riskWeight", () => {
+    const result = CppNativeEngine.scanSecurityPacket(1, -50);
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+  });
+
+  it("score clamps to valid range for NaN riskWeight", () => {
+    const result = CppNativeEngine.scanSecurityPacket(1, NaN);
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+  });
+
+  it("score clamps to valid range for Infinity riskWeight", () => {
+    const result = CppNativeEngine.scanSecurityPacket(1, Infinity);
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+  });
+});
+
+describe("CppEngine: Engine Mode Truthfulness", () => {
+  beforeEach(async () => {
+    CppNativeEngine.reset();
+    vi.resetModules();
+  });
+
+  it("updates engineMode to sync when native instance is unavailable", () => {
+    (CppNativeEngine as any).engineMode = "native";
+    (CppNativeEngine as any).nativeRuntimeFailed = false;
+    const result = CppNativeEngine.scanSecurityPacket(1, 1.2);
+    expect(typeof result.passed).toBe("boolean");
+    expect(typeof result.score).toBe("number");
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+    expect(CppNativeEngine.getEngineMode()).toBe("sync");
+  });
+
+  it("does not retry native after runtime failure", () => {
+    CppNativeEngine.reset();
+    (CppNativeEngine as any).engineMode = "native";
+    (CppNativeEngine as any).nativeRuntimeFailed = true;
+    const result = CppNativeEngine.scanSecurityPacket(1, 1.2);
+    expect(typeof result.passed).toBe("boolean");
+    expect(CppNativeEngine.getEngineMode()).toBe("sync");
+  });
+
+  it("reports accurate engine mode after initialization", async () => {
+    await CppNativeEngine.initEngine();
+    const mode = CppNativeEngine.getEngineMode();
+    expect(["native", "worker", "sync"]).toContain(mode);
+  });
+});
+
+describe("CppEngine: Invalid Input Handling", () => {
+  beforeEach(async () => {
+    CppNativeEngine.reset();
+    vi.resetModules();
+  });
+
+  it("normalizes invalid packetId to safe default", () => {
+    const result = CppNativeEngine.scanSecurityPacket(0, 1.2);
+    expect(typeof result.passed).toBe("boolean");
+    expect(typeof result.score).toBe("number");
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+  });
+
+  it("normalizes negative packetId to safe default", () => {
+    const result = CppNativeEngine.scanSecurityPacket(-5, 1.2);
+    expect(typeof result.passed).toBe("boolean");
+    expect(typeof result.score).toBe("number");
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+  });
+
+  it("normalizes NaN packetId to safe default", () => {
+    const result = CppNativeEngine.scanSecurityPacket(NaN, 1.2);
+    expect(typeof result.passed).toBe("boolean");
+    expect(typeof result.score).toBe("number");
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+  });
+
+  it("clamps extreme riskWeight values", () => {
+    const result = CppNativeEngine.scanSecurityPacket(1, 1e6);
+    expect(typeof result.passed).toBe("boolean");
+    expect(typeof result.score).toBe("number");
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+  });
+});

@@ -70,7 +70,7 @@ class EngineWorkerCore {
     return {
       passed: true,
       latencyMicros: this.lastLatencyMicros,
-      score: Math.max(0, 100 - riskWeight * 10)
+      score: Math.min(100, riskWeight / 10)
     };
   }
 

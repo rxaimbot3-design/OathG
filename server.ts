@@ -1264,6 +1264,7 @@ app.get("/api/health", (req, res) => {
     status: string;
     latencyMs?: number;
     nativeLoaded?: boolean;
+    engineMode?: string;
     details?: Record<string, unknown>;
   }
   const checks: Record<string, HealthCheck> = {
@@ -1293,12 +1294,14 @@ app.get("/api/health", (req, res) => {
 
   try {
     const cppMetrics = CppNativeEngine.getMetrics();
-    checks.cppEngine = { 
-      status: cppMetrics?.status !== 'OFFLINE' ? 'up' : 'down', 
-      nativeLoaded: cppMetrics?.engineName?.includes("Native") || false
+    const engineMode = CppNativeEngine.getEngineMode();
+    checks.cppEngine = {
+      status: engineMode === "native" ? "up" : "degraded",
+      nativeLoaded: engineMode === "native",
+      engineMode
     };
   } catch {
-    checks.cppEngine = { status: 'down', nativeLoaded: false };
+    checks.cppEngine = { status: "down", nativeLoaded: false, engineMode: "sync" };
   }
 
   try {
@@ -1386,7 +1389,8 @@ app.get("/api/health/detailed", requireAdminAuth, (req, res) => {
       latencyMicros: cppMetrics.averageLatencyMicroseconds || 0,
       throughput: cppMetrics.throughputPerSecond || 0,
       simd: cppMetrics.simdAcceleration || false,
-      nativeLoaded: cppMetrics.engineName?.includes("Native") || false
+      nativeLoaded: cppMetrics.engineMode === "native",
+      engineMode: cppMetrics.engineMode
     },
     aiService: (() => {
       try {
@@ -2026,8 +2030,18 @@ app.get("/api/cpp-engine/stats", requireAdminAuth, (req, res) => {
 });
 
 app.post("/api/cpp-engine/scan", requireAdminAuth, (req, res) => {
-  const { packetId = 0, riskWeight = 1.2 } = req.body || {};
-  const result = CppNativeEngine.scanSecurityPacket(packetId, riskWeight);
+  const { packetId, riskWeight } = req.body || {};
+  const safePacketId = Number.isFinite(packetId) && Math.floor(packetId) > 0 ? Math.floor(packetId) : null;
+  const safeRiskWeight = Number.isFinite(riskWeight) && riskWeight >= 0 ? Math.min(1000, Number(riskWeight)) : null;
+
+  if (safePacketId === null || safeRiskWeight === null) {
+    return res.status(400).json({
+      success: false,
+      error: "Invalid input: packetId must be a positive integer and riskWeight must be a non-negative number."
+    });
+  }
+
+  const result = CppNativeEngine.scanSecurityPacket(safePacketId, safeRiskWeight);
   const engineMode = CppNativeEngine.getEngineMode();
   res.json({
     success: true,

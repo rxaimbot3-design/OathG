@@ -569,6 +569,7 @@ export class CppNativeEngine {
   private static engineMode: "native" | "worker" | "sync" = "sync";
   private static totalAuditsProcessed = 0;
   private static metricsStartTime = Date.now();
+  private static nativeRuntimeFailed = false;
 
   static getEngineMode(): "native" | "worker" | "sync" {
     return this.engineMode;
@@ -579,6 +580,7 @@ export class CppNativeEngine {
     this.engineMode = "sync";
     this.totalAuditsProcessed = 0;
     this.metricsStartTime = Date.now();
+    this.nativeRuntimeFailed = false;
     workerEngine.reset();
     syncEngine.resetMetrics();
     nativeInstance = null;
@@ -631,29 +633,31 @@ export class CppNativeEngine {
     const safePacketId = Number.isFinite(packetId) ? Math.floor(packetId) : 0;
     const safeRiskWeight = Number.isFinite(riskWeight) ? Math.max(0, Math.min(1000, riskWeight)) : 0;
 
+    if (this.engineMode === "native" && (!nativeInstance || this.nativeRuntimeFailed)) {
+      this.engineMode = "sync";
+    }
+
     if (this.engineMode === "native" && nativeInstance) {
       const startTime = process.hrtime.bigint();
       try {
         const eventType = safeRiskWeight >= 80 ? 4 : safeRiskWeight >= 60 ? 3 : safeRiskWeight >= 40 ? 2 : safeRiskWeight >= 20 ? 1 : 0;
         const payload = [{
           packetId: safePacketId,
-          event: {
-            eventType,
-            userId: safePacketId,
-            guildId: 0,
-            channelCount: 0,
-            roleCount: 0,
-            banCount: 0,
-            kickCount: 0,
-            webhookCount: 0,
-            botCount: 0,
-            permsAdded: 0,
-            permsRemoved: 0,
-            eventCount1s: 0,
-            eventCount10s: 0,
-            timestamp: Date.now(),
-            riskWeight: safeRiskWeight
-          }
+          eventType,
+          userId: safePacketId,
+          guildId: 0,
+          channelCount: 0,
+          roleCount: 0,
+          banCount: 0,
+          kickCount: 0,
+          webhookCount: 0,
+          botCount: 0,
+          permsAdded: 0,
+          permsRemoved: 0,
+          eventCount1s: 0,
+          eventCount10s: 0,
+          timestamp: Date.now(),
+          riskWeight: safeRiskWeight
         }];
         const result = nativeInstance.scanBatch(payload);
         const item = result[0];
@@ -665,6 +669,10 @@ export class CppNativeEngine {
         };
       } catch (err) {
         const latencyMicros = Math.max(1, Math.round(Number(process.hrtime.bigint() - startTime) / 1000));
+        this.nativeRuntimeFailed = true;
+        this.engineMode = "sync";
+        nativeInstance = null;
+        console.warn("[ENGINE] Native scan failed, falling back to sync:", err instanceof Error ? err.message : String(err));
         return syncEngine.scanSecurityPacket(safePacketId, safeRiskWeight);
       }
     }
@@ -673,7 +681,7 @@ export class CppNativeEngine {
   }
 
   static async batchScanPackets(requests: ScanRequest[]): Promise<Array<{ passed: boolean; latencyMicros: number; score: number }>> {
-    if (this.engineMode === "native" && nativeInstance) {
+    if (this.engineMode === "native" && nativeInstance && !this.nativeRuntimeFailed) {
       try {
         const payload = requests.map(r => ({ packetId: r.packetId, event: buildScanEvent(r) }));
         const result = nativeInstance.scanBatch(payload);
@@ -687,8 +695,11 @@ export class CppNativeEngine {
           });
         }
         return arr;
-      } catch {
-        // fallback to worker
+      } catch (err) {
+        this.nativeRuntimeFailed = true;
+        this.engineMode = "worker";
+        nativeInstance = null;
+        console.warn("[ENGINE] Native batch scan failed, falling back to worker:", err instanceof Error ? err.message : String(err));
       }
     }
     return workerEngine.batchScanPackets(requests);

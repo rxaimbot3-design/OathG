@@ -146,6 +146,24 @@ describe("Dashboard API: Extended Coverage", () => {
     expect(res.body.engine).toBeDefined();
   });
 
+  it("rejects invalid packetId in cpp engine scan with 400", async () => {
+    const res = await request(app).post("/api/cpp-engine/scan").set("Authorization", `Bearer ${process.env.ADMIN_SECRET}`).send({ packetId: 0, riskWeight: 1.2 });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  it("rejects negative packetId in cpp engine scan with 400", async () => {
+    const res = await request(app).post("/api/cpp-engine/scan").set("Authorization", `Bearer ${process.env.ADMIN_SECRET}`).send({ packetId: -1, riskWeight: 1.2 });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  it("rejects non-numeric packetId in cpp engine scan with 400", async () => {
+    const res = await request(app).post("/api/cpp-engine/scan").set("Authorization", `Bearer ${process.env.ADMIN_SECRET}`).send({ packetId: "abc", riskWeight: 1.2 });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
   it("distributed rate limiter Lua script applies TTL to counter key", () => {
     const script = (DistributedRateLimiter as any).LUA_SCRIPT || "";
     expect(script).toContain("key .. ':counter'");
