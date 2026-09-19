@@ -2022,15 +2022,17 @@ app.post("/api/bot/simulate-100-nukers", requireAdminAuth, async (req, res) => {
 
 app.get("/api/cpp-engine/stats", requireAdminAuth, (req, res) => {
   const metrics = CppNativeEngine.getMetrics();
-  res.json(metrics);
+  res.json({ ...metrics, engineMode: CppNativeEngine.getEngineMode() });
 });
 
 app.post("/api/cpp-engine/scan", requireAdminAuth, (req, res) => {
   const { packetId = 0, riskWeight = 1.2 } = req.body || {};
   const result = CppNativeEngine.scanSecurityPacket(packetId, riskWeight);
+  const engineMode = CppNativeEngine.getEngineMode();
   res.json({
     success: true,
-    engine: "C++ Native Security Engine",
+    engineMode,
+    engine: engineMode === "native" ? "C++ Native Security Engine" : engineMode === "worker" ? "Worker Security Engine" : "Sync Security Engine",
     result
   });
 });

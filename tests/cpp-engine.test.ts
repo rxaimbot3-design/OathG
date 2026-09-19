@@ -20,6 +20,13 @@ describe("CppEngine: Native Loading Fallback", () => {
     expect(typeof metrics.memoryAllocatedBytes).toBe("number");
     expect(metrics.memoryAllocatedBytes).toBeGreaterThan(0);
   });
+
+  it("includes engineMode in metrics", async () => {
+    await CppNativeEngine.initEngine();
+    const metrics = CppNativeEngine.getMetrics();
+    expect(metrics).toHaveProperty("engineMode");
+    expect(["native", "worker", "sync"]).toContain(metrics.engineMode);
+  });
 });
 
 describe("CppEngine: Worker Thread Fallback", () => {

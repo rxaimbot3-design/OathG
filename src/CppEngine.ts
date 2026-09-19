@@ -33,6 +33,7 @@ export interface CppEngineMetrics {
   simdAcceleration: boolean;
   activeThreads: number;
   totalAuditsProcessed: number;
+  engineMode: "native" | "worker" | "sync";
 }
 
 interface ScanRequest {
@@ -173,7 +174,8 @@ class WorkerEngine {
       throughputPerSecond: 0,
       simdAcceleration: false,
       activeThreads: 1,
-      totalAuditsProcessed: 0
+      totalAuditsProcessed: 0,
+      engineMode: "worker"
     };
     try {
       const buf = new ArrayBuffer(16 * 1024 * 1024);
@@ -496,7 +498,8 @@ class SyncEngine {
       throughputPerSecond: 0,
       simdAcceleration: false,
       activeThreads: os.cpus().length || 1,
-      totalAuditsProcessed: 0
+      totalAuditsProcessed: 0,
+      engineMode: "sync"
     };
   }
 
@@ -631,19 +634,34 @@ export class CppNativeEngine {
     if (this.engineMode === "native" && nativeInstance) {
       const startTime = process.hrtime.bigint();
       try {
-        const pipelineEvent: SecurityEvent = {
-          type: SyncEngine.mapRiskWeightToEventType(safeRiskWeight),
-          userId: String(safePacketId),
-          guildId: "default",
-          timestamp: Date.now(),
-          payload: { riskWeight: safeRiskWeight, packetId: safePacketId }
-        };
-        const pipelineResult = SecurityPipeline.processEvent(pipelineEvent);
+        const eventType = safeRiskWeight >= 80 ? 4 : safeRiskWeight >= 60 ? 3 : safeRiskWeight >= 40 ? 2 : safeRiskWeight >= 20 ? 1 : 0;
+        const payload = [{
+          packetId: safePacketId,
+          event: {
+            eventType,
+            userId: safePacketId,
+            guildId: 0,
+            channelCount: 0,
+            roleCount: 0,
+            banCount: 0,
+            kickCount: 0,
+            webhookCount: 0,
+            botCount: 0,
+            permsAdded: 0,
+            permsRemoved: 0,
+            eventCount1s: 0,
+            eventCount10s: 0,
+            timestamp: Date.now(),
+            riskWeight: safeRiskWeight
+          }
+        }];
+        const result = nativeInstance.scanBatch(payload);
+        const item = result[0];
         const latencyMicros = Math.max(1, Math.round(Number(process.hrtime.bigint() - startTime) / 1000));
         return {
-          passed: !pipelineResult.blocked,
+          passed: Boolean(item.passed),
           latencyMicros,
-          score: pipelineResult.score
+          score: typeof item.score === 'number' ? item.score : Number(item.score)
         };
       } catch (err) {
         const latencyMicros = Math.max(1, Math.round(Number(process.hrtime.bigint() - startTime) / 1000));
@@ -724,7 +742,8 @@ export class CppNativeEngine {
           throughputPerSecond: throughput,
           simdAcceleration: Boolean(nativeInstance.getMetrics().simdAcceleration),
           activeThreads: typeof nativeInstance.getMetrics().activeThreads === 'number' ? nativeInstance.getMetrics().activeThreads : Number(nativeInstance.getMetrics().activeThreads || 1),
-          totalAuditsProcessed: this.totalAuditsProcessed
+          totalAuditsProcessed: this.totalAuditsProcessed,
+          engineMode: "native"
         };
       } catch {
         // fallback

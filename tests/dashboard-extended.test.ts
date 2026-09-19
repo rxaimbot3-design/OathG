@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
+import { DistributedRateLimiter } from "../src/security/DistributedRateLimiter.js";
 
 let app: Express;
 
@@ -128,5 +129,27 @@ describe("Dashboard API: Extended Coverage", () => {
   it("requires auth for system restart", async () => {
     const res = await request(app).post("/api/system/restart").send({});
     expect(res.status).toBe(401);
+  });
+
+  it("returns engineMode in cpp engine stats", async () => {
+    const res = await request(app).get("/api/cpp-engine/stats").set("Authorization", `Bearer ${process.env.ADMIN_SECRET}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("engineMode");
+    expect(["native", "worker", "sync"]).toContain(res.body.engineMode);
+  });
+
+  it("returns engineMode in cpp engine scan", async () => {
+    const res = await request(app).post("/api/cpp-engine/scan").set("Authorization", `Bearer ${process.env.ADMIN_SECRET}`).send({ packetId: 1, riskWeight: 1.2 });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("engineMode");
+    expect(["native", "worker", "sync"]).toContain(res.body.engineMode);
+    expect(res.body.engine).toBeDefined();
+  });
+
+  it("distributed rate limiter Lua script applies TTL to counter key", () => {
+    const script = (DistributedRateLimiter as any).LUA_SCRIPT || "";
+    expect(script).toContain("key .. ':counter'");
+    expect(script).toContain("PEXPIRE");
+    expect(script).toContain("window_ms");
   });
 });

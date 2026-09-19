@@ -35,7 +35,38 @@ export interface DistributedRateLimitOptions {
 
 export class DistributedRateLimiter extends EventEmitter {
   private static instance: DistributedRateLimiter;
-  
+  private static readonly LUA_SCRIPT = `
+    local key = KEYS[1]
+    local window_start = tonumber(ARGV[1])
+    local window_ms = tonumber(ARGV[2])
+    local max_requests = tonumber(ARGV[3])
+    local cost = tonumber(ARGV[4])
+    local now = tonumber(ARGV[5])
+    local block_key = key .. ":block"
+    
+    local blocked = redis.call('GET', block_key)
+    if blocked then
+      local ttl = redis.call('TTL', block_key)
+      return {0, 0, now + (ttl * 1000), 0, 1, now + (ttl * 1000)}
+    end
+    
+    redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
+    local current = redis.call('ZCARD', key)
+    
+    if current + cost > max_requests then
+      return {0, max_requests - current, now + window_ms, current + cost, 0, 0}
+    end
+    
+    local seq = redis.call('INCR', key .. ':counter')
+    redis.call('PEXPIRE', key .. ':counter', window_ms)
+    for i = 1, cost do
+      redis.call('ZADD', key, now, now .. ':' .. (seq + i - 1))
+    end
+    redis.call('PEXPIRE', key, window_ms)
+    
+    return {1, max_requests - current - cost, now + window_ms, current + cost, 0, 0}
+  `;
+
   private client: RedisClientType | null = null;
   private clusterClient: RedisClientType | null = null;
   private configs = new Map<string, RateLimitConfig>();
@@ -168,36 +199,7 @@ export class DistributedRateLimiter extends EventEmitter {
     windowStart: number
   ): Promise<RateLimitResult> {
     const redis = this.clusterClient || this.client!;
-    const luaScript = `
-      local key = KEYS[1]
-      local window_start = tonumber(ARGV[1])
-      local window_ms = tonumber(ARGV[2])
-      local max_requests = tonumber(ARGV[3])
-      local cost = tonumber(ARGV[4])
-      local now = tonumber(ARGV[5])
-      local block_key = key .. ":block"
-      
-      local blocked = redis.call('GET', block_key)
-      if blocked then
-        local ttl = redis.call('TTL', block_key)
-        return {0, 0, now + (ttl * 1000), 0, 1, now + (ttl * 1000)}
-      end
-      
-      redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
-      local current = redis.call('ZCARD', key)
-      
-      if current + cost > max_requests then
-        return {0, max_requests - current, now + window_ms, current + cost, 0, 0}
-      end
-      
-      local seq = redis.call('INCR', key .. ':counter')
-      for i = 1, cost do
-        redis.call('ZADD', key, now, now .. ':' .. (seq + i - 1))
-      end
-      redis.call('PEXPIRE', key, window_ms)
-      
-      return {1, max_requests - current - cost, now + window_ms, current + cost, 0, 0}
-    `;
+    const luaScript = DistributedRateLimiter.LUA_SCRIPT;
     
     try {
       const result = await redis.eval(luaScript, {

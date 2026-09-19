@@ -8,6 +8,7 @@ import {
   Server, 
   Zap, 
   CheckCircle2, 
+  XCircle,
   RefreshCw, 
   Play, 
   Activity, 
@@ -15,6 +16,8 @@ import {
   Flame,
   Globe
 } from 'lucide-react';
+
+type ActionMessage = { type: 'success' | 'error' | 'info'; message: string };
 
 export default function TopFiveFeaturesBar() {
   const [raidPrediction, setRaidPrediction] = useState({
@@ -31,7 +34,7 @@ export default function TopFiveFeaturesBar() {
   const [engineStatus, setEngineStatus] = useState<{ mode: string; status: string } | null>(null);
   const [isScanningOAuth, setIsScanningOAuth] = useState(false);
   const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<ActionMessage | null>(null);
 
   const fetchTopStats = async () => {
     try {
@@ -86,11 +89,13 @@ export default function TopFiveFeaturesBar() {
       const res = await apiFetch('/api/snapshots/create', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        setActionMessage('📸 New 1-Click Server Snapshot created successfully!');
+        setActionMessage({ type: 'success', message: '📸 New 1-Click Server Snapshot created successfully!' });
         fetchTopStats();
+      } else {
+        setActionMessage({ type: 'error', message: data.error || 'Failed to create snapshot.' });
       }
     } catch (e) {
-      setActionMessage('Failed to create snapshot.');
+      setActionMessage({ type: 'error', message: 'Failed to create snapshot.' });
     } finally {
       setIsCreatingSnapshot(false);
       setTimeout(() => setActionMessage(null), 4000);
@@ -106,10 +111,12 @@ export default function TopFiveFeaturesBar() {
       });
       const data = await res.json();
       if (data.success) {
-        setActionMessage('✅ Server restored to clean snapshot state!');
+        setActionMessage({ type: 'success', message: '✅ Server restored to clean snapshot state!' });
+      } else {
+        setActionMessage({ type: 'error', message: data.error || 'Restore failed.' });
       }
     } catch (e) {
-      setActionMessage('Restore failed.');
+      setActionMessage({ type: 'error', message: 'Restore failed.' });
     } finally {
       setTimeout(() => setActionMessage(null), 4000);
     }
@@ -121,12 +128,16 @@ export default function TopFiveFeaturesBar() {
       const res = await apiFetch('/api/security/oauth-scan', { method: 'POST' });
       const data = await res.json();
       setOauthStatus(data);
-      const maliciousCount = data?.maliciousCount ?? data?.malicious ?? 0;
-      setActionMessage(maliciousCount > 0
-        ? `🔐 OAuth Audit Complete: ${maliciousCount} Malicious Integration(s) Found.`
-        : '🔐 OAuth Audit Complete: No Malicious Integrations Found.');
+      if (!res.ok || data.success === false) {
+        setActionMessage({ type: 'error', message: data.error || 'OAuth scan failed.' });
+      } else if (data.threatsFound || data.maliciousCount > 0) {
+        const count = data.threatsFound ?? data.maliciousCount ?? 0;
+        setActionMessage({ type: 'error', message: `🔐 OAuth Audit Complete: ${count} Malicious Integration(s) Found.` });
+      } else {
+        setActionMessage({ type: 'success', message: '🔐 OAuth Audit Complete: No Malicious Integrations Found.' });
+      }
     } catch (e) {
-      setActionMessage('OAuth scan failed.');
+      setActionMessage({ type: 'error', message: 'OAuth scan failed.' });
     } finally {
       setIsScanningOAuth(false);
       setTimeout(() => setActionMessage(null), 4000);
@@ -138,12 +149,12 @@ export default function TopFiveFeaturesBar() {
       const res = await apiFetch('/api/enterprise/zero-downtime-restart', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        setActionMessage('🔄 Cluster workers reloaded with Zero Downtime!');
+        setActionMessage({ type: 'success', message: '🔄 Cluster workers reloaded with Zero Downtime!' });
       } else {
-        setActionMessage(data.error || 'Hot restart failed.');
+        setActionMessage({ type: 'error', message: data.error || 'Hot restart failed.' });
       }
     } catch (e) {
-      setActionMessage('Hot restart failed.');
+      setActionMessage({ type: 'error', message: 'Hot restart failed.' });
     } finally {
       setTimeout(() => setActionMessage(null), 4000);
     }
@@ -183,9 +194,17 @@ export default function TopFiveFeaturesBar() {
       </div>
 
       {actionMessage && (
-        <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-bold p-3 rounded-xl flex items-center justify-between animate-fade-in">
-          <span>{actionMessage}</span>
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+        <div className={`p-3 rounded-xl flex items-center justify-between animate-fade-in ${
+          actionMessage.type === 'success'
+            ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+            : actionMessage.type === 'error'
+              ? 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+              : 'bg-zinc-500/10 border border-zinc-500/30 text-zinc-300'
+        }`}>
+          <span className="text-xs font-bold">{actionMessage.message}</span>
+          {actionMessage.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+          {actionMessage.type === 'error' && <XCircle className="w-4 h-4 text-rose-400" />}
+          {actionMessage.type === 'info' && <Activity className="w-4 h-4 text-zinc-400" />}
         </div>
       )}
 
@@ -225,8 +244,10 @@ export default function TopFiveFeaturesBar() {
               <span className="text-[11px] font-black text-emerald-400 uppercase flex items-center gap-1">
                 📸 2. Snapshot & Restore
               </span>
-              <span className="text-[10px] font-extrabold text-zinc-400">
-                {snapshots.length} Saved
+              <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ${
+                snapshots.length > 0 ? 'text-emerald-400 bg-emerald-500/10' : 'text-zinc-400 bg-zinc-500/10'
+              }`}>
+                {snapshots.length > 0 ? `${snapshots.length} Saved` : 'No Snapshot'}
               </span>
             </div>
             <div className="text-xs font-bold text-zinc-200 mb-2">
@@ -242,7 +263,8 @@ export default function TopFiveFeaturesBar() {
               </button>
               <button
                 onClick={handleRestoreLatestSnapshot}
-                className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[10px] font-bold py-1.5 rounded-lg border border-zinc-700 transition-all"
+                disabled={snapshots.length === 0}
+                className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[10px] font-bold py-1.5 rounded-lg border border-zinc-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 ⚡ Restore
               </button>
@@ -250,7 +272,9 @@ export default function TopFiveFeaturesBar() {
           </div>
           <div className="mt-3 pt-2 border-t border-zinc-800/60 text-[10px] text-zinc-400 flex items-center justify-between">
             <span>Channels & Roles Saved</span>
-            <span className="text-emerald-400 font-bold">Protected</span>
+            <span className={`font-bold ${snapshots.length > 0 ? 'text-emerald-400' : 'text-zinc-500'}`}>
+              {snapshots.length > 0 ? 'Protected' : 'Unavailable'}
+            </span>
           </div>
         </div>
 

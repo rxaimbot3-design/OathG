@@ -2,7 +2,7 @@
 nixPkgs = ["nodejs", "ffmpeg", "python3", "build-essential", "pkg-config", "libssl-dev", "ca-certificates", "curl"]
 
 [phases.install]
-cmds = ["npm ci --no-audit --no-fund --legacy-peer-deps || npm install --no-audit --no-fund --legacy-peer-deps"]
+cmds = ["npm ci --no-audit --no-fund --legacy-peer-deps"]
 
 [phases.build]
 cmds = ["npm run build:native && npm run build:worker && npm run build"]
