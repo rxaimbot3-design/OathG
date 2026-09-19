@@ -1359,8 +1359,26 @@ app.get("/api/health/detailed", requireAdminAuth, (req, res) => {
     }
   } catch {}
 
+  const isBotConnected = client?.isReady() || false;
+  const isEngineHealthy = cppMetrics.status === "ACTIVE_MICROSECOND";
+  const isAiHealthy = (() => {
+    try {
+      const { aiServiceMonitor } = require("./src/core/ai-service-monitor");
+      const health = aiServiceMonitor.getHealth();
+      return health.status === "healthy" && health.consecutiveFailures === 0;
+    } catch {
+      return true;
+    }
+  })();
+
+  const healthStatus = isBotConnected && isEngineHealthy && isAiHealthy && last5minErrors < 10
+    ? "healthy"
+    : isBotConnected || isEngineHealthy
+      ? "degraded"
+      : "unhealthy";
+
   const detailedHealth = {
-    status: "healthy",
+    status: healthStatus,
     timestamp: new Date().toISOString(),
     uptime: Math.round(process.uptime()),
     bot: {

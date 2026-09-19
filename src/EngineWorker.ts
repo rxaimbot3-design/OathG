@@ -67,10 +67,11 @@ class EngineWorkerCore {
     const latencyMicros = Number(endTime - startTime) / 1000;
     this.lastLatencyMicros = Math.max(1, Math.round(latencyMicros));
 
+    const score = Math.min(100, riskWeight / 10);
     return {
-      passed: true,
+      passed: score < 50,
       latencyMicros: this.lastLatencyMicros,
-      score: Math.min(100, riskWeight / 10)
+      score
     };
   }
 

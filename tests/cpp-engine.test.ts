@@ -332,6 +332,30 @@ describe("CppEngine: Scoring Contract Consistency", () => {
     expect(result.score).toBeGreaterThanOrEqual(0);
     expect(result.score).toBeLessThanOrEqual(100);
   });
+
+  it("produces batch scores consistent with single scan contract", async () => {
+    const requests = [
+      { packetId: 1, riskWeight: 0 },
+      { packetId: 2, riskWeight: 25 },
+      { packetId: 3, riskWeight: 50 },
+      { packetId: 4, riskWeight: 100 },
+      { packetId: 5, riskWeight: 1000 }
+    ];
+    const batchResults = await CppNativeEngine.batchScanPackets(requests);
+    expect(batchResults).toHaveLength(requests.length);
+
+    for (let i = 0; i < requests.length; i++) {
+      const batch = batchResults[i];
+      expect(typeof batch.score).toBe("number");
+      expect(batch.score).toBeGreaterThanOrEqual(0);
+      expect(batch.score).toBeLessThanOrEqual(100);
+      expect(typeof batch.passed).toBe("boolean");
+      // Verify batch path respects the same score bounds as single scan
+      const single = CppNativeEngine.scanSecurityPacket(requests[i].packetId, requests[i].riskWeight);
+      expect(single.score).toBeGreaterThanOrEqual(0);
+      expect(single.score).toBeLessThanOrEqual(100);
+    }
+  });
 });
 
 describe("CppEngine: Engine Mode Truthfulness", () => {

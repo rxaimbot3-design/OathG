@@ -681,9 +681,13 @@ export class CppNativeEngine {
   }
 
   static async batchScanPackets(requests: ScanRequest[]): Promise<Array<{ passed: boolean; latencyMicros: number; score: number }>> {
-    if (this.engineMode === "native" && nativeInstance && !this.nativeRuntimeFailed) {
+    if (this.engineMode === "native" && (!nativeInstance || this.nativeRuntimeFailed)) {
+      this.engineMode = workerEngine['workerReady'] ? "worker" : "sync";
+    }
+
+    if (this.engineMode === "native" && nativeInstance) {
       try {
-        const payload = requests.map(r => ({ packetId: r.packetId, event: buildScanEvent(r) }));
+        const payload = requests.map(r => ({ packetId: r.packetId, ...buildScanEvent(r) }));
         const result = nativeInstance.scanBatch(payload);
         const arr: Array<{ passed: boolean; latencyMicros: number; score: number }> = [];
         for (let i = 0; i < result.length; i++) {
@@ -697,15 +701,24 @@ export class CppNativeEngine {
         return arr;
       } catch (err) {
         this.nativeRuntimeFailed = true;
-        this.engineMode = "worker";
         nativeInstance = null;
-        console.warn("[ENGINE] Native batch scan failed, falling back to worker:", err instanceof Error ? err.message : String(err));
+        this.engineMode = workerEngine['workerReady'] ? "worker" : "sync";
+        console.warn("[ENGINE] Native batch scan failed, falling back:", err instanceof Error ? err.message : String(err));
       }
     }
+
+    if (this.engineMode === "worker" && !workerEngine['workerReady']) {
+      this.engineMode = "sync";
+    }
+
     return workerEngine.batchScanPackets(requests);
   }
 
   static async batchComputeHashes(requests: HashRequest[]): Promise<Array<{ hash: string; latencyMicros: number }>> {
+    if (this.engineMode === "native" && (!nativeInstance || this.nativeRuntimeFailed)) {
+      this.engineMode = workerEngine['workerReady'] ? "worker" : "sync";
+    }
+
     if (this.engineMode === "native" && nativeInstance) {
       try {
         const arr: Array<{ hash: string; latencyMicros: number }> = [];
@@ -717,10 +730,18 @@ export class CppNativeEngine {
           });
         }
         return arr;
-      } catch {
-        // fallback to worker
+      } catch (err) {
+        this.nativeRuntimeFailed = true;
+        nativeInstance = null;
+        this.engineMode = workerEngine['workerReady'] ? "worker" : "sync";
+        console.warn("[ENGINE] Native batch hash failed, falling back:", err instanceof Error ? err.message : String(err));
       }
     }
+
+    if (this.engineMode === "worker" && !workerEngine['workerReady']) {
+      this.engineMode = "sync";
+    }
+
     return workerEngine.batchComputeHashes(requests);
   }
 
