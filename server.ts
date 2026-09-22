@@ -1367,7 +1367,7 @@ app.get("/api/health/detailed", requireAdminAuth, (req, res) => {
       const health = aiServiceMonitor.getHealth();
       return health.status === "healthy" && health.consecutiveFailures === 0;
     } catch {
-      return true;
+      return false;
     }
   })();
 

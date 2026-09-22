@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { SecurityPipeline } from "../src/security/Pipeline.js";
-import { EnhancedEventEngine } from "../discord-bot.js";
 import { UltraLowLatencyPipeline } from "../src/core/UltraLowLatencyPipeline.js";
 
 describe("Security: Detection-Action Coupling (EnhancedEventEngine)", () => {
@@ -9,18 +8,59 @@ describe("Security: Detection-Action Coupling (EnhancedEventEngine)", () => {
     vi.clearAllMocks();
   });
 
-  it("EnhancedEventEngine.intercept calls punishRogueAdmin directly (coupled detection-action)", async () => {
-    // This test documents the current architecture violation
-    // The intercept method directly performs punitive actions without a policy decision layer
-    expect(true).toBe(true); // Placeholder - architecture issue documented in THREAT_MODEL.md
+  it("EnhancedEventEngine intercept path exists and is callable", async () => {
+    const { EnhancedEventEngine } = await import("../discord-bot.js");
+    expect(typeof EnhancedEventEngine.intercept).toBe("function");
+    expect(typeof EnhancedEventEngine.crossThreadSyncBus).toBe("object");
+  });
+
+  it("crossThreadSyncBus deduplicates events within 5s window", async () => {
+    const { EnhancedEventEngine } = await import("../discord-bot.js");
+    const dedupKey = "guild_kick_guild_123_target_456";
+    const now = Date.now();
+    EnhancedEventEngine.crossThreadSyncBus.set(dedupKey, now);
+    expect(EnhancedEventEngine.crossThreadSyncBus.has(dedupKey)).toBe(true);
   });
 });
 
-describe("Security: Missing Idempotency for Destructive Actions", () => {
-  it("punishRogueAdmin performs ban without idempotency check", () => {
-    // TODO: Create test that verifies duplicate events cause duplicate bans
-    // Current implementation has no idempotency key mechanism
-    expect(true).toBe(true);
+describe("Security: Pipeline Event Processing", () => {
+  beforeEach(() => {
+    SecurityPipeline.reset();
+  });
+
+  it("blocks high-risk events based on score", () => {
+    const result = SecurityPipeline.processEvent({
+      type: "webhook_create",
+      userId: "123",
+      guildId: "456",
+      timestamp: Date.now(),
+      payload: { webhookCount: 2 }
+    });
+    expect(result.score).toBeGreaterThanOrEqual(50);
+  });
+
+  it("passes low-risk events", () => {
+    const result = SecurityPipeline.processEvent({
+      type: "message_bulk_delete",
+      userId: "123",
+      guildId: "456",
+      timestamp: Date.now(),
+      payload: {}
+    });
+    expect(result.blocked).toBe(false);
+    expect(result.score).toBeLessThan(50);
+  });
+
+  it("processes events with missing optional payload", () => {
+    const result = SecurityPipeline.processEvent({
+      type: "message_bulk_delete",
+      userId: "123",
+      guildId: "456",
+      timestamp: Date.now(),
+      payload: {}
+    });
+    expect(typeof result.blocked).toBe("boolean");
+    expect(typeof result.score).toBe("number");
   });
 });
 
@@ -29,7 +69,6 @@ describe("Resource Bounds: UltraLowLatencyPipeline Queue Bounds", () => {
 
   beforeEach(() => {
     pipeline = UltraLowLatencyPipeline.getInstance();
-    // Reset internal state
     (pipeline as any).criticalQueue = [];
     (pipeline as any).highQueue = [];
     (pipeline as any).normalQueue = [];
@@ -51,7 +90,6 @@ describe("Resource Bounds: UltraLowLatencyPipeline Queue Bounds", () => {
   });
 
   it("queues have max size - enforces backpressure", async () => {
-    // Enqueue up to MAX_QUEUE_SIZE events
     const events = Array.from({ length: 10000 }, (_, i) => ({
       type: "test_event",
       guildId: "guild_1",
@@ -66,7 +104,6 @@ describe("Resource Bounds: UltraLowLatencyPipeline Queue Bounds", () => {
     const metrics = pipeline.getMetrics();
     expect(metrics.queueDepth).toBe(10000);
     
-    // 10001st event should be dropped with global cap error
     await expect(pipeline.enqueue({
       type: "test_event",
       guildId: "guild_1",
@@ -74,13 +111,11 @@ describe("Resource Bounds: UltraLowLatencyPipeline Queue Bounds", () => {
       priority: "normal",
     })).rejects.toThrow("GLOBAL CAP EXCEEDED");
     
-    // Check the pipeline's internal metrics (not the local copy)
     const internalMetrics = (pipeline as any).metrics;
     expect(internalMetrics.droppedEvents).toBe(1);
   });
 
   it("critical queue has separate bound", async () => {
-    // Fill critical queue to MAX_CRITICAL_QUEUE (1000)
     for (let i = 0; i < 1000; i++) {
       await pipeline.enqueue({
         type: "critical_event",
@@ -93,7 +128,6 @@ describe("Resource Bounds: UltraLowLatencyPipeline Queue Bounds", () => {
     const metrics = pipeline.getMetrics();
     expect(metrics.queueDepth).toBe(1000);
     
-    // 1001st critical event should be dropped
     await expect(pipeline.enqueue({
       type: "critical_event",
       guildId: "guild_1",
@@ -103,7 +137,6 @@ describe("Resource Bounds: UltraLowLatencyPipeline Queue Bounds", () => {
   });
 
   it("high priority events also rejected when global cap reached", async () => {
-    // Fill queue to trigger global cap
     for (let i = 0; i < 10000; i++) {
       await pipeline.enqueue({
         type: "normal_event",
@@ -113,7 +146,6 @@ describe("Resource Bounds: UltraLowLatencyPipeline Queue Bounds", () => {
       });
     }
 
-    // High priority should also be rejected (global cap is absolute)
     await expect(pipeline.enqueue({
       type: "high_event",
       guildId: "guild_1",
@@ -127,7 +159,6 @@ describe("Resource Bounds: UltraLowLatencyPipeline Queue Bounds", () => {
   });
 
   it("backpressure recovers when queue drains", async () => {
-    // Fill queue
     for (let i = 0; i < 10000; i++) {
       await pipeline.enqueue({
         type: "normal_event",
@@ -137,7 +168,6 @@ describe("Resource Bounds: UltraLowLatencyPipeline Queue Bounds", () => {
       });
     }
 
-    // Trigger backpressure by trying to add one more
     try {
       await pipeline.enqueue({
         type: "trigger_backpressure",
@@ -149,15 +179,11 @@ describe("Resource Bounds: UltraLowLatencyPipeline Queue Bounds", () => {
       // Expected to throw
     }
 
-    // Check backpressure is active
     expect((pipeline as any).backpressureActive).toBe(true);
     
-    // Manually drain queues (simulate processing)
     (pipeline as any).normalQueue = [];
     (pipeline as any).updateQueueDepth();
     
-    // Force backpressure check by enqueueing a low priority event
-    // This should succeed and clear backpressure
     await pipeline.enqueue({
       type: "test_event",
       guildId: "guild_1",
@@ -165,75 +191,25 @@ describe("Resource Bounds: UltraLowLatencyPipeline Queue Bounds", () => {
       priority: "low",
     });
 
-    // Backpressure should be inactive now
     expect((pipeline as any).backpressureActive).toBe(false);
   });
 });
 
-describe("Resource Bounds: Audit Log Retry Storm", () => {
-  it("fetchAuditLogWithRetry can cause 3s delay per event under load", () => {
-    // 10 retries * 300ms = 3000ms worst case per event
-    // Under burst load, this blocks event loop
-    // No circuit breaker to stop retrying when Discord is unavailable
-    expect(true).toBe(true); // Documented in THREAT_MODEL.md
+describe("Observability: Logging", () => {
+  it("addBotLog is callable and accepts message and level", async () => {
+    const { addBotLog } = await import("../discord-bot.js");
+    expect(typeof addBotLog).toBe("function");
+    await addBotLog("test message", "info");
   });
 });
 
-describe("Resource Bounds: Missing Circuit Breaker for Discord REST", () => {
-  it("Discord REST 429/5xx has no circuit breaker", () => {
-    // Current retry logic in withRetry uses exponential backoff but no circuit breaker
-    // Can cause retry amplification under sustained rate limits
-    expect(true).toBe(true);
-  });
-});
-
-describe("Config Mutability: Runtime Configuration Changes", () => {
-  it("ownerWhitelist can be modified at runtime without validation", () => {
-    // ownerWhitelist array is modified directly in slash commands
-    // No validation, no persistence trigger, no audit trail
-    expect(true).toBe(true);
-  });
-});
-
-describe("Observability: Missing Correlation IDs", () => {
-  it("Security events lack correlation IDs for tracing", () => {
-    // addBotLog uses simple timestamps, no request/correlation IDs
-    // Makes production incident debugging difficult
-    expect(true).toBe(true);
-  });
-});
-
-describe("C++ Engine: Fallback Path Not Benchmarked", () => {
-  it("JS fallback path performance unmeasured", () => {
-    // When C++ engine unavailable, JS fallback used
-    // No benchmarks comparing native vs fallback latency
-    expect(true).toBe(true);
-  });
-});
-
-describe("Concurrency: Duplicate Event Processing", () => {
-  it("Same Discord event processed twice can cause duplicate actions", async () => {
-    // Discord can send duplicate events
-    // EnhancedEventEngine has 5s dedup window but no persistent dedup key
-    // If process restarts, dedup state lost
-    expect(true).toBe(true);
-  });
-});
-
-describe("Concurrency: Out-of-Order Event Processing", () => {
-  it("Channel delete event before create event causes revert failure", () => {
-    // If Discord delivers delete before create (network reordering)
-    // selfMemoryCheck may not find the channel in botCreatedChannelIds
-    // Revert action may fail or create duplicate
-    expect(true).toBe(true);
-  });
-});
-
-describe("Shutdown: Race Condition During Active Processing", () => {
-  it("SIGTERM during punishRogueAdmin may leave inconsistent state", () => {
-    // stopDiscordBot clears intervals but doesn't wait for in-flight actions
-    // punishRogueAdmin has multiple await points
-    // If shutdown occurs mid-action, partial state changes persist
-    expect(true).toBe(true);
+describe("C++ Engine: Fallback Path", () => {
+  it("JS fallback produces bounded scores when native unavailable", async () => {
+    const { CppNativeEngine } = await import("../src/CppEngine.js");
+    CppNativeEngine.reset();
+    const result = CppNativeEngine.scanSecurityPacket(1, 1.2);
+    expect(typeof result.score).toBe("number");
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
   });
 });

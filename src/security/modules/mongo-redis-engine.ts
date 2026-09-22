@@ -42,6 +42,7 @@ export class MongoRedisEngine {
   private circuitBreakerThreshold = 5;
   private circuitBreakerResetMs = 30000;
   private lastCircuitOpenTime = 0;
+  private mongoConnected = false;
   // Process ID for distributed lock identification
   private readonly processId = `${process.pid}-${Date.now()}-${crypto.randomUUID().split("-")[0]}`;
   // Local locks map for cross-process coordination (in-memory fallback)
@@ -308,7 +309,7 @@ export class MongoRedisEngine {
   }
 
   get isMongoConnected(): boolean {
-    return !!(process.env.MONGODB_URI || process.env.MONGO_URL);
+    return this.mongoConnected;
   }
 
   async set(key: string, val: any, ttlSec?: number): Promise<void> {
@@ -566,9 +567,9 @@ export class MongoRedisEngine {
       for (const [key, entry] of Object.entries(cacheData)) {
         // Preserve original expiration timestamp if present
         if (entry.exp && entry.exp > Date.now()) {
-          this.realCacheMap.setWithExpiry(key, entry, entry.exp);
+          this.realCacheMap.setWithExpiry(key, entry.val, entry.exp);
         } else {
-          this.realCacheMap.set(key, entry);
+          this.realCacheMap.set(key, entry.val);
         }
         restoredKeys++;
       }
