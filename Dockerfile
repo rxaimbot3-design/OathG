@@ -5,7 +5,7 @@
 # =============================================================================
 
 # Stage 1: Builder
-FROM node:20-bookworm-slim AS builder
+FROM node:22-bookworm-slim AS builder
 
 LABEL maintainer="Enterprise Bot Team"
 LABEL description="Enterprise Discord AI Bot - Zero Trust Security Dashboard"
@@ -41,7 +41,7 @@ RUN npm run build:worker
 RUN npm run build
 
 # Stage 2: Production
-FROM node:20-bookworm-slim AS production
+FROM node:22-bookworm-slim AS production
 
 LABEL maintainer="Enterprise Bot Team"
 LABEL description="Enterprise Discord AI Bot - Production Runtime"
