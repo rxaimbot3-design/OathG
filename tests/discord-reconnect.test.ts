@@ -48,7 +48,7 @@ describe("Chaos Test: Discord Reconnect Under Attack", () => {
     await engine.intercept("Channel Deletion", mockGuild, "channel_2", 12, () => false, async () => {});
     
     // The cross-thread sync bus should handle deduplication
-    expect(true).toBe(true);
+    expect(EnhancedEventEngine.crossThreadSyncBus.size).toBeGreaterThanOrEqual(2);
   }, 10000);
 
   it("maintains security state across reconnects", async () => {

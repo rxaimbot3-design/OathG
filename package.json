@@ -10,9 +10,8 @@
   "scripts": {
     "dev": "cross-env NODE_ENV=development UV_THREADPOOL_SIZE=128 tsx server.ts",
     "build:worker": "npx esbuild src/EngineWorker.ts --bundle --platform=node --format=cjs --packages=external --outfile=server-build/EngineWorker.cjs",
-    "build:native": "node-gyp rebuild 2>&1 || echo '⚠️ Native build failed, continuing with worker/sync fallback...'",
+    "build:native": "node-gyp rebuild",
     "build": "npm run build:native && npm run build:worker && cross-env NODE_OPTIONS=--max-old-space-size=450 npx vite build && cross-env NODE_OPTIONS=--max-old-space-size=450 npx esbuild server.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=server-build/server.mjs",
-    "start": "cross-env NODE_ENV=production node server-build/server.mjs",
     "clean": "rm -rf dist server-build server.js",
     "lint": "tsc --noEmit",
     "test": "NODE_OPTIONS=--expose-gc vitest run",
@@ -31,6 +30,7 @@
     "security:scan": "npm audit --audit-level=high"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.14.0",
     "@types/supertest": "^6.0.3",
     "@typescript-eslint/eslint-plugin": "^8.70.1",
@@ -39,6 +39,7 @@
     "eslint": "^10.11.0",
     "supertest": "^6.3.4",
     "typescript": "^7.0.2",
+    "typescript-eslint": "^8.70.1",
     "vitest": "^3.2.7"
   },
   "dependencies": {

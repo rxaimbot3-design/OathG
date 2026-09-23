@@ -261,7 +261,7 @@ export const userViolations = new TtlMap<string, { count: number, timestamp: num
 export let presenceRotatorInterval: NodeJS.Timeout | null = null;
 
 // Track in-flight operations for graceful shutdown
-const inFlightOperations = new Set<Promise<any>>();
+export const inFlightOperations = new Set<Promise<any>>();
 
 export function trackOperation(promise: Promise<any>): Promise<any> {
   inFlightOperations.add(promise);

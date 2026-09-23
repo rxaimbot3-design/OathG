@@ -267,7 +267,7 @@ describe("Reliability: Data Integrity", () => {
 
 describe("Reliability: Shutdown Drain", () => {
   it("waitForInFlightOperations drains pending operations", async () => {
-    const { waitForInFlightOperations, trackOperation } = await import("../discord-bot.js");
+    const { waitForInFlightOperations, trackOperation, inFlightOperations } = await import("../discord-bot.js");
     
     let completed = 0;
     const operation = async () => {
@@ -290,6 +290,6 @@ describe("Reliability: Shutdown Drain", () => {
     await drainPromise;
     
     // Should complete without timeout
-    expect(true).toBe(true);
+    expect(inFlightOperations.size).toBe(0);
   });
 });
