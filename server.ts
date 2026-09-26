@@ -181,7 +181,7 @@ export function logAdminAuditAction(action: string, req: express.Request, detail
     timestamp: new Date().toISOString(),
     action,
     actorIp,
-    details,
+    details: redactSecretsFromValue(details) as Record<string, unknown>,
     source: "admin_api"
   };
   auditLogQueue.enqueue(record);
@@ -200,6 +200,39 @@ export function redactSecrets(text: string): string {
     .replace(/(AIzaSy[a-zA-Z0-9_-]{33})/g, "AIzaSy***REDACTED***")
     .replace(/((?:Bot\s+)?M[A-Za-z0-9_-]{23,28}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,38})/g, "[DISCORD_TOKEN_REDACTED]")
     .replace(/("adminKey"|"password"|"secret"|"admin_key")\s*:\s*"[^"]+"/gi, '$1:"***REDACTED***"');
+}
+
+export function redactSecretsFromValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return redactSecrets(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(redactSecretsFromValue);
+  }
+  if (value && typeof value === "object") {
+    const sanitized: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value)) {
+      if (typeof val === "string") {
+        // Also redact common key names even if the value isn't a known pattern
+        const lowerKey = key.toLowerCase();
+        if (
+          lowerKey.includes("token") ||
+          lowerKey.includes("secret") ||
+          lowerKey.includes("password") ||
+          lowerKey.includes("key") ||
+          lowerKey.includes("credential")
+        ) {
+          sanitized[key] = "***REDACTED***";
+        } else {
+          sanitized[key] = redactSecrets(val);
+        }
+      } else {
+        sanitized[key] = redactSecretsFromValue(val);
+      }
+    }
+    return sanitized;
+  }
+  return value;
 }
 
 // Structured Logging Utility
@@ -1814,8 +1847,12 @@ app.post("/api/enterprise/zero-downtime-restart", requireAdminAuth, heavyOpRateL
 });
 
 app.post("/api/enterprise/hot-reload", requireAdminAuth, heavyOpRateLimit, async (req, res) => {
-  logAdminAuditAction("HOT_RELOAD_MODULES", req, req.body);
   const { moduleName } = req.body || {};
+  const validation = validateInput({ moduleName: { type: "string", maxLength: 100, pattern: "^[a-zA-Z0-9_]+$" } }, req.body);
+  if (!validation.valid) {
+    return res.status(400).json({ success: false, error: validation.errors.join(", ") });
+  }
+  logAdminAuditAction("HOT_RELOAD_MODULES", req, { moduleName: moduleName || "all" });
   const startTime = Date.now();
   
   try {
@@ -2224,8 +2261,12 @@ app.get("/api/security/ultra-stats", requireAdminAuth, async (req, res) => {
 });
 
 app.post("/api/security/rotate-token", requireAdminAuth, heavyOpRateLimit, async (req, res) => {
-  logAdminAuditAction("ROTATE_BOT_TOKEN", req);
   const { newToken } = req.body || {};
+  const validation = validateInput({ newToken: { type: "string", minLength: 20, maxLength: 200 } }, req.body);
+  if (!validation.valid) {
+    return res.status(400).json({ success: false, error: validation.errors.join(", ") });
+  }
+  logAdminAuditAction("ROTATE_BOT_TOKEN", req);
   const tokenToUse = newToken || process.env.DISCORD_BOT_TOKEN;
   if (!tokenToUse) {
     return res.status(400).json({ success: false, error: "No token provided for rotation." });
@@ -2473,7 +2514,7 @@ app.post("/api/premium/activate", requireAdminAuth, async (req, res) => {
   try {
     const valid = await PremiumLicenseSystem.validateLicenseRemote(licenseKey || "");
     if (valid) {
-      addBotLog(`Premium License Activated: ${licenseKey}`, "success");
+      addBotLog(`Premium License Activated: ${redactSecrets(licenseKey || "")}`, "success");
       return res.json({ success: true, message: "Premium Enterprise License activated successfully!" });
     }
   } catch (err: any) {

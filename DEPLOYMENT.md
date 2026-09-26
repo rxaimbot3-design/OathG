@@ -418,12 +418,23 @@ pm2 scale discord-bot 4
 
 For production deployments with multiple app instances, consider using Redis Cluster or Redis Sentinel for high availability.
 
+**Critical:** When running multiple instances, ensure all security-critical state is backed by Redis rather than in-memory `TtlMap`. The following modules already support Redis persistence:
+- `RateLimiter` - enable with `redisEnabled: true`
+- `RedisRateLimiter` - distributed rate limiting via Redis Lua scripts
+- `RedisPersistence` - unified Redis access layer
+
+For modules that still use in-memory `TtlMap` (e.g., `TtlMap` in security modules), each instance maintains independent state. In multi-instance deployments, this can lead to inconsistent enforcement. Plan to migrate critical state to Redis-backed storage for full horizontal scaling.
+
 ### Database
 
 MongoDB can be scaled with:
 - Replica sets for read scaling
 - Sharding for large datasets
 - Connection pooling
+
+### Instance Limits
+
+Single-instance deployments are tested for approximately 50–100 Discord guilds. For 500+ guilds, use multiple instances with shared Redis and MongoDB. Monitor CPU and memory usage, and add auto-scaling rules based on queue depth and event throughput.
 
 ## Security Considerations
 

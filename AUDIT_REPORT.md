@@ -39,6 +39,7 @@ This audit covers the Discord security platform codebase. The system has been si
 13. **Server: AES-256-GCM encryption** - Added for config files
 14. **discord-bot: HMAC whitelist** - Added integrity protection for whitelist_data.json
 15. **import.meta warnings** - Changed esbuild format from CJS to ESM
+16. **Server: Secrets in audit logs** - Added recursive `redactSecretsFromValue()` to sanitize `details` before writing to `admin_audit.json` and bot logs. Fixed `HOT_RELOAD_MODULES` to no longer write raw `req.body` to audit records. Redacted `licenseKey` in premium activation logs.
 
 ### High (Fixed)
 1. **C++ Engine: Deprecated OpenSSL calls** - Replaced `OpenSSL_add_all_digests`
@@ -57,6 +58,7 @@ This audit covers the Discord security platform codebase. The system has been si
 2. **CI Pipeline**: Added `native-build` job with artifact upload
 3. **Test Infrastructure**: Added `tests/discord-simulation/` for raid simulations
 4. **Documentation**: Added `DISCORD_STRESS_TEST_PROOF.md` with attack scenarios
+5. **Dependency Management**: Added Dependabot config (`.github/dependabot.yml`) for weekly npm and GitHub Actions updates
 
 ## Production Readiness
 
@@ -77,6 +79,7 @@ This audit covers the Discord security platform codebase. The system has been si
 3. **File I/O**: `admin_audit.json` written per action. High-scale deployments should batch writes.
 4. **Benchmark scope**: C++ numbers are isolated engine throughput, not end-to-end Discord bot throughput.
 5. **Real Discord testing**: Current tests use simulated events. Production testing on real Discord servers is recommended before sale.
+6. **Dev dependency CVE (moderate)**: `@vitest/mocker` (GHSA-82fw-gwwq-j7x9) path traversal vulnerability affects test tooling only. Remediation: upgrade to `vitest@5.x` (breaking change, planned for next major version). Production code is not affected.
 
 ## Recommendations
 

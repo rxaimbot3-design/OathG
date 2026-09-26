@@ -1,5 +1,19 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { scanForSecrets, validateInput, hashToken } from "../src/security.js";
+
+let redactSecretsFromValue: (value: unknown) => unknown;
+
+beforeEach(async () => {
+  process.env.NODE_ENV = "test";
+  process.env.ADMIN_SECRET = "test_admin_secret_12345678901234567890123456789012";
+  process.env.DISCORD_BOT_TOKEN = "test_discord_token";
+  process.env.GEMINI_API_KEY = "test_gemini_key";
+  process.env.DISCORD_OWNER_ID = "123456789";
+
+  vi.resetModules();
+  const server = await import("../server.js");
+  redactSecretsFromValue = server.redactSecretsFromValue;
+});
 
 describe("Security Utilities", () => {
   describe("scanForSecrets", () => {
@@ -84,6 +98,40 @@ describe("Security Utilities", () => {
         { name: "test" }
       );
       expect(result.valid).toBe(true);
+    });
+  });
+
+  describe("redactSecretsFromValue", () => {
+    it("should redact Discord bot tokens in strings", () => {
+      const result = redactSecretsFromValue("token=MTA5ODQ2ODk3MjQ2NjQ2NjY2.abc123.abcdefghijklmnopqrstuvwxyz1234567890");
+      expect(result).not.toContain("MTA5ODQ2ODk3MjQ2NjQ2NjY2");
+      expect(String(result)).toContain("[DISCORD_TOKEN_REDACTED]");
+    });
+
+    it("should redact known secret keys in objects", () => {
+      const input = { token: "secret-token-value", username: "admin" };
+      const result = redactSecretsFromValue(input) as Record<string, unknown>;
+      expect(result.token).toBe("***REDACTED***");
+      expect(result.username).toBe("admin");
+    });
+
+    it("should recursively redact nested objects", () => {
+      const input = {
+        config: {
+          password: "super-secret",
+          host: "localhost"
+        }
+      };
+      const result = redactSecretsFromValue(input) as Record<string, unknown>;
+      expect((result.config as Record<string, unknown>).password).toBe("***REDACTED***");
+      expect((result.config as Record<string, unknown>).host).toBe("localhost");
+    });
+
+    it("should pass through non-sensitive values unchanged", () => {
+      const input = { moduleName: "SecurityFeatures", count: 42 };
+      const result = redactSecretsFromValue(input) as Record<string, unknown>;
+      expect(result.moduleName).toBe("SecurityFeatures");
+      expect(result.count).toBe(42);
     });
   });
 });

@@ -84,7 +84,7 @@ export function scanForSecrets(content: string): string[] {
   return findings;
 }
 
-export function validateInput(schema: Record<string, { required?: boolean; type?: string; minLength?: number; maxLength?: number }>, body: any): { valid: boolean; errors: string[] } {
+export function validateInput(schema: Record<string, { required?: boolean; type?: string; minLength?: number; maxLength?: number; pattern?: string }>, body: any): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
   for (const [field, rules] of Object.entries(schema)) {
     const value = body?.[field];
@@ -102,6 +102,9 @@ export function validateInput(schema: Record<string, { required?: boolean; type?
       }
       if (rules.maxLength && strVal.length > rules.maxLength) {
         errors.push(`${field} must be at most ${rules.maxLength} characters`);
+      }
+      if (rules.pattern && !new RegExp(rules.pattern).test(strVal)) {
+        errors.push(`${field} has invalid format`);
       }
     }
   }
